@@ -254,7 +254,7 @@ local function createLoaderContent(parent)
     title.AnchorPoint = Vector2.new(0.5, 0.5)
     title.BackgroundTransparency = 1
     title.Position = UDim2.fromScale(0.5, 0.36)
-    title.Size = UDim2.fromOffset(460, 64)
+    title.Size = UDim2.fromOffset(460, 84)
     title.Parent = container
 
     local titleScale = Instance.new("UIScale")
@@ -264,7 +264,7 @@ local function createLoaderContent(parent)
     local titleLayout = Instance.new("UIListLayout")
     titleLayout.FillDirection = Enum.FillDirection.Horizontal
     titleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    titleLayout.Padding = UDim.new(0, 6)
+    titleLayout.Padding = UDim.new(0, 0)
     titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
     titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
     titleLayout.Parent = title
@@ -277,7 +277,7 @@ local function createLoaderContent(parent)
         slot.Name = "LetterSlot" .. index
         slot.BackgroundTransparency = 1
         slot.LayoutOrder = index
-        slot.Size = UDim2.fromOffset(character == " " and 12 or 34, 60)
+        slot.Size = UDim2.fromOffset(character == "I" and 26 or 40, 76) -- I is narrow; a full slot leaves a gap around it
         slot.Parent = title
 
         if character ~= " " then
@@ -290,7 +290,7 @@ local function createLoaderContent(parent)
             letter.Size = UDim2.fromScale(1, 1)
             letter.Text = character
             letter.TextColor3 = Color3.fromRGB(255, 255, 255) -- UIGradient multiplies this, so white lets the gradient set the color
-            letter.TextSize = 38
+            letter.TextSize = 54
             letter.TextTransparency = 1
             letter.Parent = slot
 
