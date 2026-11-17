@@ -4,7 +4,7 @@
 
 <h3>peridot</h3>
 
-Welcome to the peridot hub.
+Welcome welcome in.
 
 All projects here are now deprecated and archived. It is not maintained.
 
