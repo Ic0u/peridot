@@ -505,6 +505,8 @@ end
 function Library:CreateWindow(Setting)
     local TitleNameMain = Setting.Title or "Peridot"
     getgenv().MainDesc = Setting.Desc or Setting.Subtitle or ""
+    local SidebarTitle = Setting.SidebarTitle or TitleNameMain -- header above the tab list (the game name)
+    local SettingsPageName = Setting.SettingsPage or "Settings" -- page the title-bar gear opens
     
     if Setting.Image then
         getgenv().UIColor["Logo Image"] = Setting.Image
@@ -626,8 +628,8 @@ function Library:CreateWindow(Setting)
 	TextLabelMain.Parent = TopMain
 	TextLabelMain.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
 	TextLabelMain.BackgroundTransparency = 1.000
-	TextLabelMain.Position = UDim2.new(0, 220, 0, 0)
-	TextLabelMain.Size = UDim2.new(1, -35, 1, 0)
+	TextLabelMain.Position = UDim2.new(0, 35, 0, 0) -- top-left, right after the logo
+	TextLabelMain.Size = UDim2.new(1, -70, 1, 0) -- leaves room for the gear on the right
 	TextLabelMain.Font = Enum.Font.GothamBold
 	TextLabelMain.RichText = true
 	TextLabelMain.TextSize = 16.000
@@ -640,6 +642,38 @@ function Library:CreateWindow(Setting)
 	local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
 	local color = colorR .. ',' .. colorG .. ',' .. colorB
     TextLabelMain.Text = "<font color=\"rgb(" .. tostring(color or "140,172,68") .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
+
+	-- Settings gear, top right: opens the SettingsPageName page. Hidden until that page is added.
+	local SettingsGear = Instance.new("ImageButton")
+	SettingsGear.Name = "SettingsGear"
+	SettingsGear.Parent = TopMain
+	SettingsGear.AnchorPoint = Vector2.new(1, 0.5)
+	SettingsGear.Position = UDim2.new(1, -8, 0.5, 0)
+	SettingsGear.Size = UDim2.new(0, 20, 0, 20)
+	SettingsGear.BackgroundTransparency = 1
+	SettingsGear.AutoButtonColor = false
+	SettingsGear.Image = "rbxassetid://7397332215"
+	SettingsGear.ImageColor3 = getgenv().UIColor["Setting Icon Color"]
+	SettingsGear.ZIndex = 2
+	SettingsGear.Visible = false
+	SettingsGear.MouseEnter:Connect(function()
+		TweenService:Create(SettingsGear, TI("Tween Animation 3 Speed"), {
+			ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]
+		}):Play()
+	end)
+	SettingsGear.MouseLeave:Connect(function()
+		TweenService:Create(SettingsGear, TI("Tween Animation 3 Speed"), {
+			ImageColor3 = getgenv().UIColor["Setting Icon Color"]
+		}):Play()
+	end)
+	SettingsGear.MouseButton1Click:Connect(function()
+		if Library_Function.OpenSettingsPage then
+			Library_Function.OpenSettingsPage()
+		end
+		TweenService:Create(SettingsGear, TI("Tween Animation 1 Speed"), {
+			Rotation = SettingsGear.Rotation + 180
+		}):Play()
+	end)
 
 	PageControl.Name = "Background1"
 	PageControl.Parent = Concacmain
@@ -673,8 +707,8 @@ function Library:CreateWindow(Setting)
 	ControlList.BackgroundTransparency = 1.000
 	ControlList.BorderColor3 = Color3.fromRGB(27, 42, 53)
 	ControlList.BorderSizePixel = 0
-	ControlList.Position = UDim2.new(0, 0, 0, 30)
-	ControlList.Size = UDim2.new(1, -5, 1, -30)
+	ControlList.Position = UDim2.new(0, 0, 0, 58) -- below the game name (0-25) and the search bar (28-53)
+	ControlList.Size = UDim2.new(1, -5, 1, -58)
 	ControlList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
 	ControlList.CanvasSize = UDim2.new(0, 0, 0, 0)
 	ControlList.ScrollBarThickness = 5
@@ -689,11 +723,12 @@ function Library:CreateWindow(Setting)
 	ControlTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
 	ControlTitle.BackgroundTransparency = 1.000
 	ControlTitle.Position = UDim2.new(0, 5, 0, 0)
-	ControlTitle.Size = UDim2.new(1, 0, 0, 25)
+	ControlTitle.Size = UDim2.new(1, -10, 0, 25)
 	ControlTitle.Font = Enum.Font.GothamBold
-	ControlTitle.Text = TitleNameMain
+	ControlTitle.Text = SidebarTitle
 	ControlTitle.TextSize = 14.000
 	ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
+	ControlTitle.TextTruncate = Enum.TextTruncate.AtEnd -- long game names end in "..."
 	ControlTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
 
 	local PageSearch = Instance.new("Frame")
@@ -706,7 +741,7 @@ function Library:CreateWindow(Setting)
 	PageSearch.Parent = PageControl
 	PageSearch.AnchorPoint = Vector2.new(1, 0)
 	PageSearch.BackgroundColor3 = Color3.fromRGB(38, 38, 46)
-	PageSearch.Position = UDim2.new(1, -5, 0, 5)
+	PageSearch.Position = UDim2.new(1, -5, 0, 28) -- under the game name
 	PageSearch.Size = UDim2.new(0, 170, 0, 25)
 	PageSearch.ClipsDescendants = true
 
@@ -739,7 +774,7 @@ function Library:CreateWindow(Setting)
     SearchBox.Size = UDim2.new(1, -30, 1, 0)
     SearchBox.Font = Enum.Font.GothamBold
     SearchBox.PlaceholderColor3 = Color3.fromRGB(170, 170, 160)
-    SearchBox.PlaceholderText = "Search section or Function..."
+    SearchBox.PlaceholderText = "Search functions..." -- fits the 140px box; the longer text got cut off
     SearchBox.Text = ""
     SearchBox.TextColor3 = Color3.fromRGB(235, 235, 230)
     SearchBox.TextSize = 14
@@ -1171,8 +1206,8 @@ function Library:CreateWindow(Setting)
 			end
 		end
 
-		PageButton.MouseButton1Click:Connect(function()
-			if tostring(UIPage.CurrentPage) == PageContainer.Name then 
+		local function selectPage()
+			if tostring(UIPage.CurrentPage) == PageContainer.Name then
 				return
 			end
 
@@ -1198,7 +1233,12 @@ function Library:CreateWindow(Setting)
 					end
 				end
 			end
-		end)
+		end
+		PageButton.MouseButton1Click:Connect(selectPage)
+		if Page_Name == SettingsPageName then
+			Library_Function.OpenSettingsPage = selectPage
+			SettingsGear.Visible = true
+		end
 
 		local pageFunction = {}
 
@@ -3961,9 +4001,14 @@ end
 function Peridot.CreateMain(options)
 	options = options or {}
 	getgenv().HubName = options.Name or getgenv().HubName or "Peridot"
-	-- Top bar reads "<Name> <Desc>"; without a Desc the game name (Title) goes there.
-	local desc = (options.Desc and options.Desc ~= "") and options.Desc or options.Title or ""
-	local window = Library:CreateWindow({ Title = getgenv().HubName, Desc = desc })
+	-- Old layout: "<Name> <Desc>" top-left in the title bar, the game name (Title)
+	-- as the header above the tab list, the gear opening the "Settings" page.
+	local window = Library:CreateWindow({
+		Title = getgenv().HubName,
+		Desc = options.Desc or "",
+		SidebarTitle = options.Title or getgenv().HubName,
+		SettingsPage = options.SettingsPage,
+	})
 
 	if options.FloatingButton == false then
 		Library_Function.HideGui.Enabled = false
@@ -3995,6 +4040,15 @@ function Peridot.CreateNoti(options)
 		Desc = options.Desc or options.Description,
 		Duration = options.ShowTime or options.Duration or 5,
 	}, true)
+end
+
+-- Same as clicking the title-bar gear. Returns false when there is no Settings page.
+function Peridot.OpenSettings()
+	if not Library_Function.OpenSettingsPage then
+		return false
+	end
+	Library_Function.OpenSettingsPage()
+	return true
 end
 
 function Peridot.IsVisible()

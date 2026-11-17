@@ -265,6 +265,7 @@ print(("  registered: %d toggles, %d sliders, %d dropdowns, %d boxes, %d keybind
 	counts.Toggles, counts.Sliders, counts.Dropdowns, counts.Boxes, counts.Keybinds))
 check(counts.Toggles >= 20 and counts.Sliders >= 10, "controls registered for config save")
 check(lib.Internal.Gui.Enabled == true, "window opens on load")
+check(lib.OpenSettings() == true, "gear opens the Settings page")
 check(lib.Internal.Gui.Name == "Peridot GUI" and lib.Internal.NotiGui.Name == "Peridot Notification", "GUI names")
 
 ---------------------------------------------------------------- 2. config round trip
