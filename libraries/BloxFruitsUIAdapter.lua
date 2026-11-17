@@ -145,6 +145,16 @@ function Adapter.Create(uiLibrary, options)
             return wrapSection(page.CreateSection(tostring(sectionName)))
         end
 
+        -- Sub-tab strip inside this tab: tab:SubTab("Bounty Farm"):Section("Run")
+        function tab:SubTab(subName)
+            local sub = page.CreateSubTab(tostring(subName))
+            return {
+                Section = function(_, sectionName)
+                    return wrapSection(sub.CreateSection(tostring(sectionName)))
+                end,
+            }
+        end
+
         return tab
     end
 

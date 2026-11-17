@@ -197,7 +197,7 @@ end
 RUN_SPAWNS = false
 task = {
 	spawn = function(f, ...) if RUN_SPAWNS and type(f) == "function" then f(...) end return P end,
-	delay = function() return P end,
+	delay = function(_, f, ...) if RUN_SPAWNS and type(f) == "function" then f(...) end return P end,
 	defer = function() return P end,
 	wait = function() return 0 end,
 	cancel = function() end,
@@ -265,7 +265,7 @@ print(("  registered: %d toggles, %d sliders, %d dropdowns, %d boxes, %d keybind
 	counts.Toggles, counts.Sliders, counts.Dropdowns, counts.Boxes, counts.Keybinds))
 check(counts.Toggles >= 20 and counts.Sliders >= 10, "controls registered for config save")
 check(lib.Internal.Gui.Enabled == true, "window opens on load")
-check(lib.OpenSettings() == true, "gear opens the Settings page")
+check(lib.ToggleUISettings() == true and lib.ToggleUISettings() == true, "gear opens UI Settings and goes back")
 check(lib.Internal.Gui.Name == "Peridot GUI" and lib.Internal.NotiGui.Name == "Peridot Notification", "GUI names")
 
 ---------------------------------------------------------------- 2. config round trip
@@ -332,14 +332,53 @@ run("SetBackground: failed download reports and keeps the current one", function
 	local ok, err = lib.SetBackground("https://example.com/missing.webm")
 	assert(ok == false and tostring(err):find("download failed"), "got " .. tostring(err))
 end)
-run("Background dropdown lists backgrounds.json and loads the picked file", function()
-	local entry = lib.ControlRegistry.Dropdowns["Settings||Interface||Background"]
-	assert(entry, "dropdown registered")
+run("Background dropdown (UI Settings page) loads the picked file", function()
+	local entry = lib.ControlRegistry.Dropdowns["UI Settings||Background||Background"]
+	assert(entry, "dropdown registered on the UI Settings page")
+	local before = getgenv().UIColor["Background 1 Transparency"]
 	entry.Set("Waves")
 	assert(FILES["Peridot/Backgrounds/waves.webm"] == "webm-bytes", "waves.webm downloaded from assets/backgrounds/")
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4, "panels see-through")
 	entry.Set("None")
-	assert(getgenv().UIColor["Background 1 Transparency"] == 0.1, "panels solid again")
+	assert(getgenv().UIColor["Background 1 Transparency"] == before, "player's transparency restored")
+end)
+
+print("Theme (gear page)")
+run("accent preset recolors the theme and is saved", function()
+	RUN_SPAWNS = true
+	assert(lib.SetAccent("Ruby"))
+	RUN_SPAWNS = false
+	local title = getgenv().UIColor["Title Text Color"]
+	assert(math.floor(title.R * 255 + 0.5) == 220 and math.floor(title.G * 255 + 0.5) == 70, "title color is Ruby")
+	assert(FILES["Peridot/Theme.json"], "Theme.json written")
+	local saved = service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"])
+	assert(saved.Preset == "Ruby" and saved.Accent[1] == 220, "preset + accent saved")
+end)
+run("saved theme is applied on the next load", function()
+	local fresh = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	local title = getgenv().UIColor["Title Text Color"]
+	assert(math.floor(title.R * 255 + 0.5) == 220, "Ruby comes back after reload")
+	RUN_SPAWNS = true
+	assert(fresh.SetAccent(Color3.fromRGB(140, 172, 68)))
+	assert(fresh.SetAccent("Peridot"))
+	RUN_SPAWNS = false
+	assert(not fresh.SetAccent("NoSuchPreset"), "unknown preset rejected")
+end)
+
+print("Sub-tabs")
+run("sub-tabs keep separate config keys and switch", function()
+	local w = lib.CreateMain({ Name = "Peridot", Title = "Test Game" })
+	local page = w.CreatePage({ Page_Name = "Farm", Page_Title = "Farm" })
+	local bounty, lvl = page.CreateSubTab("Bounty Farm"), page.CreateSubTab("Lvl Farm")
+	local got = {}
+	bounty.CreateSection("Run").CreateToggle({ Title = "Run the rotation" }, function(v) got.bounty = v end)
+	lvl.CreateSection("Run").CreateToggle({ Title = "Run the rotation" }, function(v) got.lvl = v end)
+	assert(lib.ControlRegistry.Toggles["Farm/Bounty Farm||Run||Run the rotation"], "bounty key")
+	assert(lib.ControlRegistry.Toggles["Farm/Lvl Farm||Run||Run the rotation"], "lvl key")
+	lvl.Select()
+	bounty.Select()
+	page.CreateSection("Always shown").CreateLabel({ Title = "no sub-tab" })
+	w.UISettings.CreateSection("Extra").CreateToggle({ Title = "x" })
 end)
 run("UIColor writes (Settings page) reach the theme", function()
 	getgenv().UIColor["Background 1 Transparency"] = 0.4
@@ -367,6 +406,9 @@ run("every adapter method", function()
 	section:Textbox("Code", "type", function() end)
 	section:Slider("Distance", true, 0, 50, 10, function() end)
 	section:Slider("Fraction", false, 0, 1, 0.5, function() end)
+	local subSection = window:Tab("Farm"):SubTab("Bounty Farm"):Section("Run")
+	subSection:Toggle("Run the rotation", false, function() end)
+	subSection:Label("Status: off"):Set("Status: on")
 end)
 
 ---------------------------------------------------------------- 5. full Blox Fruits module (optional)
