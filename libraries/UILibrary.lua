@@ -60,7 +60,7 @@ local T1UIColor = {
 	["Border Color"] = Color3.fromRGB(140, 172, 68),
 	["Click Effect Color"] = Color3.fromRGB(230, 230, 230),
 	["Setting Icon Color"] = Color3.fromRGB(230, 230, 230),
-	["Logo Image"] = "rbxassetid://99041243486180",
+	["Logo Image"] = "rbxassetid://80832574371637",
 	["Search Icon Color"] = Color3.fromRGB(240, 240, 230),
 	["Search Icon Highlight Color"] = Color3.fromRGB(140, 172, 68),
 	["GUI Text Color"] = Color3.fromRGB(235, 235, 230),
@@ -326,7 +326,7 @@ Library_Function.HideGui.Name = 'Peridot Btn'
 -- UI toggle button (opens/closes the window): its size is a player option
 -- (Interface Settings > UI Toggle), 38px by default. The texture fills the button
 -- and stays put; only the outline gets a little stronger while the UI is open.
-local ToggleButtonTexture = "rbxassetid://13226369119"
+local ToggleButtonTexture = "rbxassetid://18626735276"
 local ButtonSize = math.clamp(tonumber(SavedTheme.ButtonSize) or 38, 28, 64)
 local function buttonImageSize()
 	return ButtonSize - 4
@@ -351,6 +351,7 @@ btnHideFrame.BackgroundTransparency = 0
 local imgHide = Instance.new('ImageLabel', btnHide)
 imgHide.AnchorPoint = Vector2.new(0, 0)
 imgHide.Image = ToggleButtonTexture
+imgHide.ScaleType = Enum.ScaleType.Crop -- the art is taller than wide; fill the square without stretching
 imgHide.BackgroundTransparency = 1
 imgHide.Size = UDim2.new(0, buttonImageSize(), 0, buttonImageSize())
 imgHide.AnchorPoint = Vector2.new(.5, .5)
@@ -676,6 +677,7 @@ local libCreateNoti = function(Setting)
 	Ruafimg.Position = UDim2.new(0, 5, 0, getgenv().T1 and 5 or 0)
 	Ruafimg.Size = UDim2.new(0, getgenv().T1 and 30 or 25, 0, getgenv().T1 and 15 or 25)
 	Bind(Ruafimg, "Image", "Logo Image")
+	Ruafimg.ScaleType = Enum.ScaleType.Fit -- any logo shape, never stretched
 
 	RuafimgCorner.CornerRadius = UDim.new(1, 0)
 	RuafimgCorner.Name = "RuafimgCorner"
@@ -915,6 +917,7 @@ function Library:CreateWindow(Setting)
 	Ruafimg.Position = UDim2.new(0, 5, 0, 0)
 	Ruafimg.Size = UDim2.new(0, 25, 0, 25)
 	Bind(Ruafimg, "Image", "Logo Image")
+	Ruafimg.ScaleType = Enum.ScaleType.Fit -- any logo shape, never stretched
 
 	TextLabelMain.Name = "TextLabelMain"
 	TextLabelMain.Parent = TopMain
