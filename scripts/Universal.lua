@@ -1242,7 +1242,7 @@ Backgrounds.CreateBox({
     end
 end)
 
--- Unload sits with the other utilities; the menu key and every look option are on the Interface Settings page.
+-- Unload sits with the other utilities; the toggle key and every look option are on the Interface Settings page.
 Utility.CreateButton({ Title = "Unload" }, function()
     if idleConnection then idleConnection:Disconnect() end
     if movementConnection then movementConnection:Disconnect() end
