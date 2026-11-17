@@ -60,7 +60,7 @@ local T1UIColor = {
 	["Border Color"] = Color3.fromRGB(140, 172, 68),
 	["Click Effect Color"] = Color3.fromRGB(230, 230, 230),
 	["Setting Icon Color"] = Color3.fromRGB(230, 230, 230),
-	["Logo Image"] = "rbxassetid://80832574371637",
+	["Logo Image"] = "rbxassetid://97933423096090",
 	["Search Icon Color"] = Color3.fromRGB(240, 240, 230),
 	["Search Icon Highlight Color"] = Color3.fromRGB(140, 172, 68),
 	["GUI Text Color"] = Color3.fromRGB(235, 235, 230),
@@ -99,6 +99,15 @@ local T1UIColor = {
 -- getgenv().UIColor[key] (gear page, scripts) re-applies it to everything on screen.
 local ThemeListeners = {} -- key -> function(value), for values that aren't a plain property (rich text, gradients)
 local ThemeBindings = {} -- key -> { {instance, property}, ... }
+local ThemeFade = false -- while true, color changes crossfade instead of snapping (presets, reset)
+local function FadeTheme(change)
+	ThemeFade = not DisableAnimation
+	local ok, err = pcall(change)
+	ThemeFade = false
+	if not ok then
+		error(err, 0)
+	end
+end
 local function Bind(instance, property, key)
 	local value = T1UIColor[key]
 	instance[property] = value
@@ -119,7 +128,13 @@ getgenv().UIColor = setmetatable({}, {
 			for i = #list, 1, -1 do
 				local binding = list[i]
 				if not pcall(function()
-					binding[1][binding[2]] = value
+					if ThemeFade and typeof(value) == "Color3" then
+						game:GetService("TweenService"):Create(binding[1], TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+							[binding[2]] = value
+						}):Play()
+					else
+						binding[1][binding[2]] = value
+					end
 				end) then
 					table.remove(list, i)
 				end
@@ -326,7 +341,7 @@ Library_Function.HideGui.Name = 'Peridot Btn'
 -- UI toggle button (opens/closes the window): its size is a player option
 -- (Interface Settings > UI Toggle), 38px by default. The texture fills the button
 -- and stays put; only the outline gets a little stronger while the UI is open.
-local ToggleButtonTexture = "rbxassetid://7287221556"
+local ToggleButtonTexture = "rbxassetid://80832574371637"
 local ButtonSize = math.clamp(tonumber(SavedTheme.ButtonSize) or 38, 28, 64)
 local function buttonImageSize()
 	return ButtonSize - 4
@@ -340,7 +355,16 @@ btnHide.AnchorPoint = Vector2.new(0, 1)
 btnHide.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 btnHide.Position = UDim2.new(0, 12, 1, -12)
 
-local btnHideFrame = Instance.new('Frame', btnHide)
+local btnHideHolder = Instance.new('Frame', btnHide)
+btnHideHolder.Name = "Holder"
+btnHideHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+btnHideHolder.Position = UDim2.new(0.5, 0, 0.5, 0)
+btnHideHolder.Size = UDim2.new(1, 0, 1, 0)
+btnHideHolder.BackgroundTransparency = 1
+local btnHidePress = Instance.new("UIScale")
+btnHidePress.Parent = btnHideHolder
+
+local btnHideFrame = Instance.new('Frame', btnHideHolder)
 btnHideFrame.AnchorPoint = Vector2.new(0, 1)
 btnHideFrame.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 btnHideFrame.Position = UDim2.new(0, 0, 1, 0)
@@ -348,10 +372,10 @@ btnHideFrame.Name = "dut dit"
 Bind(btnHideFrame, "BackgroundColor3", "Background Main Color") -- dark, not the old white circle
 btnHideFrame.BackgroundTransparency = 0
 
-local imgHide = Instance.new('ImageLabel', btnHide)
+local imgHide = Instance.new('ImageLabel', btnHideHolder)
 imgHide.AnchorPoint = Vector2.new(0, 0)
 imgHide.Image = ToggleButtonTexture
-imgHide.ScaleType = Enum.ScaleType.Crop -- the art is taller than wide; fill the square without stretching
+imgHide.ScaleType = Enum.ScaleType.Fit -- tall art on a transparent background: show all of it, centered
 imgHide.BackgroundTransparency = 1
 imgHide.Size = UDim2.new(0, buttonImageSize(), 0, buttonImageSize())
 imgHide.AnchorPoint = Vector2.new(.5, .5)
@@ -373,12 +397,61 @@ local imgHideCorner = Instance.new("UICorner")
 imgHideCorner.Parent = imgHide
 imgHideCorner.CornerRadius = UDim.new(0, 8) -- texture follows the rounded frame
 
-Library.ToggleUI = function()
-	getgenv().UIToggled = not Library_Function.Gui.Enabled -- follow the real state: scripts may flip Gui.Enabled directly
-	TweenService:Create(btnHideStroke, TweenInfo.new(DisableAnimation and 0 or .25), {
-		Transparency = getgenv().UIToggled and 0 or .35
+-- Press feedback: a quick squish and a springy release. Pressing is feedback, not hover.
+local function pressToggleButton(down)
+	if DisableAnimation then
+		return
+	end
+	TweenService:Create(btnHidePress, down
+		and TweenInfo.new(.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		or TweenInfo.new(.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = down and .9 or 1
 	}):Play()
-	Library_Function.Gui.Enabled = getgenv().UIToggled
+end
+btnHide.MouseButton1Down:Connect(function()
+	pressToggleButton(true)
+end)
+btnHide.MouseButton1Up:Connect(function()
+	pressToggleButton(false)
+end)
+btnHide.MouseLeave:Connect(function()
+	pressToggleButton(false)
+end)
+
+-- Open/close: the window pops in from 94% and shrinks back out. The logical state
+-- (UIToggled) changes at once; Gui.Enabled follows after the close animation.
+local windowCloseToken = 0
+Library.ToggleUI = function()
+	local opening = not getgenv().UIToggled
+	getgenv().UIToggled = opening
+	TweenService:Create(btnHideStroke, TweenInfo.new(DisableAnimation and 0 or .25), {
+		Transparency = opening and 0 or .35
+	}):Play()
+
+	windowCloseToken = windowCloseToken + 1 -- a reopen cancels a close that is still animating
+	local token = windowCloseToken
+	local scale = Library_Function.WindowScale
+	if opening then
+		Library_Function.Gui.Enabled = true
+		if scale and not DisableAnimation then
+			scale.Scale = .94
+			TweenService:Create(scale, TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Scale = 1
+			}):Play()
+		end
+	elseif scale and not DisableAnimation then
+		TweenService:Create(scale, TweenInfo.new(.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Scale = .94
+		}):Play()
+		task.delay(.14, function()
+			if token == windowCloseToken then
+				Library_Function.Gui.Enabled = false
+				scale.Scale = 1
+			end
+		end)
+	else
+		Library_Function.Gui.Enabled = false
+	end
 end
 
 -- UI toggle button options (Interface Settings > UI Toggle). Both save to Peridot/Theme.json.
@@ -836,6 +909,11 @@ function Library:CreateWindow(Setting)
 
 	makeDraggable(Main, Main)
 
+	local WindowScale = Instance.new("UIScale") -- pop-in / pop-out on open and close
+	WindowScale.Name = "WindowScale"
+	WindowScale.Parent = Main
+	Library_Function.WindowScale = WindowScale
+
 	maingui.Name = "maingui"
 	maingui.Parent = Main
 	maingui.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -970,7 +1048,8 @@ function Library:CreateWindow(Setting)
 		if Library_Function.ToggleUISettings then
 			Library_Function.ToggleUISettings()
 		end
-		TweenService:Create(SettingsGear, TI("Tween Animation 1 Speed"), {
+		TweenService:Create(SettingsGear, DisableAnimation and TweenInfo.new(0)
+			or TweenInfo.new(.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 			Rotation = SettingsGear.Rotation + 180
 		}):Play()
 	end)
@@ -4397,7 +4476,9 @@ end
 			Callback = function(name)
 				for _, preset in ipairs(AccentPresets) do
 					if preset[1] == name then
-						Library_Function.SetAccent(preset[2], name)
+						FadeTheme(function()
+							Library_Function.SetAccent(preset[2], name)
+						end)
 					end
 				end
 			end,
@@ -4561,7 +4642,9 @@ end
 			Title = "Reset theme",
 			ButtonText = "Reset",
 			Callback = function()
-				Library_Function.ResetTheme()
+				FadeTheme(function()
+					Library_Function.ResetTheme()
+				end)
 				Library_Function.OnAccentChanged()
 				accentDropdown:ClearText("Peridot")
 				easingDropdown:ClearText(DefaultTheme["Tween Easing Style"])
@@ -4987,7 +5070,7 @@ function Peridot.CreateMain(options)
 		showButton = Library_Function.DefaultFloatingButton
 	end
 	Library_Function.HideGui.Enabled = showButton
-	if not Library_Function.Gui.Enabled then
+	if not getgenv().UIToggled then
 		Library.ToggleUI() -- BananaLib starts hidden; the old library opened straight away
 	end
 
@@ -5067,7 +5150,7 @@ function Peridot.SetAccent(accent)
 end
 
 function Peridot.IsVisible()
-	return Library_Function.Gui.Enabled
+	return getgenv().UIToggled and true or false
 end
 
 function Peridot.Toggle()
@@ -5075,13 +5158,13 @@ function Peridot.Toggle()
 end
 
 function Peridot.Show()
-	if not Library_Function.Gui.Enabled then
+	if not getgenv().UIToggled then
 		Library.ToggleUI()
 	end
 end
 
 function Peridot.Hide()
-	if Library_Function.Gui.Enabled then
+	if getgenv().UIToggled then
 		Library.ToggleUI()
 	end
 end

@@ -222,9 +222,24 @@ string.split = function(s, sep)
 	return out
 end
 RUN_SPAWNS = false
+DEFER_DELAYS, DELAYED = false, {} -- tests can hold task.delay callbacks and release them later
+function flushDelays()
+	local pending = DELAYED
+	DELAYED = {}
+	for _, f in ipairs(pending) do
+		pcall(f)
+	end
+end
 task = {
 	spawn = function(f, ...) if RUN_SPAWNS and type(f) == "function" then f(...) end return P end,
-	delay = function(_, f, ...) if RUN_SPAWNS and type(f) == "function" then f(...) end return P end,
+	delay = function(_, f, ...)
+		if DEFER_DELAYS and type(f) == "function" then -- held until the test calls flushDelays()
+			table.insert(DELAYED, f)
+		elseif RUN_SPAWNS and type(f) == "function" then
+			f(...)
+		end
+		return P
+	end,
 	defer = function() return P end,
 	wait = function() return 0 end,
 	cancel = function() end,
@@ -502,10 +517,39 @@ run("Reset Icon returns to the main Peridot icon and clears the saved custom one
 	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://123456", "custom icon applied")
 	assert(savedTheme().Logo == "123456", "custom icon saved")
 	assert(ui.SetLogo(""))
-	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://80832574371637", "back to the main icon, got " .. tostring(getgenv().UIColor["Logo Image"]))
+	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://97933423096090", "back to the main icon, got " .. tostring(getgenv().UIColor["Logo Image"]))
 	assert(savedTheme().Logo == nil, "saved custom icon cleared")
 end)
 RUN_SPAWNS = false
+
+print("Animation")
+run("window open/close: state is immediate, Gui.Enabled follows the animation, a quick reopen cancels the close", function()
+	local anim = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	anim.CreateMain({ Name = "Peridot", Title = "Animation Test" })
+	assert(anim.IsVisible() and anim.Internal.Gui.Enabled, "opens on load")
+	DEFER_DELAYS = true
+	anim.Hide()
+	assert(not anim.IsVisible(), "logically closed at once")
+	assert(anim.Internal.Gui.Enabled, "still on screen while the close animates")
+	flushDelays()
+	assert(not anim.Internal.Gui.Enabled, "hidden once the animation is done")
+	anim.Show()
+	assert(anim.IsVisible() and anim.Internal.Gui.Enabled, "shown again")
+	anim.Hide()
+	anim.Show() -- quick close + reopen
+	flushDelays()
+	assert(anim.IsVisible() and anim.Internal.Gui.Enabled, "the stale close did not hide the reopened window")
+	DEFER_DELAYS = false
+end)
+run("accent preset crossfades through the theme without errors", function()
+	assert(lib.ToggleUISettings() and lib.ToggleUISettings())
+	RUN_SPAWNS = true -- saving the theme uses task.delay
+	assert(lib.SetAccent("Mint"))
+	local c = getgenv().UIColor["Title Text Color"]
+	assert(math.floor(c.G * 255 + 0.5) == 200, "Mint accent is set")
+	assert(lib.SetAccent("Peridot"))
+	RUN_SPAWNS = false
+end)
 
 run("accent rainbow: saved while running, frozen + saved when stopped, cleared by a preset", function()
 	local json = service("HttpService")
