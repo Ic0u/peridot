@@ -1086,62 +1086,7 @@ Utility.CreateButton({ Title = "Rejoin Current Server" }, function()
     if not ok then notify("Server", "Teleport was rejected.") end
 end)
 
-local Config = SettingsConfigTab.CreateSection("Config")
-
-local ConfigName = ""
-local ConfigList
-
-local function refresh()
-    local ok, list = pcall(UILibrary.ConfigSystem.List)
-    if ok and type(list) == "table" and ConfigList then
-        ConfigList.GetNewList(list)
-    end
-end
-
-if not UILibrary.HasFileSystem then
-    Config.CreateLabel({ Title = "Executor has no file access - configs disabled" })
-end
-
-Config.CreateBox({
-    Title       = "Config Name",
-    Placeholder = "name",
-    Default     = "",
-}, function(text)
-    ConfigName = text
-end)
-
-ConfigList = Config.CreateDropdown({
-    Title   = "Saved Configs",
-    List    = {},
-    Default = "",
-}, function(value)
-    ConfigName = value
-end)
-
-Config.CreateButton({ Title = "Save" }, function()
-    if ConfigName == "" then return notify("Config", "Enter a name first.") end
-    local ok, err = UILibrary.ConfigSystem.Save(ConfigName)
-    notify("Config", ok and ("Saved " .. ConfigName) or tostring(err))
-    refresh()
-end)
-
-Config.CreateButton({ Title = "Load" }, function()
-    if ConfigName == "" then return notify("Config", "Pick a config first.") end
-    local ok, err = UILibrary.ConfigSystem.Load(ConfigName)
-    notify("Config", ok and ("Loaded " .. ConfigName) or tostring(err))
-end)
-
-Config.CreateButton({ Title = "Delete" }, function()
-    if ConfigName == "" then return notify("Config", "Pick a config first.") end
-    local ok, err = UILibrary.ConfigSystem.Delete(ConfigName)
-    notify("Config", ok and ("Deleted " .. ConfigName) or tostring(err))
-    ConfigName = ""
-    refresh()
-end)
-
-Config.CreateButton({ Title = "Refresh List" }, refresh)
-
-refresh()
+UILibrary.AddConfigSection(SettingsConfigTab)
 
 -- Theme, animation and panel options are on the title-bar gear's Interface Settings page
 -- (built by the library). Backgrounds go there too, as their own section.
@@ -1185,8 +1130,7 @@ Utility.CreateButton({ Title = "Unload" }, function()
 
     ServerState.AutoHop = false
     ServerState.AutoRejoin = false
-    if UILibrary.Internal.Gui then UILibrary.Internal.Gui:Destroy() end
-    if UILibrary.Internal.NotiGui then UILibrary.Internal.NotiGui:Destroy() end
+    UILibrary.Unload()
     getgenv().Tvk = nil
     getgenv().Chon = nil
 end)

@@ -4822,14 +4822,18 @@ function ConfigSystem.List()
 	return names
 end
 
-function ConfigSystem.Save(name)
+local function validName(name)
 	if not name or name == "" then
 		return false, "No config name"
 	end
-	local ready, folderErr = ensureConfigFolder()
-	if not ready then
-		return false, folderErr
+	if tostring(name):find("[/\\]") then
+		return false, "Config names cannot contain slashes"
 	end
+	return true
+end
+
+-- Every saved control value, in the shape a config file holds.
+local function snapshot()
 	local data = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {} }
 	for kind, entries in pairs(ControlRegistry) do
 		for key, entry in pairs(entries) do
@@ -4839,26 +4843,10 @@ function ConfigSystem.Save(name)
 			end
 		end
 	end
-	return pcall(writefile, configPath(name), HttpService:JSONEncode(data))
+	return data
 end
 
-function ConfigSystem.Load(name)
-	if not name or name == "" then
-		return false, "No config name"
-	end
-	local ready, folderErr = ensureConfigFolder()
-	if not ready then
-		return false, folderErr
-	end
-	if not isfile(configPath(name)) then
-		return false, "Config not found"
-	end
-	local decoded, data = pcall(function()
-		return HttpService:JSONDecode(readfile(configPath(name)))
-	end)
-	if not decoded or type(data) ~= "table" then
-		return false, "Invalid config data"
-	end
+local function applyData(data)
 	-- Configs saved by the old library also carry a UITheme block. It is skipped
 	-- on purpose: it holds the old blue accent.
 	for kind, entries in pairs(ControlRegistry) do
@@ -4874,6 +4862,96 @@ function ConfigSystem.Load(name)
 				end)
 			end
 		end
+	end
+end
+
+function ConfigSystem.Exists(name)
+	return HasFileSystem and validName(name) and isfile(configPath(name)) or false
+end
+
+function ConfigSystem.Save(name)
+	local valid, nameErr = validName(name)
+	if not valid then
+		return false, nameErr
+	end
+	local ready, folderErr = ensureConfigFolder()
+	if not ready then
+		return false, folderErr
+	end
+	return pcall(writefile, configPath(name), HttpService:JSONEncode(snapshot()))
+end
+
+-- Save under a new name only; Save itself overwrites.
+function ConfigSystem.Create(name)
+	if ConfigSystem.Exists(name) then
+		return false, "A config named " .. tostring(name) .. " already exists"
+	end
+	return ConfigSystem.Save(name)
+end
+
+function ConfigSystem.Load(name)
+	local valid, nameErr = validName(name)
+	if not valid then
+		return false, nameErr
+	end
+	local ready, folderErr = ensureConfigFolder()
+	if not ready then
+		return false, folderErr
+	end
+	if not isfile(configPath(name)) then
+		return false, "Config not found"
+	end
+	local decoded, data = pcall(function()
+		return HttpService:JSONDecode(readfile(configPath(name)))
+	end)
+	if not decoded or type(data) ~= "table" then
+		return false, "Invalid config data"
+	end
+	applyData(data)
+	return true
+end
+
+-- The current values as JSON text, to share or keep outside the executor.
+function ConfigSystem.Export()
+	return HttpService:JSONEncode(snapshot())
+end
+
+function ConfigSystem.Import(text)
+	if type(text) ~= "string" or text == "" then
+		return false, "Paste config JSON first"
+	end
+	local decoded, data = pcall(HttpService.JSONDecode, HttpService, text)
+	if not decoded or type(data) ~= "table" then
+		return false, "That is not config JSON"
+	end
+	applyData(data)
+	return true
+end
+
+local function autoloadPath()
+	return ConfigFolder .. "/autoload.txt"
+end
+
+function ConfigSystem.GetAutoload()
+	if not HasFileSystem then
+		return nil
+	end
+	local ok, name = pcall(function()
+		return isfile(autoloadPath()) and readfile(autoloadPath()) or nil
+	end)
+	return ok and name ~= "" and name or nil
+end
+
+function ConfigSystem.SetAutoload(name)
+	if not ConfigSystem.Exists(name) then
+		return false, "Config not found"
+	end
+	return pcall(writefile, autoloadPath(), name)
+end
+
+function ConfigSystem.ClearAutoload()
+	if HasFileSystem and isfile(autoloadPath()) then
+		return pcall(delfile, autoloadPath())
 	end
 	return true
 end
@@ -4932,7 +5010,9 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 			end,
 		}
 		handle.SetStage = handle.Set
-		register("Toggles", pageKey, sectionKey, options.Title, handle, subTabPageKey)
+		if not options.NoSave then
+			register("Toggles", pageKey, sectionKey, options.Title, handle, subTabPageKey)
+		end
 		return handle
 	end
 
@@ -5018,7 +5098,9 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 			end,
 		}
 		handle.SetValue = handle.Set
-		register("Boxes", pageKey, sectionKey, options.Title, handle, subTabPageKey)
+		if not options.NoSave then
+			register("Boxes", pageKey, sectionKey, options.Title, handle, subTabPageKey)
+		end
 		return handle
 	end
 
@@ -5046,7 +5128,7 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 		function handle.Get()
 			return dropdown:GetValue()
 		end
-		if not options.Multi then
+		if not options.Multi and not options.NoSave then
 			register("Dropdowns", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		end
 		return handle
@@ -5500,6 +5582,133 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 			applyBackground(url)
 		end
 	end)
+end
+
+-- The full config manager, built into a page or sub-tab: create, load, overwrite,
+-- delete, autoload and JSON import/export. Its own fields are kept out of configs.
+function Peridot.AddConfigSection(container)
+	local function notify(desc)
+		Peridot.CreateNoti({ Title = "Config", Desc = desc, ShowTime = 4 })
+	end
+	local typedName, selected, json = "", nil, ""
+
+	local manage = container.CreateSection("Configuration")
+	if not HasFileSystem then
+		manage.CreateLabel({ Title = "Your executor has no file access, so configs cannot be saved." })
+	end
+	manage.CreateBox({ Title = "Config name", Placeholder = "name", NoSave = true }, function(text)
+		typedName = text
+	end)
+	local list
+	local function refresh()
+		local ok, names = pcall(ConfigSystem.List)
+		names = ok and type(names) == "table" and names or {}
+		table.sort(names)
+		if list then
+			list.GetNewList(names)
+		end
+		selected = nil -- the dropdown clears its selection on a new list
+		return names
+	end
+	manage.CreateButton({ Title = "Create config", ButtonText = "Create" }, function()
+		local ok, err = ConfigSystem.Create(typedName)
+		notify(ok and ("Created " .. typedName) or tostring(err))
+		if ok then
+			refresh()
+		end
+	end)
+	list = manage.CreateDropdown({ Title = "Config list", List = {}, NoSave = true }, function(name)
+		selected = name
+	end)
+	local function withSelected(action)
+		if not selected or selected == "" then
+			return notify("Pick a config from the list first.")
+		end
+		action(selected)
+	end
+	manage.CreateButton({ Title = "Load config", ButtonText = "Load" }, function()
+		withSelected(function(name)
+			local ok, err = ConfigSystem.Load(name)
+			notify(ok and ("Loaded " .. name) or tostring(err))
+		end)
+	end)
+	manage.CreateButton({ Title = "Overwrite config", ButtonText = "Overwrite" }, function()
+		withSelected(function(name)
+			local ok, err = ConfigSystem.Save(name)
+			notify(ok and ("Saved over " .. name) or tostring(err))
+		end)
+	end)
+
+	local autoloadLabel
+	local function showAutoload()
+		autoloadLabel.SetText("Current autoload config: " .. (ConfigSystem.GetAutoload() or "none"))
+	end
+	manage.CreateButton({ Title = "Delete config", ButtonText = "Delete" }, function()
+		withSelected(function(name)
+			local ok, err = ConfigSystem.Delete(name)
+			notify(ok and ("Deleted " .. name) or tostring(err))
+			if ok and ConfigSystem.GetAutoload() == name then
+				ConfigSystem.ClearAutoload()
+				showAutoload()
+			end
+			refresh()
+		end)
+	end)
+	manage.CreateButton({ Title = "Refresh list", ButtonText = "Refresh" }, refresh)
+
+	local autoload = container.CreateSection("Autoload")
+	autoload.CreateButton({ Title = "Set as autoload", ButtonText = "Set" }, function()
+		withSelected(function(name)
+			local ok, err = ConfigSystem.SetAutoload(name)
+			notify(ok and (name .. " now loads when the script starts") or tostring(err))
+			showAutoload()
+		end)
+	end)
+	autoload.CreateButton({ Title = "Reset autoload", ButtonText = "Reset" }, function()
+		ConfigSystem.ClearAutoload()
+		notify("No config loads at start now.")
+		showAutoload()
+	end)
+	autoloadLabel = autoload.CreateLabel({ Title = "Current autoload config: none" })
+	showAutoload()
+
+	local share = container.CreateSection("Config JSON")
+	local jsonBox = share.CreateBox({ Title = "Config JSON", Placeholder = "paste config JSON here", NoSave = true }, function(text)
+		json = text
+	end)
+	share.CreateButton({ Title = "Import config", ButtonText = "Import" }, function()
+		local ok, err = ConfigSystem.Import(json)
+		notify(ok and "Imported the pasted config." or tostring(err))
+	end)
+	share.CreateButton({ Title = "Export current config", ButtonText = "Export" }, function()
+		local text = ConfigSystem.Export()
+		jsonBox.Set(text)
+		local copied = type(setclipboard) == "function" and pcall(setclipboard, text)
+		notify(copied and "Config JSON copied to the clipboard." or "Config JSON is in the box above.")
+	end)
+
+	refresh()
+	-- Load the autoload config once the script has finished building its controls.
+	task.delay(1, function()
+		local name = ConfigSystem.GetAutoload()
+		if name and ConfigSystem.Exists(name) then
+			local ok = ConfigSystem.Load(name)
+			if ok then
+				notify("Autoloaded " .. name)
+			end
+		end
+	end)
+end
+
+-- Removes every Peridot window, notification and the UI toggle button, and the menu key handler.
+function Peridot.Unload()
+	Library.DestroyUI()
+	if getgenv().PeridotMenuKeyConnection then
+		pcall(function()
+			getgenv().PeridotMenuKeyConnection:Disconnect()
+		end)
+		getgenv().PeridotMenuKeyConnection = nil
+	end
 end
 
 Peridot.ConfigSystem = ConfigSystem
