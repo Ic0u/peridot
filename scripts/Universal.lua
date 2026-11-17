@@ -1156,7 +1156,7 @@ local function applyBackground(source)
     -- see-through panels while a background shows; the player's own setting comes back when cleared
     if source ~= "" then
         transparencyBeforeBackground = transparencyBeforeBackground or getgenv().UIColor["Background 1 Transparency"]
-        getgenv().UIColor["Background 1 Transparency"] = 0.4
+        getgenv().UIColor["Background 1 Transparency"] = 0.25
     elseif transparencyBeforeBackground then
         getgenv().UIColor["Background 1 Transparency"] = transparencyBeforeBackground
         transparencyBeforeBackground = nil

@@ -69,7 +69,7 @@ local T1UIColor = {
 	["Title Text Color"] = Color3.fromRGB(140, 172, 68),
 	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
 	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
-	["Background 1 Transparency"] = 0.04,
+	["Background 1 Transparency"] = 0,
 	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
 	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
 	["Background Image"] = "",
@@ -259,7 +259,8 @@ if type(SavedTheme.Accent) == "table" then
 	end
 end
 if tonumber(SavedTheme.PanelTransparency) then
-	T1UIColor["Background 1 Transparency"] = tonumber(SavedTheme.PanelTransparency)
+	-- capped: an old saved value near 0.9 once left the window unreadable
+	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
 end
 if tonumber(SavedTheme.AnimationSpeed) then
 	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
@@ -1007,10 +1008,7 @@ function Library:CreateWindow(Setting)
 		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 200, 200))
 	}
 	uigradient.Rotation = 90
-	uigradient.Transparency = NumberSequence.new{
-		NumberSequenceKeypoint.new(0, 0.6), -- was 0.92: the window frame was almost fully see-through
-		NumberSequenceKeypoint.new(1, 0.6)
-	}
+	uigradient.Transparency = NumberSequence.new(0) -- solid dark frame; the game must never show through the window
 
 	getgenv().ReadyForGuiLoaded = true
 	
@@ -4623,7 +4621,7 @@ end
 		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
-			Max = 0.9,
+			Max = 0.3,
 			Rouding = 2,
 			Default = getgenv().UIColor["Background 1 Transparency"],
 			Callback = function(value)
