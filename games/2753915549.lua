@@ -3200,7 +3200,7 @@ local function createQuickControls()
 
     local accent = Color3.fromRGB(140, 172, 68)
     local surface = Color3.fromRGB(24, 24, 27)
-    local configuredLogo = "rbxassetid://99041243486180"
+    local configuredLogo = "rbxassetid://80832574371637"
     if type(environment.UIColor) == "table" then
         if typeof(environment.UIColor["Title Text Color"]) == "Color3" then
             accent = environment.UIColor["Title Text Color"]
