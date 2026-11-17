@@ -3197,7 +3197,7 @@ local function createQuickControls()
         quickGui.Parent = playerGui
     end
 
-    local accent = Color3.fromRGB(90, 160, 255)
+    local accent = Color3.fromRGB(140, 172, 68)
     local surface = Color3.fromRGB(24, 24, 27)
     local configuredLogo = "rbxassetid://99041243486180"
     if type(environment.UIColor) == "table" then
