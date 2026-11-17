@@ -2,9 +2,13 @@
 
 <img src="./assets/donaldtrump.png" alt="Peridot logo" width="100">
 
-<h3>Peridot</h3>
+<h3>peridot</h3>
 
-A free roblox scripts hub developed by marcus.
+Welcome welcome in.
+
+All projects here are now deprecated and archived. It is not maintained.
+
+I built (in the past) open-source lua scripts and tools for games.
 
 ![Lua](https://img.shields.io/badge/Language-Luau-2C2D72?style=flat-square&logo=lua&logoColor=white)
 ![Version](https://img.shields.io/badge/Version-v1.0.0-5A9CFF?style=flat-square)
