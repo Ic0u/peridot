@@ -335,8 +335,8 @@ btnHideFrame.AnchorPoint = Vector2.new(0, 1)
 btnHideFrame.Size = UDim2.new(0, 50, 0, 50)
 btnHideFrame.Position = UDim2.new(0, 0, 1, 0)
 btnHideFrame.Name = "dut dit"
-btnHideFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-btnHideFrame.BackgroundTransparency = getgenv().UIToggled and 0 or .25
+Bind(btnHideFrame, "BackgroundColor3", "Background Main Color") -- dark, not the old white circle
+btnHideFrame.BackgroundTransparency = getgenv().UIToggled and 0 or .15
 
 local imgHide = Instance.new('ImageLabel', btnHide)
 imgHide.AnchorPoint = Vector2.new(0, 0)
@@ -348,7 +348,19 @@ imgHide.Position = UDim2.new(.5, 0, .5, 0)
 
 local UICornerBtnHide = Instance.new("UICorner")
 UICornerBtnHide.Parent = btnHideFrame
-UICornerBtnHide.CornerRadius = UDim.new(1, 0)
+UICornerBtnHide.CornerRadius = UDim.new(0, 12) -- rounded square
+
+-- Accent outline, stronger while the window is open. Follows the theme's accent live.
+local btnHideStroke = Instance.new("UIStroke")
+btnHideStroke.Parent = btnHideFrame
+btnHideStroke.Thickness = 2
+btnHideStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+btnHideStroke.Transparency = getgenv().UIToggled and 0 or .35
+Bind(btnHideStroke, "Color", "Border Color")
+
+local imgHideCorner = Instance.new("UICorner")
+imgHideCorner.Parent = imgHide
+imgHideCorner.CornerRadius = UDim.new(0, 8) -- logo follows the rounded frame
 
 Library.ToggleUI = function()
 	getgenv().UIToggled = not Library_Function.Gui.Enabled -- follow the real state: scripts may flip Gui.Enabled directly
@@ -357,7 +369,10 @@ Library.ToggleUI = function()
 		Size = UDim2.new(0, sizeXY, 0, sizeXY)
 	}):Play()
 	TweenService:Create(btnHideFrame, TweenInfo.new(DisableAnimation and 0 or .25), {
-		BackgroundTransparency = getgenv().UIToggled and 0 or .25
+		BackgroundTransparency = getgenv().UIToggled and 0 or .15
+	}):Play()
+	TweenService:Create(btnHideStroke, TweenInfo.new(DisableAnimation and 0 or .25), {
+		Transparency = getgenv().UIToggled and 0 or .35
 	}):Play()
 	Library_Function.Gui.Enabled = getgenv().UIToggled
 end
