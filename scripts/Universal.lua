@@ -1158,7 +1158,7 @@ Interface.CreateKeybind({
     Default = MenuKey,
 }, toggleMenu)
 
--- Theme, animation and panel options are on the title-bar gear's UI Settings page
+-- Theme, animation and panel options are on the title-bar gear's UI Option page
 -- (built by the library). Backgrounds go there too, as their own section.
 local Backgrounds = Window.UISettings.CreateSection("Background")
 

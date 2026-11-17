@@ -139,7 +139,7 @@ local function TI(speedKey)
 	return TweenInfo.new(getgenv().UIColor[speedKey], ok and style or Enum.EasingStyle.Quad)
 end
 
--- Theme helpers. The accent keys all follow one color; the UI Settings page
+-- Theme helpers. The accent keys all follow one color; the UI Option page
 -- (title-bar gear) changes it live and saves the choice to Peridot/Theme.json.
 local AccentKeys = {
 	"Border Color", "Search Icon Highlight Color", "Title Text Color", "Page Selected Color",
@@ -505,6 +505,9 @@ function Library_Function.SetAccent(accent, presetName)
 		if SavedTheme.Colors then
 			SavedTheme.Colors[key] = nil -- the accent wins over earlier one-off edits of these keys
 		end
+		if SavedTheme.Rainbow then
+			SavedTheme.Rainbow[key] = nil -- a rainbow left running would come back after a reload
+		end
 		RainbowKeys[key] = nil
 	end
 	SavedTheme.Accent = color3ToList(accent)
@@ -527,7 +530,20 @@ function Library_Function.SetRainbow(key, on)
 	SavedTheme.Rainbow[key] = on and true or nil
 	saveThemeSoon()
 end
--- Back to the shipped theme (UI Settings > Window > Reset theme).
+-- Rainbow for the whole accent at once (every accent key keeps its own shade).
+-- Turning it off freezes the accent at the color it had reached and saves that.
+function Library_Function.SetAccentRainbow(on)
+	if on then
+		for key in pairs(accentPalette(getgenv().UIColor["Title Text Color"])) do
+			Library_Function.SetRainbow(key, true)
+		end
+	else
+		local frozen = getgenv().UIColor["Title Text Color"]
+		Library_Function.SetAccent(frozen, "Custom")
+	end
+end
+
+-- Back to the shipped theme (UI Option > Window > Reset theme).
 function Library_Function.ResetTheme()
 	for key in pairs(RainbowKeys) do
 		RainbowKeys[key] = nil
@@ -718,9 +734,9 @@ function Library:CreateWindow(Setting)
     local TitleNameMain = Setting.Title or "Peridot"
     getgenv().MainDesc = Setting.Desc or Setting.Subtitle or ""
     local SidebarTitle = Setting.SidebarTitle or TitleNameMain -- header above the tab list (the game name)
-    -- Page switchers, so the gear can open UI Settings and then go back to where you were.
+    -- Page switchers, so the gear can open UI Option and then go back to where you were.
     local CurrentSelect, PreviousSelect, UISettingsSelect, UISettingsPage
-    local HiddenTabs = {} -- tab buttons kept out of the sidebar (UI Settings)
+    local HiddenTabs = {} -- tab buttons kept out of the sidebar (UI Option)
     local SubTabRestorers = {} -- re-hide other sub-tabs' sections after a search is cleared
     
     if Setting.Image then
@@ -864,7 +880,7 @@ function Library:CreateWindow(Setting)
 		TextLabelMain.Text = "<font color=\"rgb(" .. c[1] .. "," .. c[2] .. "," .. c[3] .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
 	end
 
-	-- Settings gear, top right: toggles the UI Settings page (theme, window options).
+	-- Settings gear, top right: toggles the UI Option page (theme, window options).
 	local SettingsGear = Instance.new("ImageButton")
 	SettingsGear.Name = "SettingsGear"
 	SettingsGear.Parent = TopMain
@@ -1176,7 +1192,7 @@ function Library:CreateWindow(Setting)
 	local PageCounter = 1
 
 	function Main_Function:AddTab(PageName, TabOptions)
-		local Hidden = TabOptions and TabOptions.Hidden -- no sidebar button (UI Settings, opened by the gear)
+		local Hidden = TabOptions and TabOptions.Hidden -- no sidebar button (UI Option, opened by the gear)
 
 		local Page_Name = tostring(PageName)
 		local Page_Title = Page_Name
@@ -4274,7 +4290,7 @@ end
 		return pagefunc
         end
 
-	-- UI Settings: the page behind the title-bar gear, like the old library's
+	-- UI Option: the page behind the title-bar gear, like the old library's
 	-- customizer. Sub-tabs: Theme (accent, logo), Colors (a picker per theme color,
 	-- each with Rainbow), Window (panels, animation, reset), plus any the script adds
 	-- (Universal: Background). Everything saves to Peridot/Theme.json. Built on first
@@ -4296,7 +4312,7 @@ end
 		if UISettingsPage then
 			return UISettingsPage
 		end
-		UISettingsPage = Main_Function:AddTab("UI Settings", { Hidden = true })
+		UISettingsPage = Main_Function:AddTab("UI Option", { Hidden = true })
 		local themeTab = UISettingsPage:AddSubTab("Theme")
 		local colorsTab = UISettingsPage:AddSubTab("Colors")
 		local windowTab = UISettingsPage:AddSubTab("Window")
@@ -4321,17 +4337,27 @@ end
 				end
 			end,
 		})
-		accentSection:AddInput(nil, {
-			Title = "Custom accent",
-			Placeholder = "hex, e.g. #8CAC44",
-			Callback = function(text)
-				local hex = tostring(text):gsub("#", "")
-				if hex:match("^%x%x%x%x%x%x$") then
-					local r, g, b = tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
-					Library_Function.SetAccent(Color3.fromRGB(r, g, b), "Custom")
-				end
+		-- Any color: square + hue bar + hex box, and Rainbow for the whole accent.
+		local fromAccentPicker = false -- the picker's own drags must not reset it through OnAccentChanged
+		local accentPicker = accentSection:AddColorPicker({
+			Title = "Accent color",
+			Default = getgenv().UIColor["Title Text Color"],
+			Callback = function(color)
+				fromAccentPicker = true
+				Library_Function.SetAccent(color, "Custom")
+				fromAccentPicker = false
+				accentDropdown:ClearText("Custom")
 			end,
+			Rainbow = {
+				Get = function()
+					return RainbowKeys["Title Text Color"] ~= nil
+				end,
+				Set = function(on)
+					Library_Function.SetAccentRainbow(on)
+				end,
+			},
 		})
+		accentPicker.FollowKey("Title Text Color") -- the swatch shows the live accent, rainbow included
 		local logoSection = themeTab:AddSection("Logo")
 		logoSection:AddInput(nil, {
 			Title = "Logo image",
@@ -4375,6 +4401,10 @@ end
 		end
 		-- accent presets change several colors at once; keep the pickers in step
 		Library_Function.OnAccentChanged = function()
+			if not fromAccentPicker then
+				accentPicker.SetValue(getgenv().UIColor["Title Text Color"])
+				accentPicker.RefreshRainbow()
+			end
 			for key, picker in pairs(pickers) do
 				picker.SetValue(getgenv().UIColor[key])
 				picker.RefreshRainbow()
@@ -4436,7 +4466,7 @@ end
 		return UISettingsPage
 	end
 
-	-- Gear: open UI Settings, or go back to the page you came from.
+	-- Gear: open UI Option, or go back to the page you came from.
 	Library_Function.ToggleUISettings = function()
 		Main_Function:GetUISettingsPage()
 		if CurrentSelect == UISettingsSelect then
@@ -4829,7 +4859,7 @@ function Peridot.CreateMain(options)
 	options = options or {}
 	getgenv().HubName = options.Name or getgenv().HubName or "Peridot"
 	-- Old layout: "<Name> <Desc>" top-left in the title bar, the game name (Title)
-	-- as the header above the tab list, the gear opening UI Settings.
+	-- as the header above the tab list, the gear opening UI Option.
 	local window = Library:CreateWindow({
 		Title = getgenv().HubName,
 		Desc = options.Desc or "",
@@ -4860,11 +4890,12 @@ function Peridot.CreateMain(options)
 		return page
 	end
 
-	-- The gear's UI Settings page. Scripts add their own sub-tabs to it
+	-- The gear's UI Option page. Scripts add their own sub-tabs to it
 	-- (Universal adds "Background"); CreateSection(name) makes a sub-tab with one
 	-- section of the same name.
 	main.UISettings = {
 		CreateSubTab = function(subName)
+			-- the page key stays "UI Settings" (not the "UI Option" title) so saved configs keep loading
 			return wrapSubTab(window:GetUISettingsPage():AddSubTab(tostring(subName or "")), "UI Settings", subName)
 		end,
 		CreateSection = function(name)
@@ -4884,7 +4915,7 @@ function Peridot.CreateNoti(options)
 	}, true)
 end
 
--- Same as clicking the title-bar gear: opens UI Settings, or goes back to the previous page.
+-- Same as clicking the title-bar gear: opens UI Option, or goes back to the previous page.
 function Peridot.ToggleUISettings()
 	if not Library_Function.ToggleUISettings then
 		return false
@@ -4896,6 +4927,7 @@ end
 -- Theme from code; all of these save to Peridot/Theme.json like the gear page does.
 Peridot.SetThemeColor = Library_Function.SetThemeColor -- (key, Color3), e.g. ("Background 2 Color", c)
 Peridot.SetRainbow = Library_Function.SetRainbow -- (key, on)
+Peridot.SetAccentRainbow = Library_Function.SetAccentRainbow -- (on)
 Peridot.ResetTheme = Library_Function.ResetTheme
 
 -- Change the accent from code: a preset name ("Peridot", "Ocean", "Ruby", ...) or a Color3. Saved like the gear's choice.
