@@ -323,15 +323,19 @@ Library_Function.HideGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 Library_Function.HideGui.Name = 'Peridot Btn'
 
 
--- Floating button: its size is a player option (Interface Settings > Interface), 38px by default.
+-- UI toggle button (opens/closes the window): its size is a player option
+-- (Interface Settings > UI Toggle), 38px by default. The texture fills the button
+-- and stays put; only the outline gets a little stronger while the UI is open.
+local ToggleButtonTexture = "rbxassetid://13226369119"
 local ButtonSize = math.clamp(tonumber(SavedTheme.ButtonSize) or 38, 28, 64)
-local function buttonImageSize(open)
-	return math.floor(ButtonSize * (open and 0.8 or 0.6) + 0.5)
+local function buttonImageSize()
+	return ButtonSize - 4
 end
 
 local btnHide = Instance.new('TextButton', Library_Function.HideGui)
 btnHide.BackgroundTransparency = 1
 btnHide.Text = ""
+btnHide.AutoButtonColor = false -- no hover tint
 btnHide.AnchorPoint = Vector2.new(0, 1)
 btnHide.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 btnHide.Position = UDim2.new(0, 12, 1, -12)
@@ -342,13 +346,13 @@ btnHideFrame.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 btnHideFrame.Position = UDim2.new(0, 0, 1, 0)
 btnHideFrame.Name = "dut dit"
 Bind(btnHideFrame, "BackgroundColor3", "Background Main Color") -- dark, not the old white circle
-btnHideFrame.BackgroundTransparency = getgenv().UIToggled and 0 or .15
+btnHideFrame.BackgroundTransparency = 0
 
 local imgHide = Instance.new('ImageLabel', btnHide)
 imgHide.AnchorPoint = Vector2.new(0, 0)
-Bind(imgHide, "Image", "Logo Image")
+imgHide.Image = ToggleButtonTexture
 imgHide.BackgroundTransparency = 1
-imgHide.Size = UDim2.new(0, buttonImageSize(getgenv().UIToggled), 0, buttonImageSize(getgenv().UIToggled))
+imgHide.Size = UDim2.new(0, buttonImageSize(), 0, buttonImageSize())
 imgHide.AnchorPoint = Vector2.new(.5, .5)
 imgHide.Position = UDim2.new(.5, 0, .5, 0)
 
@@ -366,30 +370,22 @@ Bind(btnHideStroke, "Color", "Border Color")
 
 local imgHideCorner = Instance.new("UICorner")
 imgHideCorner.Parent = imgHide
-imgHideCorner.CornerRadius = UDim.new(0, 6) -- logo follows the rounded frame
+imgHideCorner.CornerRadius = UDim.new(0, 8) -- texture follows the rounded frame
 
 Library.ToggleUI = function()
 	getgenv().UIToggled = not Library_Function.Gui.Enabled -- follow the real state: scripts may flip Gui.Enabled directly
-	local sizeXY = buttonImageSize(getgenv().UIToggled)
-	TweenService:Create(imgHide, TweenInfo.new(DisableAnimation and 0 or .25), {
-		Size = UDim2.new(0, sizeXY, 0, sizeXY)
-	}):Play()
-	TweenService:Create(btnHideFrame, TweenInfo.new(DisableAnimation and 0 or .25), {
-		BackgroundTransparency = getgenv().UIToggled and 0 or .15
-	}):Play()
 	TweenService:Create(btnHideStroke, TweenInfo.new(DisableAnimation and 0 or .25), {
 		Transparency = getgenv().UIToggled and 0 or .35
 	}):Play()
 	Library_Function.Gui.Enabled = getgenv().UIToggled
 end
 
--- Floating button options (Interface Settings > Interface). Both save to Peridot/Theme.json.
+-- UI toggle button options (Interface Settings > UI Toggle). Both save to Peridot/Theme.json.
 function Library_Function.SetButtonSize(px)
 	ButtonSize = math.clamp(math.floor(tonumber(px) or 38), 28, 64)
 	btnHide.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 	btnHideFrame.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
-	local imageSize = buttonImageSize(getgenv().UIToggled)
-	imgHide.Size = UDim2.new(0, imageSize, 0, imageSize)
+	imgHide.Size = UDim2.new(0, buttonImageSize(), 0, buttonImageSize())
 	SavedTheme.ButtonSize = ButtonSize
 	saveThemeSoon()
 end
@@ -400,7 +396,7 @@ function Library_Function.SetButtonVisible(on)
 	saveThemeSoon()
 end
 
--- Menu key: opens/closes the window. Lives here, not in the page, so it works from the
+-- Toggle key: opens/closes the window. Lives here, not in the page, so it works from the
 -- start and in every script. A key picked on the page is saved by watching the control.
 local MenuKeyName = type(SavedTheme.MenuKey) == "string" and SavedTheme.MenuKey or "RightControl"
 if getgenv().PeridotMenuKeyConnection then -- re-running the script: drop the old copy's handler
@@ -4381,7 +4377,7 @@ end
 		local themeTab = UISettingsPage:AddSubTab("Theme")
 		local colorsTab = UISettingsPage:AddSubTab("Colors")
 		local windowTab = UISettingsPage:AddSubTab("Window")
-		local interfaceTab = UISettingsPage:AddSubTab("Interface")
+		local toggleTab = UISettingsPage:AddSubTab("UI Toggle")
 		local pickers = {}
 		local sliders = {}
 
@@ -4516,8 +4512,8 @@ end
 				saveThemeSoon()
 			end,
 		})
-		-- Interface: the floating button and the menu key
-		local buttonSection = interfaceTab:AddSection("Floating button")
+		-- UI Toggle: the button that opens/closes the UI, and the key that does the same
+		local buttonSection = toggleTab:AddSection("UI Toggle button")
 		local showToggle = buttonSection:AddToggle(nil, {
 			Title = "Show button",
 			Default = Library_Function.HideGui.Enabled,
@@ -4534,13 +4530,13 @@ end
 				Library_Function.SetButtonSize(value)
 			end,
 		})
-		buttonSection:AddLabel("With the button hidden, open and close the menu with the key below.")
-		local menuSection = interfaceTab:AddSection("Menu")
+		local menuSection = toggleTab:AddSection("UI Toggle key")
 		local menuKeybind = menuSection:AddKeyBind({
-			Title = "Menu key",
+			Title = "Toggle key",
 			Default = MenuKeyName,
 			Mode = "Toggle",
 		}, function() end) -- the key itself is handled by the library, so it works before this page exists
+		menuSection:AddLabel("Opens and closes the UI, even with the button hidden.")
 		Library_Function.MenuKeybind = menuKeybind
 		-- Picking a new key on the control is saved by watching it.
 		local menuKeyWatcher
@@ -4977,8 +4973,8 @@ function Peridot.CreateMain(options)
 		SidebarTitle = options.Title or getgenv().HubName,
 	})
 
-	-- Floating button: a script can start with it hidden (FloatingButton = false);
-	-- the player's own choice from Interface Settings > Interface wins once saved.
+	-- UI toggle button: a script can start with it hidden (FloatingButton = false);
+	-- the player's own choice from Interface Settings > UI Toggle wins once saved.
 	Library_Function.DefaultFloatingButton = options.FloatingButton ~= false
 	local showButton = SavedTheme.FloatingButton
 	if showButton == nil then
@@ -5042,7 +5038,7 @@ end
 
 -- Theme from code; all of these save to Peridot/Theme.json like the gear page does.
 Peridot.SetThemeColor = Library_Function.SetThemeColor -- (key, Color3), e.g. ("Background 2 Color", c)
-Peridot.SetButtonSize = Library_Function.SetButtonSize -- (28-64 px) floating button
+Peridot.SetButtonSize = Library_Function.SetButtonSize -- (28-64 px) UI toggle button
 Peridot.SetButtonVisible = Library_Function.SetButtonVisible -- (on)
 Peridot.SetMenuKey = Library_Function.SetMenuKey -- ("RightControl", "F4", ...) key that opens/closes the window
 Peridot.SetRainbow = Library_Function.SetRainbow -- (key, on)
@@ -5182,7 +5178,7 @@ function Peridot.DownloadBackground(url, fileName)
 	return "new"
 end
 
--- Logo (title bar, floating button, notifications). "" restores the Peridot logo. Saved.
+-- Logo (title bar, notifications). "" restores the Peridot logo. Saved.
 function Library_Function.SetLogo(source)
 	source = tostring(source or "")
 	local image = DefaultTheme["Logo Image"]

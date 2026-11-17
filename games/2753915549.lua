@@ -3282,7 +3282,7 @@ local function createQuickControls()
             stopCurrentMovement()
         end
     end)
-    -- The menu key (RightControl by default, changeable in Interface Settings > Interface) is handled by the library.
+    -- The menu key (RightControl by default, changeable in Interface Settings > UI Toggle) is handled by the library.
 end
 
 createQuickControls()
