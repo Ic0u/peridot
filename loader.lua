@@ -16,6 +16,9 @@ local DEFAULT_GAMES = {
     ["2753915549"] = "Blox Fruits - First Sea",
     ["4442272183"] = "Blox Fruits - Second Sea",
     ["7449423635"] = "Blox Fruits - Third Sea",
+    ["85211729168715"] = "Blox Fruits",
+    ["79091703265657"] = "Blox Fruits",
+    ["100117331123089"] = "Blox Fruits",
 }
 
 local function resolveRequestFunction()

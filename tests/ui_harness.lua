@@ -1,10 +1,10 @@
 -- Mock-Roblox smoke test for libraries/UILibrary.lua.
 -- Runs scripts/Universal.lua for real (modules come from the local repo), then
--- exercises config save/load, an old-format config, and BloxFruitsUIAdapter.
+-- exercises config save/load and an old-format config, then runs games/2753915549.lua
+-- against a stub core and drives every control it built.
 -- Proves the API wiring; it does not render anything.
--- usage (from the repo root): luajit tests/ui_harness.lua . [--bloxfruits]   (Blox Fruits run: PLACE_ID=2753915549)
+-- usage (from the repo root): luajit tests/ui_harness.lua .
 local REPO = assert(arg[1], "repo root")
-local RUN_BF = arg[2] == "--bloxfruits"
 
 ---------------------------------------------------------------- inert proxy
 local P
@@ -245,7 +245,7 @@ game = setmetatable({}, {
 				return s
 			end
 		end
-		if k == "PlaceId" then return tonumber(os.getenv("PLACE_ID") or "1") end
+		if k == "PlaceId" then return PLACE_ID_OVERRIDE or tonumber(os.getenv("PLACE_ID") or "1") end
 		if k == "JobId" or k == "GameId" then return "job" end
 		if k == "Players" or k == "Workspace" or k == "Lighting" or k == "CoreGui" or k == "TweenService"
 			or k == "ReplicatedStorage" or k == "RunService" or k == "HttpService" then
@@ -306,8 +306,16 @@ function flushDelays()
 		pcall(f)
 	end
 end
+CAPTURE_SPAWNS, SPAWN_LOG, PLACE_ID_OVERRIDE = false, {}, nil -- Blox Fruits test: hold the module's own task.spawn loops
 task = {
-	spawn = function(f, ...) if RUN_SPAWNS and type(f) == "function" then f(...) end return P end,
+	spawn = function(f, ...)
+		if CAPTURE_SPAWNS and type(f) == "function" and debug.getinfo(f, "S").source:find("2753915549", 1, true) then
+			table.insert(SPAWN_LOG, f)
+			return P
+		end
+		if RUN_SPAWNS and type(f) == "function" then f(...) end
+		return P
+	end,
 	delay = function(_, f, ...)
 		if DEFER_DELAYS and type(f) == "function" then -- held until the test calls flushDelays()
 			table.insert(DELAYED, f)
@@ -748,38 +756,335 @@ run("UIColor writes (Settings page) reach the theme", function()
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4)
 end)
 
----------------------------------------------------------------- 4. Blox Fruits adapter
-print("BloxFruitsUIAdapter")
-run("every adapter method", function()
-	local Adapter = assert(loadfile(REPO .. "/libraries/BloxFruitsUIAdapter.lua"))()
-	local window = Adapter.Create(lib, { Name = "Peridot", Title = "Blox Fruits", Desc = "", FloatingButton = false })
-	assert(lib.Internal.HideGui.Enabled == false, "UI toggle button hidden")
-	local section = window:Tab("Main"):Section("Farm", "Left")
-	local got = {}
-	local t = section:Toggle("Auto Farm", true, function(v) got.toggle = v end)
-	assert(got.toggle == true, "toggle default fired")
-	t:Update(false); assert(got.toggle == false, "toggle Update")
-	section:Button("Go", function() end)
-	section:Label("hello"):Set("world")
-	section:Seperator("Divider")
-	local d = section:Dropdown("Weapon", { "Melee", "Sword" }, "Melee", function(v) got.dd = v end)
-	d:Clear(); d:Add("Gun"); d:Refresh({ "Melee", "Fruit" }); d:Set("Fruit")
-	assert(got.dd == "Fruit", "dropdown Set fires callback")
-	section:Textbox("Code", "type", function() end)
-	section:Slider("Distance", true, 0, 50, 10, function() end)
-	section:Slider("Fraction", false, 0, 1, 0.5, function() end)
-	local subSection = window:Tab("Farm"):SubTab("Bounty Farm"):Section("Run")
-	subSection:Toggle("Run the rotation", false, function() end)
-	subSection:Label("Status: off"):Set("Status: on")
+---------------------------------------------------------------- 4. Blox Fruits module
+print("games/2753915549.lua")
+
+local BF_STUB_CORE = [==[
+local env = getgenv()
+HARNESS_CALLS = { esp = 0, hop = 0, lowcpu = 0, fly = nil, flySpeed = nil }
+env.Core = {
+	EspPly = function() HARNESS_CALLS.esp = HARNESS_CALLS.esp + 1 end,
+	LocationEsp = function() end, DevEsp = function() end, flowerEsp = function() end,
+	EventIslandEsp = function() end, gearEsp = function() end, AdvanFruitEsp = function() end,
+	HakiClorEsp = function() end, LegenSword = function() end, ChestEsp = function() end,
+	berriesEsp = function() end,
+}
+env.BossList = { "Bobby", "Yeti" }
+env.MaterialList = { "Angel Wings", "Fish Tail" }
+env.AllBoats = { "Guardian", "Sloop" }
+env.DungeonTables = { "Flame", "Ice" }
+env.IslandData = { ["Pirate Village"] = {}, ["Frozen Village"] = {} }
+env.GetMobs = function() return { "Bandit", "Monkey" } end
+env.HopServer = function() HARNESS_CALLS.hop = HARNESS_CALLS.hop + 1 end
+env.LowCpu = function() HARNESS_CALLS.lowcpu = HARNESS_CALLS.lowcpu + 1 end
+_G.toggleFly = function(on) HARNESS_CALLS.fly = on end
+_G.updateFlySpeed = function(v) HARNESS_CALLS.flySpeed = v end
+]==]
+
+local function snapshot()
+	local copy = {}
+	for key, value in pairs(_G) do copy[key] = value end
+	return copy
+end
+local function changedKeys(before, after)
+	local keys = {}
+	for key, value in pairs(after) do if before[key] ~= value then keys[#keys + 1] = key end end
+	for key in pairs(before) do if after[key] == nil then keys[#keys + 1] = key end end
+	return keys
+end
+local function control(kind, suffix) -- one control of this kind whose key ends with `suffix`
+	local found
+	for key, handle in pairs(lib.ControlRegistry[kind]) do
+		if key:sub(-#suffix) == suffix then
+			assert(not found, "ambiguous control " .. suffix)
+			found = handle
+		end
+	end
+	return assert(found, "missing " .. kind .. " " .. suffix)
+end
+local function runLoops(hook, limit) -- run each captured task.spawn body until it has waited `limit` times
+	local realWait = task.wait
+	for _, f in ipairs(SPAWN_LOG) do
+		local n = 0
+		task.wait = function()
+			n = n + 1
+			if hook then hook(n) end
+			if n > limit then error("STOP_LOOP", 0) end
+			return 0
+		end
+		local ok, err = pcall(f)
+		task.wait = realWait
+		assert(ok or err == "STOP_LOOP", "spawned task failed: " .. tostring(err))
+	end
+end
+
+local registryBefore = {}
+for kind, entries in pairs(lib.ControlRegistry) do
+	registryBefore[kind] = {}
+	for key in pairs(entries) do registryBefore[kind][key] = true end
+end
+
+-- Buttons have no handle in the registry, so wrap the section factories while the
+-- module builds and keep each button's callback by title.
+local BUTTONS = {}
+local function recordButtons()
+	local realCreateMain = lib.CreateMain
+	local function patch(section)
+		local realButton = section.CreateButton
+		section.CreateButton = function(options, callback)
+			BUTTONS[options.Title] = callback
+			return realButton(options, callback)
+		end
+		return section
+	end
+	lib.CreateMain = function(...)
+		local main = realCreateMain(...)
+		local realPage = main.CreatePage
+		main.CreatePage = function(...)
+			local page = realPage(...)
+			local realSection, realSubTab = page.CreateSection, page.CreateSubTab
+			page.CreateSection = function(...) return patch(realSection(...)) end
+			page.CreateSubTab = function(...)
+				local sub = realSubTab(...)
+				local subSection = sub.CreateSection
+				sub.CreateSection = function(...) return patch(subSection(...)) end
+				return sub
+			end
+			return page
+		end
+		return main
+	end
+	return function() lib.CreateMain = realCreateMain end
+end
+
+run("module builds with no errors (stub core, shared library)", function()
+	OVERRIDES["libraries/UILibrary.lua"] = "return _G.__HARNESS_LIB"
+	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE
+	_G.__HARNESS_LIB = lib
+	PLACE_ID_OVERRIDE = 2753915549
+	getgenv().PeridotBloxFruitsLoaded = nil
+	UI_ERRORS, WARNINGS = {}, {}
+	CAPTURE_SPAWNS = true
+	local stopRecording = recordButtons()
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/2753915549.lua")))
+	stopRecording()
+	CAPTURE_SPAWNS = false
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	assert(#UI_ERRORS == 0, "errors: " .. tostring(UI_ERRORS[1]))
+	assert(#WARNINGS == 0, "warnings: " .. table.concat(WARNINGS, " | "))
+	assert(#SPAWN_LOG >= 3, "module started its loops, got " .. #SPAWN_LOG)
+	assert(lib.Internal.HideGui.Enabled ~= false, "the UI toggle button stays available")
 end)
 
----------------------------------------------------------------- 5. full Blox Fruits module (optional)
-if RUN_BF then
-	print("games/2753915549.lua")
-	run("runs top to bottom", function()
-		assert(loadfile(REPO .. "/games/2753915549.lua"))()
-	end)
+local bfToggles = {}
+for key, handle in pairs(lib.ControlRegistry.Toggles) do
+	if not registryBefore.Toggles[key] then bfToggles[#bfToggles + 1] = { key = key, handle = handle } end
 end
+
+run("every toggle writes an option flag in both directions", function()
+	assert(#bfToggles >= 200, "toggles built: " .. #bfToggles)
+	for _, t in ipairs(bfToggles) do
+		if t.key:sub(-5) ~= "||Fly" then -- calls the core's fly function instead of writing a flag
+		local was = t.handle.Get()
+		local before = snapshot()
+		t.handle.Set(not was)
+		assert(#changedKeys(before, snapshot()) > 0, "toggle writes nothing: " .. t.key)
+		local flipped = snapshot()
+		t.handle.Set(was)
+		assert(#changedKeys(flipped, snapshot()) > 0, "toggle does not undo: " .. t.key)
+		end
+	end
+	local fly = control("Toggles", "Misc||Movement||Fly")
+	fly.Set(true)
+	assert(HARNESS_CALLS.fly == true, "Fly calls the core")
+	fly.Set(false)
+	assert(HARNESS_CALLS.fly == false)
+	control("Sliders", "Misc||Movement||Fly Speed").Set(120)
+	assert(HARNESS_CALLS.flySpeed == 120)
+end)
+
+run("defaults reach the flags the core reads", function()
+	assert(_G.ChooseWP == "Melee" and _G.SelectedBoat == "Guardian" and _G.DangerSc == "Lv 1")
+	assert(_G.TweenSpeedNear == 180 and _G.TweenSpeedFar == 150 and _G.HopDelay == 1800)
+	assert(_G.MasteryHealthPct == 70 and _G.pSats == 3 and _G.Num_self == 25 and _G.Range == 100)
+	assert(_G.FishCatchDelay == nil, "0 means the core's random delay")
+	assert(_G.ABmethod == "Aim Player" and _G.SelectDN == "Day" and _G.SelectIslandMastery == "Cake")
+	assert(#_G.SelectedMasterySkills == 5)
+end)
+
+run("dropdowns and sliders write their flags", function()
+	control("Dropdowns", "||Auto Farm||Weapon").Set("Sword")
+	assert(_G.ChooseWP == "Sword")
+	control("Dropdowns", "||Auto Farm||Mob").Set("Monkey")
+	assert(_G.SelectMob == "Monkey" and getgenv().SelectMob == "Monkey")
+	control("Dropdowns", "||Auto Farm||Island").Set("Frozen Village")
+	assert(_G.SelectIsland == "Frozen Village")
+	control("Dropdowns", "||Bosses||Boss").Set("Bobby")
+	assert(_G.FindBoss == "Bobby")
+	control("Sliders", "||Server||Hop Every (Minutes)").Set(10)
+	assert(_G.HopDelay == 600, "minutes become seconds, got " .. tostring(_G.HopDelay))
+	control("Sliders", "||Fishing||Catch Delay (0 = random)").Set(4)
+	assert(_G.FishCatchDelay == 4)
+	control("Sliders", "||Fishing||Catch Delay (0 = random)").Set(0)
+	assert(_G.FishCatchDelay == nil)
+end)
+
+run("mastery skill switches rebuild the skill list", function()
+	control("Toggles", "||Mastery Skills||Use Skill X").Set(false)
+	local list = table.concat(_G.SelectedMasterySkills, "")
+	assert(list == "ZCVF", "got " .. list)
+	control("Toggles", "||Mastery Skills||Use Skill X").Set(true)
+	assert(table.concat(_G.SelectedMasterySkills, "") == "ZXCVF")
+end)
+
+run("a switch follows the core when it turns a feature off by itself", function()
+	local farm = control("Toggles", "||Auto Farm||Auto Farm Level")
+	farm.Set(true)
+	assert(_G.Level == true)
+	_G.Level = false -- the core finishing a quest
+	runLoops(nil, 2)
+	assert(farm.Get() == false, "toggle caught up with the core")
+	assert(_G.Level == false)
+end)
+
+run("ESP routines run while a switch is on and once more after it goes off", function()
+	local esp = control("Toggles", "||ESP||Players")
+	local calls = {}
+	runLoops(function(n)
+		calls[n] = HARNESS_CALLS.esp
+		if n == 1 then esp.Set(true) end
+		if n == 3 then esp.Set(false) end
+	end, 7)
+	assert(calls[2] == calls[1] + 1 or calls[2] > calls[1], "ran while on")
+	assert(HARNESS_CALLS.esp > 0)
+	-- after the switch went off: exactly one cleanup pass, then silence
+	local afterOff, final = calls[5], calls[7]
+	assert(afterOff == final, "stopped calling after cleanup, " .. tostring(afterOff) .. " vs " .. tostring(final))
+end)
+
+run("running the module twice is refused", function()
+	WARNINGS = {}
+	PLACE_ID_OVERRIDE = 2753915549
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/2753915549.lua")))
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	assert(WARNINGS[#WARNINGS] and WARNINGS[#WARNINGS]:find("already running", 1, true), "second run warns")
+end)
+
+local function hasLabel(text)
+	for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+		if item.ClassName == "TextLabel" and item.Text == text then return true end
+	end
+	return false
+end
+
+run("buttons call the core and report instead of throwing", function()
+	UI_ERRORS, WARNINGS = {}, {}
+	BUTTONS["Server Hop"]()
+	assert(HARNESS_CALLS.hop == 1, "Server Hop calls HopServer")
+	BUTTONS["Low CPU Mode"]()
+	assert(HARNESS_CALLS.lowcpu == 1, "Low CPU Mode calls LowCpu")
+	BUTTONS["Disable Camera Shake"]() -- the stub core has no such function: must say so, not error
+	BUTTONS["Remove Dodge Cooldown"]()
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "no errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
+end)
+
+run("lists show how many entries they found, and Refresh re-reads them", function()
+	assert(hasLabel("2 mobs found") and hasLabel("2 islands found"), "initial counts")
+	control("Dropdowns", "||Auto Farm||Mob").Set("Monkey")
+	getgenv().GetMobs = function() return { "A", "B", "C" } end
+	BUTTONS["Refresh Mob List"]()
+	assert(hasLabel("3 mobs found"), "count updated after Refresh")
+	assert(_G.SelectMob == nil, "the cleared dropdown no longer leaves a hidden selection")
+	getgenv().GetMobs = function() return {} end
+	BUTTONS["Refresh Mob List"]()
+	assert(hasLabel("No mobs found. Press Refresh once the game has finished loading."), "empty state says what to do")
+end)
+
+run("Stop All Features switches everything off", function()
+	local farm = control("Toggles", "||Auto Farm||Auto Farm Level")
+	farm.Set(true)
+	BUTTONS["Stop All Features"]()
+	assert(farm.Get() == false and _G.Level == false)
+end)
+
+run("config saves and restores the Blox Fruits controls", function()
+	local farm = control("Toggles", "||Auto Farm||Auto Farm Level")
+	control("Boxes", "Settings||Config||Config Name").Set("bf")
+	farm.Set(true)
+	control("Sliders", "||Movement||Tween Speed Near").Set(222)
+	BUTTONS["Save"]()
+	assert(FILES["Peridot/BloxFruits/bf.json"], "config written to the Blox Fruits folder")
+	farm.Set(false)
+	control("Sliders", "||Movement||Tween Speed Near").Set(100)
+	RUN_SPAWNS = true -- Load applies values from task.spawn
+	BUTTONS["Load"]()
+	RUN_SPAWNS = false
+	assert(farm.Get() == true and _G.Level == true, "toggle restored")
+	assert(_G.TweenSpeedNear == 222, "slider restored, got " .. tostring(_G.TweenSpeedNear))
+	BUTTONS["Delete"]()
+	assert(not FILES["Peridot/BloxFruits/bf.json"], "config deleted")
+	farm.Set(false)
+end)
+
+local function buildSea(world, stubExtra)
+	local known = {}
+	for _, entries in pairs(lib.ControlRegistry) do
+		for _, handle in pairs(entries) do known[handle] = true end
+	end
+	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE .. "\nenv.World" .. world .. " = true\n" .. (stubExtra or "")
+	getgenv().PeridotBloxFruitsLoaded = nil
+	_G.World1, _G.World2, _G.World3 = nil, nil, nil
+	PLACE_ID_OVERRIDE = 2753915549
+	UI_ERRORS, WARNINGS = {}, {}
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/2753915549.lua")))
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
+	local titles = {}
+	for _, entries in pairs(lib.ControlRegistry) do
+		for key, handle in pairs(entries) do
+			if not known[handle] then titles[key:match("||([^|]*)$")] = true end
+		end
+	end
+	return titles
+end
+local function expectControls(titles, present, absent)
+	for _, title in ipairs(present) do assert(titles[title], "missing in this sea: " .. title) end
+	for _, title in ipairs(absent) do assert(not titles[title], "should not exist in this sea: " .. title) end
+end
+
+run("Sea 1 hides the controls that only work in Sea 2 and Sea 3", function()
+	local titles = buildSea(1, "env.GetMobs = function() return {} end")
+	expectControls(titles,
+		{ "Auto Farm Level", "Get Saber", "Get Marine Coat", "Second Sea Quest", "Farm Chests", "Auto Server Hop" },
+		{ "Farm Bones", "Dough King", "Get Tushita", "Get Trident", "Factory Raid", "Castle Raid", "Auto Start Raid",
+		  "Buy Microchip", "Dojo Belt Quests", "Find Mirage Island", "Find Kitsune Island", "Find Prehistoric Island",
+		  "Elite Hunter", "Tyrant of the Skies", "Third Sea Quest" })
+	assert(_G.SelectIslandMastery == "Selected Mob", "mastery target only offers what works here")
+	assert(hasLabel("No mobs found. Press Refresh once the game has finished loading."), "empty list explains itself")
+end)
+run("Sea 2 shows its own controls only", function()
+	local titles = buildSea(2)
+	expectControls(titles,
+		{ "Auto Farm Level", "Get Trident", "Get Longsword", "Factory Raid", "Buy Microchip", "Auto Start Raid",
+		  "Bartilo Quest", "Third Sea Quest", "Get Godhuman" },
+		{ "Get Saber", "Get Marine Coat", "Second Sea Quest", "Farm Bones", "Castle Raid", "Get Tushita",
+		  "Find Mirage Island", "Dojo Belt Quests", "Get Dragon Talon" })
+end)
+run("Sea 3 shows its own controls only", function()
+	local titles = buildSea(3)
+	expectControls(titles,
+		{ "Auto Farm Level", "Farm Bones", "Dough King", "Get Tushita", "Castle Raid", "Auto Start Raid",
+		  "Find Mirage Island", "Find Kitsune Island", "Dojo Belt Quests", "Get Rainbow Haki", "Elite Hunter" },
+		{ "Get Saber", "Get Trident", "Factory Raid", "Buy Microchip", "Second Sea Quest", "Bartilo Quest" })
+	assert(_G.SelectIslandMastery == "Cake")
+end)
+run("an unknown sea hides nothing", function()
+	-- the first run, with no World flag set, built every control
+	assert(#bfToggles >= 200)
+end)
 
 print(("instances created: %d, http fetches: %s"):format(INSTANCES, table.concat(HTTP_LOG, ", ")))
 print(failures == 0 and "ALL PASSED" or (failures .. " FAILED"))
