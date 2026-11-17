@@ -804,6 +804,8 @@ env.fetchServersData = function()
 		{ id = "cccccccc33", playing = 12, maxPlayers = 12, ping = 40 }, -- full: not offered
 	}
 end
+env.Pirates = function() HARNESS_CALLS.team = "Pirates" end
+env.Marines = function() HARNESS_CALLS.team = "Marines" end
 _G.toggleFly = function(on) HARNESS_CALLS.fly = on end
 _G.updateFlySpeed = function(v) HARNESS_CALLS.flySpeed = v end
 ]==]
@@ -1175,6 +1177,36 @@ run("Go Through Portal sends the entrance request for the chosen portal", functi
 	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "no errors")
 end)
 
+run("shop, sea travel and team buttons send the script's own commands", function()
+	local comm = service("ReplicatedStorage"):FindFirstChild("Remotes"):FindFirstChild("CommF_")
+	local sent
+	comm.InvokeServer = function(_, ...) sent = { ... } return 1 end
+	local expected = {
+		["Buy Black Leg"] = { "BuyBlackLeg" },
+		["Buy Dragon Claw"] = { "BlackbeardReward", "DragonClaw", "2" },
+		["Buy Godhuman"] = { "BuyGodhuman" },
+		["Buy Bisento"] = { "BuyItem", "Bisento" },
+		["Buy Soul Guitar"] = { "soulGuitarBuy", true },
+		["Random Bone Roll"] = { "Bones", "Buy", 1, 1 },
+		["Random Fruit From Cousin"] = { "Cousin", "Buy" },
+		["Travel To Second Sea"] = { "TravelDressrosa" },
+		["Travel To Third Sea"] = { "TravelZou" },
+	}
+	UI_ERRORS, WARNINGS = {}, {}
+	for title, args in pairs(expected) do
+		sent = nil
+		assert(BUTTONS[title], "missing button " .. title)
+		BUTTONS[title]()
+		assert(sent and #sent == #args, title .. " sent " .. tostring(sent and #sent))
+		for i = 1, #args do
+			assert(sent[i] == args[i], title .. " argument " .. i .. " is " .. tostring(sent[i]))
+		end
+	end
+	BUTTONS["Join Marines"]()
+	assert(HARNESS_CALLS.team == "Marines")
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "no errors")
+end)
+
 run("the submarine trip switches itself off once you are on the Submerged Island", function()
 	local trip = control("Toggles", "||Submerged Island||Go To Submerged Island (Submarine)")
 	trip.Set(true)
@@ -1366,6 +1398,19 @@ local function defines(name)
 	return false
 end
 
+run("every command a button sends is one the script itself sends", function()
+	local unknown, checked = {}, 0
+	for args in UI:gmatch("commandButton%(%w+, \"[^\"]+\", \"[^\"]+\", ([^\n]+)%)") do
+		checked = checked + 1
+		local command = args:match('^"([^"]+)"')
+		if command ~= "TravelMain" and not CORE:find('InvokeServer%(%s*"' .. command .. '"') then
+			unknown[#unknown + 1] = command
+		end
+	end
+	assert(checked >= 15, "found the command buttons, got " .. checked)
+	assert(#unknown == 0, "commands the script never sends: " .. table.concat(unknown, ", "))
+end)
+
 run("every core function the UI calls exists in the core", function()
 	local wanted = { "_tp", "IsInSubmergedIsland", "toggleFly", "updateFlySpeed" }
 	for name in UI:gmatch('callGlobal%("([%w_]+)"') do wanted[#wanted + 1] = name end
@@ -1384,7 +1429,8 @@ GetIn IsAlive GetNearbyTargets GetTargetParts Execute ListServers requestentranc
 Getmoon BypassTP BTP old_tp
 ]]) -- helpers; ListServers is the older twin of fetchServersData; requestentrance's portal table drives
     -- Misc > Teleport > Portals; Getmoon only returns a texture id (the source has no phase table);
-    -- BypassTP / BTP / old_tp move you by respawning or setting your position outright
+    -- BypassTP is switched off in the source itself (its "Bypass Teleport" setting is a
+    -- hard-coded false); BTP / old_tp move you by dying or setting your position outright
 
 local function calledIn(text, name)
 	local init = 1
