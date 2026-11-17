@@ -12,16 +12,19 @@ local getgenv = getgenv or function() return _G end
 local cloneref = cloneref or function(o) return o end
 local gethui   = gethui   or function() return cloneref(game:GetService("CoreGui")) end
 
+-- Plain global lookups: executors often expose these through the environment's
+-- __index, which rawget(getfenv(0), ...) skips. That made file access look
+-- missing, so configs, the theme file and URL backgrounds all failed.
 local HasFileSystem =
-    type(rawget(getfenv(0), "isfile"))     == "function" and
-    type(rawget(getfenv(0), "writefile"))  == "function" and
-    type(rawget(getfenv(0), "isfolder"))   == "function" and
-    type(rawget(getfenv(0), "makefolder")) == "function"
+    type(isfile)     == "function" and
+    type(readfile)   == "function" and
+    type(writefile)  == "function" and
+    type(isfolder)   == "function" and
+    type(makefolder) == "function"
 
 -- One-time carry-over of saves from the pre-rename "Vinsers Hub" folder.
 -- Skips the Assets cache (it re-downloads) and does nothing once "Peridot" exists.
 local function MigrateLegacyFolder()
-    local listfiles = rawget(getfenv(0), "listfiles")
     if not HasFileSystem or type(listfiles) ~= "function" then return end
     if isfolder("Peridot") or not isfolder("Vinsers Hub") then return end
 
@@ -92,13 +95,36 @@ local T1UIColor = {
 	["Tween Easing Style"] = "Quad",
 }
 
--- UIColor is a proxy so a theme change made after the window exists (panel
--- transparency from the Settings page) can reach frames already built.
-local ThemeListeners = {}
+-- Live theme: Bind() records every property drawn from a theme key, and writing
+-- getgenv().UIColor[key] (gear page, scripts) re-applies it to everything on screen.
+local ThemeListeners = {} -- key -> function(value), for values that aren't a plain property (rich text, gradients)
+local ThemeBindings = {} -- key -> { {instance, property}, ... }
+local function Bind(instance, property, key)
+	local value = T1UIColor[key]
+	instance[property] = value
+	local list = ThemeBindings[key]
+	if not list then
+		list = {}
+		ThemeBindings[key] = list
+	end
+	table.insert(list, { instance, property })
+	return value
+end
 getgenv().UIColor = setmetatable({}, {
 	__index = T1UIColor,
 	__newindex = function(_, key, value)
 		T1UIColor[key] = value
+		local list = ThemeBindings[key]
+		if list then
+			for i = #list, 1, -1 do
+				local binding = list[i]
+				if not pcall(function()
+					binding[1][binding[2]] = value
+				end) then
+					table.remove(list, i)
+				end
+			end
+		end
 		if ThemeListeners[key] then
 			pcall(ThemeListeners[key], value)
 		end
@@ -155,11 +181,11 @@ local function color3ToList(color)
 end
 
 local ThemeFile = "Peridot/Theme.json"
-local DefaultTheme = {
-	PanelTransparency = T1UIColor["Background 1 Transparency"],
-	AnimationSpeed = T1UIColor["Tween Animation 2 Speed"],
-	Easing = T1UIColor["Tween Easing Style"],
-}
+local DefaultTheme = {} -- every theme value as shipped, for "Reset theme"
+for key, value in pairs(T1UIColor) do
+	DefaultTheme[key] = value
+end
+local RainbowKeys = {} -- theme key -> { s, v } while its rainbow is on
 local SavedTheme = {}
 if HasFileSystem then
 	pcall(function()
@@ -201,8 +227,29 @@ end
 if tonumber(SavedTheme.AnimationSpeed) then
 	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
 end
+if tonumber(SavedTheme.AnimationSpeed1) then
+	T1UIColor["Tween Animation 1 Speed"] = tonumber(SavedTheme.AnimationSpeed1)
+end
+if tonumber(SavedTheme.AnimationSpeed3) then
+	T1UIColor["Tween Animation 3 Speed"] = tonumber(SavedTheme.AnimationSpeed3)
+end
 if type(SavedTheme.Easing) == "string" then
 	T1UIColor["Tween Easing Style"] = SavedTheme.Easing
+end
+if type(SavedTheme.Colors) == "table" then -- one-off color edits from the Colors tab
+	for key, c in pairs(SavedTheme.Colors) do
+		if typeof(T1UIColor[key]) == "Color3" and type(c) == "table" then
+			T1UIColor[key] = Color3.fromRGB(tonumber(c[1]) or 0, tonumber(c[2]) or 0, tonumber(c[3]) or 0)
+		end
+	end
+end
+if type(SavedTheme.Rainbow) == "table" then
+	for key in pairs(SavedTheme.Rainbow) do
+		if typeof(T1UIColor[key]) == "Color3" then
+			local _, s, v = T1UIColor[key]:ToHSV()
+			RainbowKeys[key] = { s = math.max(s, 0.45), v = math.max(v, 0.6) }
+		end
+	end
 end
 getgenv().AllControls = {}
 getgenv().UIToggled = false
@@ -293,7 +340,7 @@ btnHideFrame.BackgroundTransparency = getgenv().UIToggled and 0 or .25
 
 local imgHide = Instance.new('ImageLabel', btnHide)
 imgHide.AnchorPoint = Vector2.new(0, 0)
-imgHide.Image = getgenv().UIColor["Logo Image"]
+Bind(imgHide, "Image", "Logo Image")
 imgHide.BackgroundTransparency = 1
 imgHide.Size = UDim2.new(0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30), 0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30))
 imgHide.AnchorPoint = Vector2.new(.5, .5)
@@ -430,47 +477,78 @@ function Library_Function.Getcolor(color)
 	}
 end
 
-local function colorKey(color)
-	return math.floor(color.R * 255 + 0.5) .. "," .. math.floor(color.G * 255 + 0.5) .. "," .. math.floor(color.B * 255 + 0.5)
+-- Theme values that aren't a plain bound property.
+local ButtonGradients = {}
+ThemeListeners["Button Color"] = function(color)
+	for _, gradient in ipairs(ButtonGradients) do
+		gradient.Color = ButtonGradient(color)
+	end
 end
-
--- Recolors the accent everywhere: the theme keys (for anything drawn later) and
--- every property already on screen that still holds one of the old accent shades.
-function Library_Function.ApplyAccent(accent)
-	local swap = {}
-	for key, value in pairs(accentPalette(accent)) do
-		local old = getgenv().UIColor[key]
-		if typeof(old) == "Color3" then
-			swap[colorKey(old)] = value
-		end
-		getgenv().UIColor[key] = value
-	end
-	for _, root in ipairs({ Library_Function.Gui, Library_Function.NotiGui, Library_Function.HideGui }) do
-		for _, item in ipairs(root:GetDescendants()) do
-			for _, prop in ipairs({ "BackgroundColor3", "TextColor3", "ImageColor3", "Color" }) do
-				local ok, value = pcall(function()
-					return item[prop]
-				end)
-				if ok and typeof(value) == "Color3" and swap[colorKey(value)] then
-					item[prop] = swap[colorKey(value)]
-				end
-			end
-			if item:IsA("UIGradient") and item.Parent and item.Parent.Name == "ClickArea" then
-				item.Color = ButtonGradient(accent)
-			end
-		end
-	end
+ThemeListeners["Title Text Color"] = function()
 	if Library_Function.RefreshTitle then
 		Library_Function.RefreshTitle()
 	end
 end
 
+-- One theme color, live + saved. Picking an accent preset later resets the accent keys.
+function Library_Function.SetThemeColor(key, color)
+	getgenv().UIColor[key] = color
+	SavedTheme.Colors = SavedTheme.Colors or {}
+	SavedTheme.Colors[key] = color3ToList(color)
+	saveThemeSoon()
+end
+
+-- Accent: every accent key (and its two shades) at once, live + saved.
 function Library_Function.SetAccent(accent, presetName)
-	Library_Function.ApplyAccent(accent)
+	for key, value in pairs(accentPalette(accent)) do
+		getgenv().UIColor[key] = value
+		if SavedTheme.Colors then
+			SavedTheme.Colors[key] = nil -- the accent wins over earlier one-off edits of these keys
+		end
+		RainbowKeys[key] = nil
+	end
 	SavedTheme.Accent = color3ToList(accent)
 	SavedTheme.Preset = presetName or "Custom"
 	saveThemeSoon()
+	if Library_Function.OnAccentChanged then
+		Library_Function.OnAccentChanged()
+	end
 end
+
+-- Rainbow: cycles a theme color's hue (keeping its saturation/brightness). Saved per key.
+function Library_Function.SetRainbow(key, on)
+	if on then
+		local h, s, v = getgenv().UIColor[key]:ToHSV()
+		RainbowKeys[key] = { s = math.max(s, 0.45), v = math.max(v, 0.6) }
+	else
+		RainbowKeys[key] = nil
+	end
+	SavedTheme.Rainbow = SavedTheme.Rainbow or {}
+	SavedTheme.Rainbow[key] = on and true or nil
+	saveThemeSoon()
+end
+-- Back to the shipped theme (UI Settings > Window > Reset theme).
+function Library_Function.ResetTheme()
+	for key in pairs(RainbowKeys) do
+		RainbowKeys[key] = nil
+	end
+	for key, value in pairs(DefaultTheme) do
+		getgenv().UIColor[key] = value
+	end
+	for key in pairs(SavedTheme) do
+		SavedTheme[key] = nil
+	end
+	saveThemeSoon()
+end
+
+RunService.Heartbeat:Connect(function()
+	if next(RainbowKeys) then
+		local hue = (tick() % 6) / 6
+		for key, base in pairs(RainbowKeys) do
+			getgenv().UIColor[key] = Color3.fromHSV(hue, base.s, base.v)
+		end
+	end
+end)
 
 local libCreateNoti = function(Setting)
 	getgenv().TitleNameNoti = Setting.Title or ""; 
@@ -503,7 +581,7 @@ local libCreateNoti = function(Setting)
 	Noticontainer.Position = UDim2.new(1, 0, 0, 0)
 	Noticontainer.Size = UDim2.new(1, 0, 1, 6)
 	Noticontainer.AutomaticSize = Enum.AutomaticSize.Y
-	Noticontainer.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+	Bind(Noticontainer, "BackgroundColor3", "Background 3 Color")
 	UICorner.CornerRadius = UDim.new(0, 4)
 	UICorner.Parent = Noticontainer
 
@@ -520,7 +598,7 @@ local libCreateNoti = function(Setting)
 	Ruafimg.BackgroundTransparency = 1.000
 	Ruafimg.Position = UDim2.new(0, 5, 0, getgenv().T1 and 5 or 0)
 	Ruafimg.Size = UDim2.new(0, getgenv().T1 and 30 or 25, 0, getgenv().T1 and 15 or 25)
-	Ruafimg.Image = getgenv().UIColor["Logo Image"]
+	Bind(Ruafimg, "Image", "Logo Image")
 
 	RuafimgCorner.CornerRadius = UDim.new(1, 0)
 	RuafimgCorner.Name = "RuafimgCorner"
@@ -543,7 +621,7 @@ local libCreateNoti = function(Setting)
 	TextLabelNoti.TextWrapped = true
 	TextLabelNoti.TextXAlignment = Enum.TextXAlignment.Left
 	TextLabelNoti.RichText = true
-	TextLabelNoti.TextColor3 = getgenv().UIColor["GUI Text Color"]
+	Bind(TextLabelNoti, "TextColor3", "GUI Text Color")
 
 	CloseContainer.Name = "CloseContainer"
 	CloseContainer.Parent = Topnoti
@@ -561,7 +639,7 @@ local libCreateNoti = function(Setting)
 	CloseImage.Image = "rbxassetid://3926305904"
 	CloseImage.ImageRectOffset = Vector2.new(284, 4)
 	CloseImage.ImageRectSize = Vector2.new(24, 24)
-	CloseImage.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+	Bind(CloseImage, "ImageColor3", "Search Icon Color")
 
 	TextButton.Parent = CloseContainer
 	TextButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
@@ -584,7 +662,7 @@ local libCreateNoti = function(Setting)
 		TextLabelNoti2.TextSize = 14.000
 		TextLabelNoti2.TextXAlignment = Enum.TextXAlignment.Left
 		TextLabelNoti2.RichText = true
-		TextLabelNoti2.TextColor3 = getgenv().UIColor["Text Color"]
+		Bind(TextLabelNoti2, "TextColor3", "Text Color")
 		TextLabelNoti2.AutomaticSize = Enum.AutomaticSize.Y
 		TextLabelNoti2.TextWrapped = true
 	end
@@ -691,7 +769,7 @@ function Library:CreateWindow(Setting)
 	maingui.ScaleType = Enum.ScaleType.Slice
 	maingui.SliceCenter = Rect.new(15, 15, 175, 175)
 	maingui.SliceScale = 1.300
-	maingui.ImageColor3 = getgenv().UIColor["Border Color"]
+	Bind(maingui, "ImageColor3", "Border Color")
 	maingui.ImageTransparency = 1
 
 	maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
@@ -759,7 +837,7 @@ function Library:CreateWindow(Setting)
 	Ruafimg.BackgroundTransparency = 1.000
 	Ruafimg.Position = UDim2.new(0, 5, 0, 0)
 	Ruafimg.Size = UDim2.new(0, 25, 0, 25)
-	Ruafimg.Image = getgenv().UIColor["Logo Image"]
+	Bind(Ruafimg, "Image", "Logo Image")
 
 	TextLabelMain.Name = "TextLabelMain"
 	TextLabelMain.Parent = TopMain
@@ -772,7 +850,7 @@ function Library:CreateWindow(Setting)
 	TextLabelMain.TextSize = 16.000
 	TextLabelMain.TextWrapped = true
 	TextLabelMain.TextXAlignment = Enum.TextXAlignment.Left
-	TextLabelMain.TextColor3 = getgenv().UIColor["GUI Text Color"]
+	Bind(TextLabelMain, "TextColor3", "GUI Text Color")
 
 	local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
 	local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
@@ -796,7 +874,7 @@ function Library:CreateWindow(Setting)
 	SettingsGear.BackgroundTransparency = 1
 	SettingsGear.AutoButtonColor = false
 	SettingsGear.Image = "rbxassetid://7397332215"
-	SettingsGear.ImageColor3 = getgenv().UIColor["Setting Icon Color"]
+	Bind(SettingsGear, "ImageColor3", "Setting Icon Color")
 	SettingsGear.ZIndex = 2
 	SettingsGear.MouseEnter:Connect(function()
 		TweenService:Create(SettingsGear, TI("Tween Animation 3 Speed"), {
@@ -822,7 +900,7 @@ function Library:CreateWindow(Setting)
 	PageControl.Position = UDim2.new(0, 5, 0, 0)
 	PageControl.Size = UDim2.new(0, 180, 0, 325)
 	PageControl.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
-	PageControl.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+	Bind(PageControl, "BackgroundTransparency", "Background 1 Transparency")
 
 	local pageControlStroke = Instance.new("UIStroke", PageControl)
 	pageControlStroke.Color = Color3.fromRGB(90, 90, 70)
@@ -871,7 +949,7 @@ function Library:CreateWindow(Setting)
 	ControlTitle.TextSize = 14.000
 	ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
 	ControlTitle.TextTruncate = Enum.TextTruncate.AtEnd -- long game names end in "..."
-	ControlTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+	Bind(ControlTitle, "TextColor3", "GUI Text Color")
 
 	local PageSearch = Instance.new("Frame")
 	local PageSearchCorner = Instance.new("UICorner")
@@ -937,7 +1015,7 @@ function Library:CreateWindow(Setting)
 	UIPage.EasingDirection = Enum.EasingDirection.InOut
 	UIPage.EasingStyle = Enum.EasingStyle.Quart
 	UIPage.Padding = UDim.new(0, 10)
-	UIPage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+	Bind(UIPage, "TweenTime", "Tween Animation 1 Speed")
 
 	UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 		ControlList.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 5)
@@ -1154,7 +1232,7 @@ function Library:CreateWindow(Setting)
 		InLine.BorderSizePixel = 0
 		InLine.Position = UDim2.new(0.5, 0, 0.5, 0)
 		InLine.Size = UDim2.new(1, -10, 1, -10)
-		InLine.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+		Bind(InLine, "BackgroundColor3", "Page Selected Color")
 		InLine.BackgroundTransparency = 1.000
 
 		LineCorner.Name = "LineCorner"
@@ -1177,7 +1255,7 @@ function Library:CreateWindow(Setting)
 		TabTitle.TextColor3 = Color3.fromRGB(230, 230, 230)
 		TabTitle.TextSize = 14.000
 		TabTitle.TextXAlignment = Enum.TextXAlignment.Left
-		TabTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		Bind(TabTitle, "TextColor3", "GUI Text Color")
 
 		PageButton.Name = "PageButton"
 		PageButton.Parent = PageName
@@ -1201,11 +1279,11 @@ function Library:CreateWindow(Setting)
 		PageCounter = PageCounter + 1
 		PageContainer.Name = "Page" .. CurrentPage
 		PageContainer.Parent = MainPage
-		PageContainer.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		Bind(PageContainer, "BackgroundColor3", "Background 1 Color")
 		PageContainer.Position = UDim2.new(0, 190, 0, 30)
 		PageContainer.Size = UDim2.new(0, 435, 0, 325)
 		PageContainer.LayoutOrder = Hidden and 100000 or LayoutOrder -- never the page shown at start
-		PageContainer.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+		Bind(PageContainer, "BackgroundTransparency", "Background 1 Transparency")
 
 		UICorner.CornerRadius = UDim.new(0, 4)
 		UICorner.Parent = PageContainer
@@ -1220,7 +1298,7 @@ function Library:CreateWindow(Setting)
 		PageTitle.Text = Page_Title
 		PageTitle.TextSize = 16.000
 		PageTitle.TextXAlignment = Enum.TextXAlignment.Left
-		PageTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+		Bind(PageTitle, "TextColor3", "GUI Text Color")
 
 		PageList.Name = "PageList"
 		PageList.Parent = PageContainer
@@ -1241,8 +1319,15 @@ function Library:CreateWindow(Setting)
 		Pagelistlayout.Parent = PageList
 		Pagelistlayout.SortOrder = Enum.SortOrder.LayoutOrder
 		Pagelistlayout.Padding = UDim.new(0, 5)
+		-- Room for the sections' 1px outline: it's drawn outside each section, and the
+		-- scroll area clipped it on the left, the top of the first and the bottom of the last.
+		local PageListPadding = Instance.new("UIPadding")
+		PageListPadding.PaddingTop = UDim.new(0, 2)
+		PageListPadding.PaddingBottom = UDim.new(0, 2)
+		PageListPadding.PaddingLeft = UDim.new(0, 2)
+		PageListPadding.Parent = PageList
 		Pagelistlayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-			PageList.CanvasSize = UDim2.new(0, 0, 0, Pagelistlayout.AbsoluteContentSize.Y)
+			PageList.CanvasSize = UDim2.new(0, 0, 0, Pagelistlayout.AbsoluteContentSize.Y + 4)
 		end)
 
 		-- Sub-tab state: which sub-tab owns each section frame, and which one is showing.
@@ -1258,7 +1343,7 @@ function Library:CreateWindow(Setting)
 		PageSearch.Name = "Page Search"
 		PageSearch.Parent = PageContainer
 		PageSearch.AnchorPoint = Vector2.new(1, 0)
-		PageSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+		Bind(PageSearch, "BackgroundColor3", "Background 2 Color")
 		PageSearch.Position = UDim2.new(1, -5, 0, 5)
 		PageSearch.Size = UDim2.new(0, 20, 0, 20)
 		PageSearch.ClipsDescendants = true
@@ -1281,7 +1366,7 @@ function Library:CreateWindow(Setting)
 		SearchIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
 		SearchIcon.Size = UDim2.new(0, 16, 0, 16)
 		SearchIcon.Image = "rbxassetid://8154282545"
-		SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+		Bind(SearchIcon, "ImageColor3", "Search Icon Color")
 
 		SearchButton.Name = "Search Button"
 		SearchButton.Parent = SearchFrame
@@ -1304,8 +1389,8 @@ function Library:CreateWindow(Setting)
 		SearchBox.TextSize = 14.000
 		SearchBox.TextXAlignment = Enum.TextXAlignment.Left
 		SearchBox.PlaceholderText = "Search Section name"
-		SearchBox.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
-		SearchBox.TextColor3 = getgenv().UIColor["Text Color"]
+		Bind(SearchBox, "PlaceholderColor3", "Placeholder Text Color")
+		Bind(SearchBox, "TextColor3", "Text Color")
 		
 		local Openned = false 
 
@@ -1448,7 +1533,7 @@ function Library:CreateWindow(Setting)
 			Sectiontitle.Font = Enum.Font.GothamBold
 			Sectiontitle.Text = Section_Name
 			Sectiontitle.TextSize = 14.000
-			Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+			Bind(Sectiontitle, "TextColor3", "Section Text Color")
 
 			Linesec.Name = "Linesec"
 			Linesec.Parent = Topsec
@@ -1456,7 +1541,7 @@ function Library:CreateWindow(Setting)
 			Linesec.BorderSizePixel = 0
 			Linesec.Position = UDim2.new(0.5, 0, 1, -2)
 			Linesec.Size = UDim2.new(1, -10, 0, 2)
-			Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+			Bind(Linesec, "BackgroundColor3", "Section Underline Color")
 
 			local LineShadow = Instance.new("ImageLabel", Linesec)
 			LineShadow.Name = "LineShadow"
@@ -1617,11 +1702,11 @@ function Library:CreateWindow(Setting)
 				checkbox.Position = UDim2.new(1, -5, 0.5, 3)
 				checkbox.Size = UDim2.new(0, 25, 0, 25)
 				checkbox.Image = "rbxassetid://4552505888"
-				checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+				Bind(checkbox, "ImageColor3", "Toggle Border Color")
 				check.Name = "check"
 				check.Parent = checkbox
 				check.AnchorPoint = Vector2.new(0.5, 0.5)
-				check.BackgroundColor3 = getgenv().UIColor["Button Color"]
+				Bind(check, "BackgroundColor3", "Button Color")
 				check.Position = UDim2.new(0.5, 0, 0.5, 0)
 				local cac = 5
 				if Desc then
@@ -1639,7 +1724,7 @@ function Library:CreateWindow(Setting)
 					ToggleDesc.TextXAlignment = Enum.TextXAlignment.Left
 					ToggleDesc.RichText = true
 					ToggleDesc.AutomaticSize = Enum.AutomaticSize.Y
-					ToggleDesc.TextColor3 = getgenv().UIColor["Toggle Desc Color"]
+					Bind(ToggleDesc, "TextColor3", "Toggle Desc Color")
 				else
 					ToggleDesc.Text = ''
 				end
@@ -1656,13 +1741,13 @@ function Library:CreateWindow(Setting)
 				ToggleTitle.TextYAlignment = Enum.TextYAlignment.Center
 				ToggleTitle.RichText = true
 				ToggleTitle.AutomaticSize = Enum.AutomaticSize.Y
-				ToggleTitle.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(ToggleTitle, "TextColor3", "Text Color")
 				ToggleBg.Name = "Background1"
 				ToggleBg.Parent = TogFrame1
 				ToggleBg.Size = UDim2.new(1, 0, 1, 6)
 				ToggleBg.ZIndex = 0
-				ToggleBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-				ToggleBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Bind(ToggleBg, "BackgroundColor3", "Background 1 Color")
+				Bind(ToggleBg, "BackgroundTransparency", "Background 1 Transparency")
 				ToggleCorner.CornerRadius = UDim.new(0, 4)
 				ToggleCorner.Name = "ToggleCorner"
 				ToggleCorner.Parent = ToggleBg
@@ -1749,8 +1834,8 @@ function Library:CreateWindow(Setting)
             RowBG_1.Name = "RowBG"
             RowBG_1.Parent = Button
             RowBG_1.AnchorPoint = Vector2.new(0.5, 0.5)
-            RowBG_1.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-            RowBG_1.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+            Bind(RowBG_1, "BackgroundColor3", "Background 1 Color")
+            Bind(RowBG_1, "BackgroundTransparency", "Background 1 Transparency")
             RowBG_1.Position = UDim2.new(0.5, 0,0.5, 0)
             RowBG_1.Size = UDim2.new(1, -10,1, 0)
              
@@ -1759,7 +1844,7 @@ function Library:CreateWindow(Setting)
              
             RowHover_1.Name = "RowHover"
             RowHover_1.Parent = RowBG_1
-            RowHover_1.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+            Bind(RowHover_1, "BackgroundColor3", "Background 2 Color")
             RowHover_1.BackgroundTransparency = 1
             RowHover_1.Size = UDim2.new(1, 0,1, 0)
             RowHover_1.ZIndex = 2
@@ -1775,7 +1860,7 @@ function Library:CreateWindow(Setting)
              TextColor_1.Size = UDim2.new(1, -110,1, 0)
              TextColor_1.Font = Enum.Font.GothamBold
              TextColor_1.Text = Title
-             TextColor_1.TextColor3 = getgenv().UIColor["GUI Text Color"]
+             Bind(TextColor_1, "TextColor3", "GUI Text Color")
              TextColor_1.TextSize = 14
              TextColor_1.TextStrokeTransparency = 0.8500000238418579
              TextColor_1.TextXAlignment = Enum.TextXAlignment.Left
@@ -1783,7 +1868,7 @@ function Library:CreateWindow(Setting)
              ClickArea_1.Name = "ClickArea"
              ClickArea_1.Parent = RowBG_1
              ClickArea_1.AnchorPoint = Vector2.new(1, 0.5)
-             ClickArea_1.BackgroundColor3 = getgenv().UIColor["Button Color"]
+             Bind(ClickArea_1, "BackgroundColor3", "Button Color")
              ClickArea_1.Position = UDim2.new(1, -8,0.5, 0)
              ClickArea_1.Size = UDim2.new(0, 94,0, 30)
              ClickArea_1.ClipsDescendants = true  -- THÊM DÒNG NÀY: Ngăn ripple tràn ra
@@ -1793,6 +1878,7 @@ function Library:CreateWindow(Setting)
              
              UIGradient_1.Parent = ClickArea_1
              UIGradient_1.Color = ButtonGradient(getgenv().UIColor["Button Color"]) -- follows the accent
+             table.insert(ButtonGradients, UIGradient_1)
              UIGradient_1.Rotation = 90
              
              ImageLabel_1.Parent = ClickArea_1
@@ -1992,7 +2078,7 @@ function Library:CreateWindow(Setting)
                 Dropdownbg.Position = UDim2.new(0.5, 0, 0.5, 0)
                 Dropdownbg.Size = UDim2.new(1, -10, 1, 0)
                 Dropdownbg.ClipsDescendants = true
-                Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+                Bind(Dropdownbg, "BackgroundColor3", "Background 1 Color")
                 Dropdownbg.BackgroundTransparency = 0.25
                 
                 Dropdowncorner.CornerRadius = UDim.new(0, 4)
@@ -2002,8 +2088,8 @@ function Library:CreateWindow(Setting)
                 Topdrop.Name = "Background2"
                 Topdrop.Parent = Dropdownbg
                 Topdrop.Size = UDim2.new(1, 0, 0, 25)
-                Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
-                Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+                Bind(Topdrop, "BackgroundColor3", "Background 2 Color")
+                Bind(Topdrop, "BackgroundTransparency", "Background 1 Transparency")
                 
                 UICorner.CornerRadius = UDim.new(0, 4)
                 UICorner.Parent = Topdrop
@@ -2012,7 +2098,7 @@ function Library:CreateWindow(Setting)
                 if Search then
                     Dropdowntitle = Instance.new("TextBox")
                     Dropdowntitle.PlaceholderText = Title
-                    Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+                    Bind(Dropdowntitle, "PlaceholderColor3", "Placeholder Text Color")
                 else
                     Dropdowntitle = Instance.new("TextLabel")
                     Dropdowntitle.Text = Title
@@ -2028,7 +2114,7 @@ function Library:CreateWindow(Setting)
                 Dropdowntitle.TextSize = 14.000
                 Dropdowntitle.TextXAlignment = Enum.TextXAlignment.Left
                 Dropdowntitle.ClipsDescendants = true
-                Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+                Bind(Dropdowntitle, "TextColor3", "Text Color")
                 
                 ImgDrop.Name = "ImgDrop"
                 ImgDrop.Parent = Topdrop
@@ -2038,7 +2124,7 @@ function Library:CreateWindow(Setting)
                 ImgDrop.Position = UDim2.new(1, -6, 0.5, 0)
                 ImgDrop.Size = UDim2.new(0, 15, 0, 15)
                 ImgDrop.Image = "rbxassetid://6954383209"
-                ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+                Bind(ImgDrop, "ImageColor3", "Dropdown Icon Color")
                 
                 DropdownButton.Name = "DropdownButton"
                 DropdownButton.Parent = Topdrop
@@ -2199,14 +2285,14 @@ function Library:CreateWindow(Setting)
                     SliderTitle.TextSize = 14.000
                     SliderTitle.RichText = true
                     SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
-                    SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+                    Bind(SliderTitle, "TextColor3", "Text Color")
                     
                     SliderBar.Name = "SliderBar"
                     SliderBar.Parent = SliderFrame
                     SliderBar.AnchorPoint = Vector2.new(0.5, 0.5)
                     SliderBar.Position = UDim2.new(0.5, 0, 0.5, 14)
                     SliderBar.Size = UDim2.new(0.9, 0, 0, 6)  -- Thanh slider rộng 90%
-                    SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+                    Bind(SliderBar, "BackgroundColor3", "Background 2 Color")
                     
                     SliderButton.Name = "SliderButton"
                     SliderButton.Parent = SliderBar
@@ -2226,7 +2312,7 @@ function Library:CreateWindow(Setting)
                     Bar.BorderSizePixel = 0
                     Bar.Parent = SliderBar
                     Bar.Size = UDim2.new(0, 0, 1, 0)
-                    Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+                    Bind(Bar, "BackgroundColor3", "Slider Line Color")
                     
                     BarCorner.CornerRadius = UDim.new(1, 0)
                     BarCorner.Name = "BarCorner"
@@ -2237,7 +2323,7 @@ function Library:CreateWindow(Setting)
                     Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
                     Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
                     Sliderboxframe.Size = UDim2.new(0.25, 0, 0, 25)  -- Textbox chiếm 25%
-                    Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+                    Bind(Sliderboxframe, "BackgroundColor3", "Background 2 Color")
                     
                     Sliderbox.CornerRadius = UDim.new(0, 4)
                     Sliderbox.Name = "Sliderbox"
@@ -2251,7 +2337,7 @@ function Library:CreateWindow(Setting)
                     Sliderbox_2.Font = Enum.Font.GothamBold
                     Sliderbox_2.Text = ""
                     Sliderbox_2.TextSize = 14.000
-                    Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+                    Bind(Sliderbox_2, "TextColor3", "Text Color")
                     
                     SliderButton.MouseEnter:Connect(function()
                         TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
@@ -2451,16 +2537,16 @@ function Library:CreateWindow(Setting)
 				Dropdownbg.Position = UDim2.new(0.5, 0, 0.5, 0)
 				Dropdownbg.Size = UDim2.new(1, -10, 1, 0)
 				Dropdownbg.ClipsDescendants = true
-				Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-				Dropdownbg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Bind(Dropdownbg, "BackgroundColor3", "Background 1 Color")
+				Bind(Dropdownbg, "BackgroundTransparency", "Background 1 Transparency")
 				Dropdowncorner.CornerRadius = UDim.new(0, 4)
 				Dropdowncorner.Name = "Dropdowncorner"
 				Dropdowncorner.Parent = Dropdownbg
 				Topdrop.Name = "Background2"
 				Topdrop.Parent = Dropdownbg
 				Topdrop.Size = UDim2.new(1, 0, 0, 25)
-				Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
-				Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Bind(Topdrop, "BackgroundColor3", "Background 2 Color")
+				Bind(Topdrop, "BackgroundTransparency", "Background 1 Transparency")
 				UICorner.CornerRadius = UDim.new(0, 4)
 				UICorner.Parent = Topdrop
 				Dropdowntitle.Name = "TextColorPlaceholder"
@@ -2481,20 +2567,20 @@ function Library:CreateWindow(Setting)
 				end
 				if not Selected then
 					if Search then
-						Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						Bind(Dropdowntitle, "PlaceholderColor3", "Placeholder Text Color")
 						Dropdowntitle.PlaceholderText = Title .. ': ' .. tostring(Default or "");
 					else
 						Dropdowntitle.Text = Title .. ': ' .. tostring(Default or "");
 					end
 				else
 					if Search then
-						Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						Bind(Dropdowntitle, "PlaceholderColor3", "Placeholder Text Color")
 						Dropdowntitle.PlaceholderText = Title .. ': ' .. tostring(Default or "");
 					else
 						Dropdowntitle.Text = Title .. ': ' .. tostring(Default or "");
 					end
 				end
-				Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(Dropdowntitle, "TextColor3", "Text Color")
 				ImgDrop.Name = "ImgDrop"
 				ImgDrop.Parent = Topdrop
 				ImgDrop.AnchorPoint = Vector2.new(1, 0.5)
@@ -2503,7 +2589,7 @@ function Library:CreateWindow(Setting)
 				ImgDrop.Position = UDim2.new(1, -6, 0.5, 0)
 				ImgDrop.Size = UDim2.new(0, 15, 0, 15)
 				ImgDrop.Image = "rbxassetid://6954383209"
-				ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+				Bind(ImgDrop, "ImageColor3", "Dropdown Icon Color")
 				DropdownButton.Name = "DropdownButton"
 				DropdownButton.Parent = Topdrop
 				DropdownButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
@@ -2661,7 +2747,7 @@ function Library:CreateWindow(Setting)
 							SampleItemCheck.Size = UDim2.new(0, 25, 0, 25)
 							SampleItemCheck.ZIndex = 2
 							SampleItemCheck.Image = "rbxassetid://3926305904"
-							SampleItemCheck.ImageColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+							Bind(SampleItemCheck, "ImageColor3", "Dropdown Selected Check Color")
 							SampleItemCheck.ImageRectOffset = Vector2.new(312, 4)
 							SampleItemCheck.ImageRectSize = Vector2.new(24, 24)
 							SampleItemCheck.ImageTransparency = v and 0 or 1
@@ -2673,7 +2759,7 @@ function Library:CreateWindow(Setting)
 							SampleItemButton.BorderSizePixel = 0
 							SampleItemButton.Size = UDim2.new(1, 0, 1, 0)
 							SampleItemButton.Font = Enum.Font.SourceSans
-							SampleItemButton.TextColor3 = getgenv().UIColor["Text Color"]
+							Bind(SampleItemButton, "TextColor3", "Text Color")
 							SampleItemButton.TextSize = 14.000
 							SampleItemButton.TextTransparency = 1.000
 							SampleItemButton.MouseEnter:Connect(function()
@@ -2776,8 +2862,8 @@ function Library:CreateWindow(Setting)
 							SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
 							SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
 							SliderBG.Size = UDim2.new(1, -10, 1, 0)
-							SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-							SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							Bind(SliderBG, "BackgroundColor3", "Background 1 Color")
+							Bind(SliderBG, "BackgroundTransparency", "Background 1 Transparency")
 							SliderBGCorner.CornerRadius = UDim.new(0, 4)
 							SliderBGCorner.Name = "SliderBGCorner"
 							SliderBGCorner.Parent = SliderBG
@@ -2791,13 +2877,13 @@ function Library:CreateWindow(Setting)
 							SliderTitle.Text = TitleText
 							SliderTitle.TextSize = 14.000
 							SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
-							SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							Bind(SliderTitle, "TextColor3", "Text Color")
 							SliderBar.Name = "SliderBar"
 							SliderBar.Parent = SliderFrame
 							SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
 							SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
 							SliderBar.Size = UDim2.new(1, -20, 0, 6)
-							SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							Bind(SliderBar, "BackgroundColor3", "Background 2 Color")
 							SliderButton.Name = "SliderButton "
 							SliderButton.Parent = SliderBar
 							SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
@@ -2814,7 +2900,7 @@ function Library:CreateWindow(Setting)
 							Bar.BorderSizePixel = 0
 							Bar.Parent = SliderBar
 							Bar.Size = UDim2.new(0, 0, 1, 0)
-							Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+							Bind(Bar, "BackgroundColor3", "Slider Line Color")
 							BarCorner.CornerRadius = UDim.new(1, 0)
 							BarCorner.Name = "BarCorner"
 							BarCorner.Parent = Bar
@@ -2823,7 +2909,7 @@ function Library:CreateWindow(Setting)
 							Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
 							Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
 							Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
-							Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							Bind(Sliderboxframe, "BackgroundColor3", "Background 2 Color")
 							Sliderbox.CornerRadius = UDim.new(0, 4)
 							Sliderbox.Name = "Sliderbox"
 							Sliderbox.Parent = Sliderboxframe
@@ -2835,7 +2921,7 @@ function Library:CreateWindow(Setting)
 							Sliderbox_2.Font = Enum.Font.GothamBold
 							Sliderbox_2.Text = ""
 							Sliderbox_2.TextSize = 14.000
-							Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+							Bind(Sliderbox_2, "TextColor3", "Text Color")
 							SliderButton.MouseEnter:Connect(function()
 								TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
 									BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]
@@ -3038,7 +3124,7 @@ function Library:CreateWindow(Setting)
 								SampleItemCheck.Size = UDim2.new(0, 25, 0, 25)
 								SampleItemCheck.ZIndex = 2
 								SampleItemCheck.Image = "rbxassetid://3926305904"
-								SampleItemCheck.ImageColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+								Bind(SampleItemCheck, "ImageColor3", "Dropdown Selected Check Color")
 								SampleItemCheck.ImageRectOffset = Vector2.new(312, 4)
 								SampleItemCheck.ImageRectSize = Vector2.new(24, 24)
 								SampleItemCheck.ImageTransparency = 1
@@ -3050,7 +3136,7 @@ function Library:CreateWindow(Setting)
 								SampleItemButton.BorderSizePixel = 0
 								SampleItemButton.Size = UDim2.new(1, 0, 1, 0)
 								SampleItemButton.Font = Enum.Font.SourceSans
-								SampleItemButton.TextColor3 = getgenv().UIColor["Text Color"]
+								Bind(SampleItemButton, "TextColor3", "Text Color")
 								SampleItemButton.TextSize = 14.000
 								SampleItemButton.TextTransparency = 1.000
 								SampleItemButton.MouseEnter:Connect(function()
@@ -3117,7 +3203,7 @@ function Library:CreateWindow(Setting)
 								end)
 								if Sel.Value == v then
 									SampleItemBG.BackgroundTransparency = .5;
-									SampleItemBG.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+									Bind(SampleItemBG, "BackgroundColor3", "Dropdown Selected Check Color")
 									SampleItem.LayoutOrder = 0
 								end
 							end
@@ -3307,8 +3393,8 @@ function sectionFunction:AddKeyBind(Setting, Callback)
     BindBG.AnchorPoint = Vector2.new(0.5, 0.5)
     BindBG.Position = UDim2.new(0.5, 0, 0.5, 0)
     BindBG.Size = UDim2.new(1, -10, 1, 0)
-    BindBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-    BindBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+    Bind(BindBG, "BackgroundColor3", "Background 1 Color")
+    Bind(BindBG, "BackgroundTransparency", "Background 1 Transparency")
     
     ButtonCorner.CornerRadius = UDim.new(0, 4)
     ButtonCorner.Name = "ButtonCorner"
@@ -3324,14 +3410,14 @@ function sectionFunction:AddKeyBind(Setting, Callback)
     BindButtonTitle.Text = TitleText
     BindButtonTitle.TextSize = 14.000
     BindButtonTitle.TextXAlignment = Enum.TextXAlignment.Left
-    BindButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+    Bind(BindButtonTitle, "TextColor3", "Text Color")
     
     BindCor.Name = "Background2"
     BindCor.Parent = BindBG
     BindCor.AnchorPoint = Vector2.new(1, 0.5)
     BindCor.Position = UDim2.new(1, -5, 0.5, 0)
     BindCor.Size = UDim2.new(0, 150, 0, 25)
-    BindCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+    Bind(BindCor, "BackgroundColor3", "Background 2 Color")
     
     ButtonCorner_2.CornerRadius = UDim.new(0, 4)
     ButtonCorner_2.Name = "ButtonCorner"
@@ -3345,7 +3431,7 @@ function sectionFunction:AddKeyBind(Setting, Callback)
     Bindkey.Font = Enum.Font.GothamBold
     Bindkey.Text = CurrentKey
     Bindkey.TextSize = 14.000
-    Bindkey.TextColor3 = getgenv().UIColor["Text Color"]
+    Bind(Bindkey, "TextColor3", "Text Color")
     
     -- Change Key
     Bindkey.MouseButton1Click:Connect(function()
@@ -3498,8 +3584,8 @@ end
 				BoxBG.AnchorPoint = Vector2.new(0.5, 0.5)
 				BoxBG.Position = UDim2.new(0.5, 0, 0.5, 0)
 				BoxBG.Size = UDim2.new(1, -10, 1, 0)
-				BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-				BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Bind(BoxBG, "BackgroundColor3", "Background 1 Color")
+				Bind(BoxBG, "BackgroundTransparency", "Background 1 Transparency")
 				ButtonCorner.CornerRadius = UDim.new(0, 4)
 				ButtonCorner.Name = "ButtonCorner"
 				ButtonCorner.Parent = BoxBG
@@ -3513,14 +3599,14 @@ end
 				Boxtitle.Text = TitleText
 				Boxtitle.TextSize = 14.000
 				Boxtitle.TextXAlignment = Enum.TextXAlignment.Left
-				Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(Boxtitle, "TextColor3", "Text Color")
 				BoxCor.Name = "Background2"
 				BoxCor.Parent = BoxBG
 				BoxCor.AnchorPoint = Vector2.new(1, 0.5)
 				BoxCor.ClipsDescendants = true
 				BoxCor.Position = UDim2.new(1, -5, 0, 40)
 				BoxCor.Size = UDim2.new(1, -10, 0, 25)
-				BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				Bind(BoxCor, "BackgroundColor3", "Background 2 Color")
 				ButtonCorner_2.CornerRadius = UDim.new(0, 4)
 				ButtonCorner_2.Name = "ButtonCorner"
 				ButtonCorner_2.Parent = BoxCor
@@ -3535,14 +3621,14 @@ end
 				Boxxx.Text = ""
 				Boxxx.TextSize = 14.000
 				Boxxx.TextXAlignment = Enum.TextXAlignment.Left
-				Boxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
-				Boxxx.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(Boxxx, "PlaceholderColor3", "Placeholder Text Color")
+				Bind(Boxxx, "TextColor3", "Text Color")
 				Lineeeee.Name = "TextNSBoxLineeeee"
 				Lineeeee.Parent = BoxCor
 				Lineeeee.BackgroundTransparency = 1.000
 				Lineeeee.Position = UDim2.new(0, 0, 1, -2)
 				Lineeeee.Size = UDim2.new(1, 0, 0, 6)
-				Lineeeee.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"]
+				Bind(Lineeeee, "BackgroundColor3", "Box Highlight Color")
 				UICorner.CornerRadius = UDim.new(1, 0)
 				UICorner.Parent = Lineeeee
 				Boxxx.Focused:Connect(function()
@@ -3622,8 +3708,8 @@ end
 				SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
 				SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
 				SliderBG.Size = UDim2.new(1, -10, 1, 0)
-				SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
-				SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Bind(SliderBG, "BackgroundColor3", "Background 1 Color")
+				Bind(SliderBG, "BackgroundTransparency", "Background 1 Transparency")
 				SliderBGCorner.CornerRadius = UDim.new(0, 4)
 				SliderBGCorner.Name = "SliderBGCorner"
 				SliderBGCorner.Parent = SliderBG
@@ -3638,13 +3724,13 @@ end
 				SliderTitle.TextSize = 14.000
 				SliderTitle.RichText = true
 				SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
-				SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(SliderTitle, "TextColor3", "Text Color")
 				SliderBar.Name = "SliderBar"
 				SliderBar.Parent = SliderFrame
 				SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
 				SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
 				SliderBar.Size = UDim2.new(0, 400, 0, 6)
-				SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				Bind(SliderBar, "BackgroundColor3", "Background 2 Color")
 				SliderButton.Name = "SliderButton "
 				SliderButton.Parent = SliderBar
 				SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
@@ -3661,7 +3747,7 @@ end
 				Bar.BorderSizePixel = 0
 				Bar.Parent = SliderBar
 				Bar.Size = UDim2.new(0, 0, 1, 0)
-				Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+				Bind(Bar, "BackgroundColor3", "Slider Line Color")
 				BarCorner.CornerRadius = UDim.new(1, 0)
 				BarCorner.Name = "BarCorner"
 				BarCorner.Parent = Bar
@@ -3670,7 +3756,7 @@ end
 				Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
 				Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
 				Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
-				Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				Bind(Sliderboxframe, "BackgroundColor3", "Background 2 Color")
 				Sliderbox.CornerRadius = UDim.new(0, 4)
 				Sliderbox.Name = "Sliderbox"
 				Sliderbox.Parent = Sliderboxframe
@@ -3682,7 +3768,7 @@ end
 				Sliderbox_2.Font = Enum.Font.GothamBold
 				Sliderbox_2.Text = ""
 				Sliderbox_2.TextSize = 14.000
-				Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+				Bind(Sliderbox_2, "TextColor3", "Text Color")
 				SliderButton.MouseEnter:Connect(function()
 					TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
 						BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]
@@ -3790,6 +3876,291 @@ end
                 
 				return slider_function
 			end
+
+			-- Color picker (Peridot addition): a row with a swatch; clicking it opens a
+			-- saturation/brightness square, a hue bar, a hex box and a Rainbow button.
+			-- Setting: Title, Default (Color3), Callback(color),
+			--          Rainbow = { Get = fn() -> bool, Set = fn(on) } to own rainbow state (theme keys);
+			--          without it the picker cycles the hue itself and calls Callback.
+			function sectionFunction:AddColorPicker(Setting)
+				local Title = tostring(Setting.Title or Setting.Text or "")
+				local Callback = Setting.Callback
+				local color = typeof(Setting.Default) == "Color3" and Setting.Default or Color3.new(1, 1, 1)
+				local hue, sat, val = color:ToHSV()
+				local opened = false
+				local dragging
+				local localRainbow
+
+				local PickerFrame = Instance.new("Frame")
+				PickerFrame.Name = Title .. "ColorPicker"
+				PickerFrame.Parent = Section
+				PickerFrame.BackgroundTransparency = 1
+				PickerFrame.ClipsDescendants = true
+				PickerFrame.Size = UDim2.new(1, 0, 0, 35)
+
+				local PickerBG = Instance.new("Frame")
+				PickerBG.Name = "Background1"
+				PickerBG.Parent = PickerFrame
+				PickerBG.AnchorPoint = Vector2.new(0.5, 0)
+				PickerBG.Position = UDim2.new(0.5, 0, 0, 0)
+				PickerBG.Size = UDim2.new(1, -10, 1, 0)
+				Bind(PickerBG, "BackgroundColor3", "Background 1 Color")
+				Bind(PickerBG, "BackgroundTransparency", "Background 1 Transparency")
+				local PickerCorner = Instance.new("UICorner")
+				PickerCorner.CornerRadius = UDim.new(0, 4)
+				PickerCorner.Parent = PickerBG
+
+				local PickerTitle = Instance.new("TextButton")
+				PickerTitle.Name = "TextColor"
+				PickerTitle.Parent = PickerBG
+				PickerTitle.BackgroundTransparency = 1
+				PickerTitle.AutoButtonColor = false
+				PickerTitle.Position = UDim2.new(0, 10, 0, 0)
+				PickerTitle.Size = UDim2.new(1, -70, 0, 35)
+				PickerTitle.Font = Enum.Font.GothamBlack
+				PickerTitle.Text = Title
+				PickerTitle.TextSize = 14
+				PickerTitle.TextXAlignment = Enum.TextXAlignment.Left
+				Bind(PickerTitle, "TextColor3", "Text Color")
+
+				local Swatch = Instance.new("TextButton")
+				Swatch.Name = "Swatch"
+				Swatch.Parent = PickerBG
+				Swatch.AnchorPoint = Vector2.new(1, 0)
+				Swatch.Position = UDim2.new(1, -8, 0, 7)
+				Swatch.Size = UDim2.new(0, 44, 0, 21)
+				Swatch.AutoButtonColor = false
+				Swatch.Text = ""
+				Swatch.BackgroundColor3 = color
+				local SwatchCorner = Instance.new("UICorner")
+				SwatchCorner.CornerRadius = UDim.new(0, 4)
+				SwatchCorner.Parent = Swatch
+				local SwatchStroke = Instance.new("UIStroke")
+				SwatchStroke.Color = Color3.fromRGB(90, 90, 70)
+				SwatchStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				SwatchStroke.Parent = Swatch
+
+				-- saturation (left -> right) / brightness (top -> bottom) square over the hue color
+				local SV = Instance.new("TextButton")
+				SV.Name = "SaturationValue"
+				SV.Parent = PickerBG
+				SV.Position = UDim2.new(0, 10, 0, 40)
+				SV.Size = UDim2.new(0, 150, 0, 100)
+				SV.AutoButtonColor = false
+				SV.Text = ""
+				local SVCorner = Instance.new("UICorner")
+				SVCorner.CornerRadius = UDim.new(0, 4)
+				SVCorner.Parent = SV
+				local SVImage = Instance.new("ImageLabel")
+				SVImage.Parent = SV
+				SVImage.BackgroundTransparency = 1
+				SVImage.Size = UDim2.new(1, 0, 1, 0)
+				SVImage.Image = "rbxassetid://4155801252" -- white-to-clear / clear-to-black overlay (the old library's picker)
+				local SVImageCorner = Instance.new("UICorner")
+				SVImageCorner.CornerRadius = UDim.new(0, 4)
+				SVImageCorner.Parent = SVImage
+				local SVCursor = Instance.new("Frame")
+				SVCursor.Parent = SV
+				SVCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+				SVCursor.Size = UDim2.new(0, 8, 0, 8)
+				SVCursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				SVCursor.ZIndex = 3
+				local SVCursorCorner = Instance.new("UICorner")
+				SVCursorCorner.CornerRadius = UDim.new(1, 0)
+				SVCursorCorner.Parent = SVCursor
+				local SVCursorStroke = Instance.new("UIStroke")
+				SVCursorStroke.Color = Color3.fromRGB(20, 20, 20)
+				SVCursorStroke.Parent = SVCursor
+
+				-- hue bar, top (0) to bottom (1)
+				local HueBar = Instance.new("TextButton")
+				HueBar.Name = "Hue"
+				HueBar.Parent = PickerBG
+				HueBar.Position = UDim2.new(0, 170, 0, 40)
+				HueBar.Size = UDim2.new(0, 14, 0, 100)
+				HueBar.AutoButtonColor = false
+				HueBar.Text = ""
+				HueBar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				local HueCorner = Instance.new("UICorner")
+				HueCorner.CornerRadius = UDim.new(0, 4)
+				HueCorner.Parent = HueBar
+				local HueGradient = Instance.new("UIGradient")
+				local hueKeys = {}
+				for i = 0, 6 do
+					table.insert(hueKeys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i / 6 % 1, 1, 1)))
+				end
+				HueGradient.Color = ColorSequence.new(hueKeys)
+				HueGradient.Rotation = 90
+				HueGradient.Parent = HueBar
+				local HueCursor = Instance.new("Frame")
+				HueCursor.Parent = HueBar
+				HueCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+				HueCursor.Size = UDim2.new(1, 4, 0, 3)
+				HueCursor.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				HueCursor.BorderSizePixel = 0
+				HueCursor.ZIndex = 3
+
+				local HexBox = Instance.new("TextBox")
+				HexBox.Name = "Hex"
+				HexBox.Parent = PickerBG
+				HexBox.Position = UDim2.new(0, 196, 0, 40)
+				HexBox.Size = UDim2.new(1, -206, 0, 25)
+				HexBox.Font = Enum.Font.GothamBold
+				HexBox.TextSize = 14
+				HexBox.PlaceholderText = "#RRGGBB"
+				HexBox.ClearTextOnFocus = false
+				Bind(HexBox, "BackgroundColor3", "Background 2 Color")
+				Bind(HexBox, "TextColor3", "Text Color")
+				Bind(HexBox, "PlaceholderColor3", "Placeholder Text Color")
+				local HexCorner = Instance.new("UICorner")
+				HexCorner.CornerRadius = UDim.new(0, 4)
+				HexCorner.Parent = HexBox
+
+				local RainbowButton = Instance.new("TextButton")
+				RainbowButton.Name = "Rainbow"
+				RainbowButton.Parent = PickerBG
+				RainbowButton.Position = UDim2.new(0, 196, 0, 72)
+				RainbowButton.Size = UDim2.new(1, -206, 0, 25)
+				RainbowButton.AutoButtonColor = false
+				RainbowButton.Font = Enum.Font.GothamBold
+				RainbowButton.TextSize = 14
+				Bind(RainbowButton, "BackgroundColor3", "Background 2 Color")
+				Bind(RainbowButton, "TextColor3", "Text Color")
+				local RainbowCorner = Instance.new("UICorner")
+				RainbowCorner.CornerRadius = UDim.new(0, 4)
+				RainbowCorner.Parent = RainbowButton
+
+				local function rainbowOn()
+					if Setting.Rainbow then
+						return Setting.Rainbow.Get()
+					end
+					return localRainbow ~= nil
+				end
+				local function refreshRainbowText()
+					RainbowButton.Text = rainbowOn() and "Rainbow: on" or "Rainbow: off"
+				end
+
+				local function show(fire)
+					color = Color3.fromHSV(hue, sat, val)
+					Swatch.BackgroundColor3 = color
+					SV.BackgroundColor3 = Color3.fromHSV(hue, 1, 1)
+					SVCursor.Position = UDim2.new(sat, 0, 1 - val, 0)
+					HueCursor.Position = UDim2.new(0.5, 0, hue, 0)
+					HexBox.Text = string.format("#%02X%02X%02X", math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5))
+					if fire and Callback then
+						pcall(Callback, color)
+					end
+				end
+
+				local function setRainbow(on)
+					if Setting.Rainbow then
+						Setting.Rainbow.Set(on)
+					elseif on and not localRainbow then
+						localRainbow = RunService.Heartbeat:Connect(function()
+							if not PickerFrame.Parent then
+								localRainbow:Disconnect()
+								return
+							end
+							hue = (tick() % 6) / 6
+							sat, val = math.max(sat, 0.45), math.max(val, 0.6)
+							show(true)
+						end)
+					elseif not on and localRainbow then
+						localRainbow:Disconnect()
+						localRainbow = nil
+					end
+					refreshRainbowText()
+				end
+
+				local function pick(position)
+					if dragging == "sv" then
+						sat = math.clamp((position.X - SV.AbsolutePosition.X) / SV.AbsoluteSize.X, 0, 1)
+						val = 1 - math.clamp((position.Y - SV.AbsolutePosition.Y) / SV.AbsoluteSize.Y, 0, 1)
+					elseif dragging == "hue" then
+						hue = math.clamp((position.Y - HueBar.AbsolutePosition.Y) / HueBar.AbsoluteSize.Y, 0, 0.999)
+					end
+					show(true)
+				end
+				local function startDrag(kind)
+					return function(input)
+						if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+							if rainbowOn() then
+								setRainbow(false) -- picking a color stops the rainbow
+							end
+							dragging = kind
+							pick(input.Position)
+						end
+					end
+				end
+				SV.InputBegan:Connect(startDrag("sv"))
+				HueBar.InputBegan:Connect(startDrag("hue"))
+				uis.InputChanged:Connect(function(input)
+					if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+						pick(input.Position)
+					end
+				end)
+				uis.InputEnded:Connect(function(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+						dragging = nil
+					end
+				end)
+
+				HexBox.FocusLost:Connect(function()
+					local hex = HexBox.Text:gsub("#", "")
+					if hex:match("^%x%x%x%x%x%x$") then
+						if rainbowOn() then
+							setRainbow(false)
+						end
+						hue, sat, val = Color3.fromRGB(tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)):ToHSV()
+						show(true)
+					else
+						show(false) -- put the current color back
+					end
+				end)
+
+				RainbowButton.MouseButton1Click:Connect(function()
+					setRainbow(not rainbowOn())
+				end)
+
+				local function toggleOpen()
+					opened = not opened
+					TweenService:Create(PickerFrame, TI("Tween Animation 2 Speed"), {
+						Size = UDim2.new(1, 0, 0, opened and 150 or 35)
+					}):Play()
+				end
+				Swatch.MouseButton1Click:Connect(toggleOpen)
+				PickerTitle.MouseButton1Click:Connect(toggleOpen)
+
+				show(false)
+				refreshRainbowText()
+
+				local controlData = {
+					Name = Title,
+					Section = Section,
+					Element = PickerFrame,
+					SectionName = Section_Name,
+					TabName = Page_Name,
+					TabButton = PageName
+				}
+				table.insert(getgenv().AllControls, controlData)
+
+				local picker = {}
+				function picker.SetValue(newColor)
+					hue, sat, val = newColor:ToHSV()
+					show(false)
+				end
+				function picker.GetValue()
+					return color
+				end
+				function picker.RefreshRainbow()
+					refreshRainbowText()
+				end
+				-- the swatch follows a theme key live (e.g. while its rainbow runs)
+				function picker.FollowKey(key)
+					Bind(Swatch, "BackgroundColor3", key)
+				end
+				return picker
+			end
 			return sectionFunction
 		end
 		-- Sub-tabs: a strip under the page title; each sub-tab shows only its own sections.
@@ -3864,7 +4235,7 @@ end
 			button.Font = Enum.Font.GothamBold
 			button.Text = name
 			button.TextSize = 14
-			button.TextColor3 = getgenv().UIColor["Placeholder Text Color"]
+			Bind(button, "TextColor3", "Placeholder Text Color")
 
 			local underline = Instance.new("Frame")
 			underline.Name = "Underline"
@@ -3873,7 +4244,7 @@ end
 			underline.Position = UDim2.new(0.5, 0, 1, 0)
 			underline.Size = UDim2.new(0, 0, 0, 2)
 			underline.BorderSizePixel = 0
-			underline.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+			Bind(underline, "BackgroundColor3", "Page Selected Color")
 			local underlineCorner = Instance.new("UICorner")
 			underlineCorner.CornerRadius = UDim.new(1, 0)
 			underlineCorner.Parent = underline
@@ -3903,22 +4274,43 @@ end
 		return pagefunc
         end
 
-	-- UI Settings: the page behind the title-bar gear. Players restyle the hub here;
-	-- choices are saved to Peridot/Theme.json. Built on first use so it sorts after
-	-- the script's own pages, and scripts can add sections to it (backgrounds).
+	-- UI Settings: the page behind the title-bar gear, like the old library's
+	-- customizer. Sub-tabs: Theme (accent, logo), Colors (a picker per theme color,
+	-- each with Rainbow), Window (panels, animation, reset), plus any the script adds
+	-- (Universal: Background). Everything saves to Peridot/Theme.json. Built on first
+	-- use so it sorts after the script's own pages.
+	local ColorGroups = {
+		{ "Main", { "Title Text Color", "Setting Icon Color", "Search Icon Color", "Search Icon Highlight Color" } },
+		{ "Text", { "GUI Text Color", "Text Color", "Placeholder Text Color", "Section Text Color", "Toggle Desc Color" } },
+		{ "Background", { "Background 1 Color", "Background 2 Color", "Background 3 Color" } },
+		{ "Controls", { "Page Selected Color", "Section Underline Color", "Toggle Border Color", "Button Color",
+			"Dropdown Icon Color", "Dropdown Selected Check Color", "Box Highlight Color", "Slider Line Color", "Slider Highlight Color" } },
+	}
+	local AnimationSliders = {
+		{ "Tween Animation 1 Speed", "Page & toggle speed", 0.75, "AnimationSpeed1" },
+		{ "Tween Animation 2 Speed", "Dropdown & slider speed", 1, "AnimationSpeed" },
+		{ "Tween Animation 3 Speed", "Hover speed", 0.5, "AnimationSpeed3" },
+	}
+
 	function Main_Function:GetUISettingsPage()
 		if UISettingsPage then
 			return UISettingsPage
 		end
 		UISettingsPage = Main_Function:AddTab("UI Settings", { Hidden = true })
+		local themeTab = UISettingsPage:AddSubTab("Theme")
+		local colorsTab = UISettingsPage:AddSubTab("Colors")
+		local windowTab = UISettingsPage:AddSubTab("Window")
+		local pickers = {}
+		local sliders = {}
 
-		local theme = UISettingsPage:AddLeftGroupbox("Theme")
+		-- Theme: accent presets / custom accent, logo
+		local accentSection = themeTab:AddSection("Accent")
 		local presetNames = {}
 		for _, preset in ipairs(AccentPresets) do
 			table.insert(presetNames, preset[1])
 		end
-		local accentDropdown = theme:AddDropdown(nil, {
-			Title = "Accent",
+		local accentDropdown = accentSection:AddDropdown(nil, {
+			Title = "Preset",
 			Values = presetNames,
 			Default = SavedTheme.Preset or "Peridot",
 			Callback = function(name)
@@ -3929,7 +4321,7 @@ end
 				end
 			end,
 		})
-		theme:AddInput(nil, {
+		accentSection:AddInput(nil, {
 			Title = "Custom accent",
 			Placeholder = "hex, e.g. #8CAC44",
 			Callback = function(text)
@@ -3940,9 +4332,58 @@ end
 				end
 			end,
 		})
+		local logoSection = themeTab:AddSection("Logo")
+		logoSection:AddInput(nil, {
+			Title = "Logo image",
+			Placeholder = "rbxassetid://, image URL or workspace file",
+			Callback = function(text)
+				local ok, err = Library_Function.SetLogo(text)
+				if not ok then
+					Library:Notify({ Title = "Logo", Desc = tostring(err), Duration = 4 }, true)
+				end
+			end,
+		})
+		logoSection:AddButton({
+			Title = "Default logo",
+			Callback = function()
+				Library_Function.SetLogo("")
+			end,
+		})
 
-		local windowSection = UISettingsPage:AddLeftGroupbox("Window")
-		local transparencySlider = windowSection:AddSlider({
+		-- Colors: one picker per theme color, grouped like the old customizer
+		for _, group in ipairs(ColorGroups) do
+			local section = colorsTab:AddSection(group[1])
+			for _, key in ipairs(group[2]) do
+				local picker = section:AddColorPicker({
+					Title = (key:gsub(" Color$", "")),
+					Default = getgenv().UIColor[key],
+					Callback = function(color)
+						Library_Function.SetThemeColor(key, color)
+					end,
+					Rainbow = {
+						Get = function()
+							return RainbowKeys[key] ~= nil
+						end,
+						Set = function(on)
+							Library_Function.SetRainbow(key, on)
+						end,
+					},
+				})
+				picker.FollowKey(key) -- the swatch shows the live color, rainbow included
+				pickers[key] = picker
+			end
+		end
+		-- accent presets change several colors at once; keep the pickers in step
+		Library_Function.OnAccentChanged = function()
+			for key, picker in pairs(pickers) do
+				picker.SetValue(getgenv().UIColor[key])
+				picker.RefreshRainbow()
+			end
+		end
+
+		-- Window: panel transparency, animation speeds, easing, reset
+		local panelSection = windowTab:AddSection("Panels")
+		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
 			Max = 0.9,
@@ -3954,19 +4395,22 @@ end
 				saveThemeSoon()
 			end,
 		})
-		local speedSlider = windowSection:AddSlider({
-			Title = "Animation speed",
-			Min = 0,
-			Max = 1,
-			Rouding = 2,
-			Default = getgenv().UIColor["Tween Animation 2 Speed"],
-			Callback = function(value)
-				getgenv().UIColor["Tween Animation 2 Speed"] = value
-				SavedTheme.AnimationSpeed = value
-				saveThemeSoon()
-			end,
-		})
-		local easingDropdown = windowSection:AddDropdown(nil, {
+		local animationSection = windowTab:AddSection("Animation")
+		for _, spec in ipairs(AnimationSliders) do
+			sliders[spec[1]] = animationSection:AddSlider({
+				Title = spec[2],
+				Min = 0,
+				Max = spec[3],
+				Rouding = 2,
+				Default = getgenv().UIColor[spec[1]],
+				Callback = function(value)
+					getgenv().UIColor[spec[1]] = value
+					SavedTheme[spec[4]] = value
+					saveThemeSoon()
+				end,
+			})
+		end
+		local easingDropdown = animationSection:AddDropdown(nil, {
 			Title = "Easing style",
 			Values = { "Quad", "Quint", "Back", "Sine", "Linear" },
 			Default = getgenv().UIColor["Tween Easing Style"],
@@ -3976,13 +4420,17 @@ end
 				saveThemeSoon()
 			end,
 		})
-		windowSection:AddButton({
+		windowTab:AddSection("Reset"):AddButton({
 			Title = "Reset theme",
 			Callback = function()
-				accentDropdown:SetValue("Peridot")
-				transparencySlider.SetValue(DefaultTheme.PanelTransparency)
-				speedSlider.SetValue(DefaultTheme.AnimationSpeed)
-				easingDropdown:SetValue(DefaultTheme.Easing)
+				Library_Function.ResetTheme()
+				Library_Function.OnAccentChanged()
+				accentDropdown:ClearText("Peridot")
+				easingDropdown:ClearText(DefaultTheme["Tween Easing Style"])
+				sliders.transparency.SetValue(DefaultTheme["Background 1 Transparency"])
+				for _, spec in ipairs(AnimationSliders) do
+					sliders[spec[1]].SetValue(DefaultTheme[spec[1]])
+				end
 			end,
 		})
 		return UISettingsPage
@@ -4024,15 +4472,6 @@ local Peridot = {
 	},
 }
 
--- Panel transparency changed from the Settings page reaches frames already on screen.
-ThemeListeners["Background 1 Transparency"] = function(value)
-	for _, item in ipairs(Library_Function.Gui:GetDescendants()) do
-		if item:IsA("GuiObject") and (item.Name == "Background1" or item.Name == "RowBG" or item.Name:match("^Page%d+$")) then
-			item.BackgroundTransparency = value
-		end
-	end
-end
-
 --------------------------------------------------------------------------------
 -- Config save / load
 -- Keys are "page||section||title" and the file layout matches the old library,
@@ -4041,8 +4480,18 @@ end
 
 local ControlRegistry = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {} }
 
-local function register(kind, pageKey, sectionKey, title, entry)
-	ControlRegistry[kind][tostring(pageKey) .. "||" .. tostring(sectionKey) .. "||" .. tostring(title)] = entry
+-- Controls inside a sub-tab keep the plain page key, so configs saved before a page
+-- was split into sub-tabs still load. Only when that key is already taken (two
+-- sub-tabs reusing a section + title) does the sub-tab name go into the key.
+local function register(kind, pageKey, sectionKey, title, entry, subTabPageKey)
+	local function keyFor(page)
+		return tostring(page) .. "||" .. tostring(sectionKey) .. "||" .. tostring(title)
+	end
+	local key = keyFor(pageKey)
+	if subTabPageKey and ControlRegistry[kind][key] then
+		key = keyFor(subTabPageKey)
+	end
+	ControlRegistry[kind][key] = entry
 end
 
 local ConfigFolder = "Peridot/Configs"
@@ -4166,7 +4615,7 @@ getgenv().PeridotConfig = ConfigSystem
 -- Controls
 --------------------------------------------------------------------------------
 
-local function wrapSection(banana, pageKey, sectionKey)
+local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 	local section = {}
 
 	-- The old library fired a toggle's callback once with its default; BananaLib
@@ -4200,7 +4649,7 @@ local function wrapSection(banana, pageKey, sectionKey)
 			end,
 		}
 		handle.SetStage = handle.Set
-		register("Toggles", pageKey, sectionKey, options.Title, handle)
+		register("Toggles", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		return handle
 	end
 
@@ -4257,7 +4706,7 @@ local function wrapSection(banana, pageKey, sectionKey)
 			end,
 		}
 		handle.SetValue = handle.Set
-		register("Sliders", pageKey, sectionKey, options.Title, handle)
+		register("Sliders", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		return handle
 	end
 
@@ -4285,7 +4734,7 @@ local function wrapSection(banana, pageKey, sectionKey)
 			end,
 		}
 		handle.SetValue = handle.Set
-		register("Boxes", pageKey, sectionKey, options.Title, handle)
+		register("Boxes", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		return handle
 	end
 
@@ -4314,7 +4763,7 @@ local function wrapSection(banana, pageKey, sectionKey)
 			return dropdown:GetValue()
 		end
 		if not options.Multi then
-			register("Dropdowns", pageKey, sectionKey, options.Title, handle)
+			register("Dropdowns", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		end
 		return handle
 	end
@@ -4338,11 +4787,38 @@ local function wrapSection(banana, pageKey, sectionKey)
 				keybind:Set(key)
 			end,
 		}
-		register("Keybinds", pageKey, sectionKey, options.Title, handle)
+		register("Keybinds", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		return handle
 	end
 
+	-- options: Title, Default (Color3). callback(color). Not saved in configs.
+	function section.CreateColorPicker(options, callback)
+		options = options or {}
+		local picker = banana:AddColorPicker({
+			Title = tostring(options.Title or ""),
+			Default = options.Default,
+			Callback = callback or options.Callback,
+		})
+		return {
+			Get = picker.GetValue,
+			Set = picker.SetValue,
+		}
+	end
+
 	return section
+end
+
+local function wrapSubTab(sub, pageKey, subName)
+	local subTabPageKey = tostring(pageKey) .. "/" .. tostring(subName or "")
+	local subTab = {}
+	function subTab.CreateSection(name)
+		local sectionKey = tostring(name or "")
+		return wrapSection(sub:AddSection(sectionKey), pageKey, sectionKey, subTabPageKey)
+	end
+	function subTab.Select()
+		sub:Select()
+	end
+	return subTab
 end
 
 --------------------------------------------------------------------------------
@@ -4378,29 +4854,21 @@ function Peridot.CreateMain(options)
 			return wrapSection(tab:AddLeftGroupbox(sectionKey), pageKey, sectionKey)
 		end
 		-- A strip of sub-tabs under the page title; each has its own sections.
-		-- Saved-config keys include the sub-tab, so sub-tabs can reuse section names.
 		function page.CreateSubTab(subName)
-			subName = tostring(subName or "")
-			local subKey = pageKey .. "/" .. subName
-			local sub = tab:AddSubTab(subName)
-			local subTab = {}
-			function subTab.CreateSection(name)
-				local sectionKey = tostring(name or "")
-				return wrapSection(sub:AddSection(sectionKey), subKey, sectionKey)
-			end
-			function subTab.Select()
-				sub:Select()
-			end
-			return subTab
+			return wrapSubTab(tab:AddSubTab(tostring(subName or "")), pageKey, subName)
 		end
 		return page
 	end
 
-	-- The gear's UI Settings page; scripts can add their own sections (Universal adds backgrounds).
+	-- The gear's UI Settings page. Scripts add their own sub-tabs to it
+	-- (Universal adds "Background"); CreateSection(name) makes a sub-tab with one
+	-- section of the same name.
 	main.UISettings = {
+		CreateSubTab = function(subName)
+			return wrapSubTab(window:GetUISettingsPage():AddSubTab(tostring(subName or "")), "UI Settings", subName)
+		end,
 		CreateSection = function(name)
-			local sectionKey = tostring(name or "")
-			return wrapSection(window:GetUISettingsPage():AddLeftGroupbox(sectionKey), "UI Settings", sectionKey)
+			return main.UISettings.CreateSubTab(name).CreateSection(name)
 		end,
 	}
 	return main
@@ -4424,6 +4892,11 @@ function Peridot.ToggleUISettings()
 	Library_Function.ToggleUISettings()
 	return true
 end
+
+-- Theme from code; all of these save to Peridot/Theme.json like the gear page does.
+Peridot.SetThemeColor = Library_Function.SetThemeColor -- (key, Color3), e.g. ("Background 2 Color", c)
+Peridot.SetRainbow = Library_Function.SetRainbow -- (key, on)
+Peridot.ResetTheme = Library_Function.ResetTheme
 
 -- Change the accent from code: a preset name ("Peridot", "Ocean", "Ruby", ...) or a Color3. Saved like the gear's choice.
 function Peridot.SetAccent(accent)
@@ -4460,46 +4933,131 @@ function Peridot.Hide()
 	end
 end
 
--- Backgrounds: rbxassetid://..., a bare asset id, or an http(s) URL to a .png /
--- .jpg image or a .webm video (the only video format Roblox plays). URLs need
--- file access + getcustomasset. An empty source clears the background.
+-- Media (backgrounds, logo): rbxassetid://..., a bare asset id, a file in the
+-- executor workspace (e.g. "Peridot/Backgrounds/night.png"), or an http(s) URL,
+-- which is downloaded into the workspace first. Images: .png / .jpg; video: .webm
+-- (the only video format Roblox plays).
+local BackgroundFolder = "Peridot/Backgrounds"
 local requestFunction = request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request)
 local backgroundLayer
 
-local function downloadAsset(url)
+local function ensureFolder(path)
+	local built = ""
+	for part in path:gmatch("[^/]+") do
+		built = built == "" and part or (built .. "/" .. part)
+		if not isfolder(built) then
+			makefolder(built)
+		end
+	end
+end
+
+local function fetchBinary(url)
+	local body
+	if requestFunction then -- request() keeps binary bodies intact
+		local response = requestFunction({ Url = url, Method = "GET" })
+		if response.StatusCode and response.StatusCode >= 400 then
+			error("download failed (HTTP " .. tostring(response.StatusCode) .. ")", 0)
+		end
+		body = response.Body
+	else
+		body = game:HttpGet(url)
+	end
+	if type(body) ~= "string" or body == "" then
+		error("download failed", 0)
+	end
+	return body
+end
+
+-- Returns something an ImageLabel / VideoFrame can show. URLs are cached in
+-- `folder` by file name, so the next run loads them from disk.
+-- ponytail: a file replaced on GitHub under the same name keeps the old cached copy; rename it to refresh.
+local function resolveMedia(source, folder)
+	if source:match("^%d+$") then
+		return "rbxassetid://" .. source
+	end
+	if source:match("^rbxasset") then
+		return source
+	end
 	local getAsset = getcustomasset or getsynasset
 	if not (HasFileSystem and getAsset) then
-		error("executor can't load media from URLs", 0)
+		error("this executor can't show files from its workspace", 0)
 	end
-	-- Cached by file name, so picking the same background again skips the download.
-	-- ponytail: a file replaced on GitHub under the same name keeps the old cached copy; rename it to refresh.
-	local name = url:gsub("[?#].*$", ""):match("([^/]+)$") or "background"
-	local path = "Peridot/Backgrounds/" .. name:gsub("[^%w%.%-_]", "_")
-	if not isfolder("Peridot") then
-		makefolder("Peridot")
-	end
-	if not isfolder("Peridot/Backgrounds") then
-		makefolder("Peridot/Backgrounds")
-	end
-	if not isfile(path) then
-		local body
-		if requestFunction then -- request() keeps binary bodies intact
-			local response = requestFunction({ Url = url, Method = "GET" })
-			if response.StatusCode and response.StatusCode >= 400 then
-				error("download failed (HTTP " .. tostring(response.StatusCode) .. ")", 0)
-			end
-			body = response.Body
-		else
-			body = game:HttpGet(url)
+	local path = source
+	if source:match("^https?://") then
+		local name = source:gsub("[?#].*$", ""):match("([^/]+)$") or "media"
+		path = folder .. "/" .. name:gsub("[^%w%.%-_]", "_")
+		if not isfile(path) then
+			ensureFolder(folder)
+			writefile(path, fetchBinary(source))
 		end
-		if type(body) ~= "string" or body == "" then
-			error("download failed", 0)
-		end
-		writefile(path, body)
+	elseif not isfile(path) then
+		error("file not found in the executor workspace: " .. path, 0)
 	end
 	return getAsset(path)
 end
 
+-- Image and video files in workspace/Peridot/Backgrounds (players can drop their own in).
+function Peridot.ListBackgrounds()
+	if not HasFileSystem or type(listfiles) ~= "function" or not isfolder(BackgroundFolder) then
+		return {}
+	end
+	local paths = {}
+	for _, path in ipairs(listfiles(BackgroundFolder)) do
+		local lower = path:lower()
+		if lower:match("%.png$") or lower:match("%.jpe?g$") or lower:match("%.webm$") then
+			table.insert(paths, BackgroundFolder .. "/" .. path:match("([^/\\]+)$"))
+		end
+	end
+	return paths
+end
+
+-- Downloads url into workspace/Peridot/Backgrounds/<fileName> unless it's already there.
+-- Returns "new", "exists", or nil + error.
+function Peridot.DownloadBackground(url, fileName)
+	if not HasFileSystem then
+		return nil, "Executor has no file access"
+	end
+	local path = BackgroundFolder .. "/" .. tostring(fileName)
+	if isfile(path) then
+		return "exists"
+	end
+	local ok, err = pcall(function()
+		ensureFolder(BackgroundFolder)
+		writefile(path, fetchBinary(url))
+	end)
+	if not ok then
+		return nil, err
+	end
+	return "new"
+end
+
+-- Logo (title bar, floating button, notifications). "" restores the Peridot logo. Saved.
+function Library_Function.SetLogo(source)
+	source = tostring(source or "")
+	local image = DefaultTheme["Logo Image"]
+	if source ~= "" then
+		local ok, result = pcall(resolveMedia, source, "Peridot/Logos")
+		if not ok then
+			return false, result
+		end
+		image = result
+	end
+	getgenv().UIColor["Logo Image"] = image
+	SavedTheme.Logo = source ~= "" and source or nil
+	saveThemeSoon()
+	return true
+end
+Peridot.SetLogo = Library_Function.SetLogo
+
+-- A logo picked in an earlier session (URLs come from the workspace cache).
+if type(SavedTheme.Logo) == "string" and SavedTheme.Logo ~= "" then
+	local ok, image = pcall(resolveMedia, SavedTheme.Logo, "Peridot/Logos")
+	if ok then
+		getgenv().UIColor["Logo Image"] = image
+	end
+end
+
+-- An empty source clears the background; on failure the current one stays.
 function Peridot.SetBackground(source)
 	local container = Library_Function.MainContainer
 	if not container then
@@ -4507,14 +5065,12 @@ function Peridot.SetBackground(source)
 	end
 	local media = tostring(source or "")
 	local isVideo = media:lower():gsub("[?#].*$", ""):match("%.webm$") ~= nil
-	if media:match("^%d+$") then
-		media = "rbxassetid://" .. media
-	elseif media:match("^https?://") then
-		local ok, asset = pcall(downloadAsset, media)
+	if media ~= "" then
+		local ok, result = pcall(resolveMedia, media, BackgroundFolder)
 		if not ok then
-			return false, asset -- the current background stays
+			return false, result
 		end
-		media = asset
+		media = result
 	end
 
 	if backgroundLayer then

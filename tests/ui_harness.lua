@@ -161,8 +161,14 @@ workspace = service("Workspace")
 Workspace = workspace
 
 ---------------------------------------------------------------- Roblox globals
+local colorMethods = {
+	ToHSV = function(c) return 0, 0, math.max(c.R, c.G, c.B) end,
+}
 local function color(r, g, b)
-	return setmetatable({ r = r, g = g, b = b, R = r, G = g, B = b }, { __index = function() return P end, __type = "Color3" })
+	return setmetatable({ r = r, g = g, b = b, R = r, G = g, B = b }, {
+		__index = function(_, k) return colorMethods[k] or P end,
+		__type = "Color3",
+	})
 end
 Color3 = {
 	fromRGB = function(r, g, b) return color((r or 0) / 255, (g or 0) / 255, (b or 0) / 255) end,
@@ -246,6 +252,9 @@ end
 
 ---------------------------------------------------------------- 1. Universal.lua
 print("Universal.lua")
+-- a background already in the workspace folder (as if downloaded on an earlier run)
+FOLDERS["Peridot"], FOLDERS["Peridot/Backgrounds"] = true, true
+FILES["Peridot/Backgrounds/green_night_driving.jpg"] = "jpg-bytes"
 run("runs top to bottom", function()
 	assert(loadfile(REPO .. "/scripts/Universal.lua"))()
 end)
@@ -264,6 +273,16 @@ end
 print(("  registered: %d toggles, %d sliders, %d dropdowns, %d boxes, %d keybinds"):format(
 	counts.Toggles, counts.Sliders, counts.Dropdowns, counts.Boxes, counts.Keybinds))
 check(counts.Toggles >= 20 and counts.Sliders >= 10, "controls registered for config save")
+do -- Visual and Settings are split into sub-tabs now; their saved-config keys must not change
+	local subTabKeys, splitPages = 0, 0
+	for _, entries in pairs(lib.ControlRegistry) do
+		for key in pairs(entries) do
+			if key:find("/", 1, true) then subTabKeys = subTabKeys + 1 end
+			if key:find("^Visual||") or key:find("^Settings||") then splitPages = splitPages + 1 end
+		end
+	end
+	check(subTabKeys == 0 and splitPages >= 10, ("split pages keep old config keys (%d keys, %d with a sub-tab)"):format(splitPages, subTabKeys))
+end
 check(lib.Internal.Gui.Enabled == true, "window opens on load")
 check(lib.ToggleUISettings() == true and lib.ToggleUISettings() == true, "gear opens UI Settings and goes back")
 check(lib.Internal.Gui.Name == "Peridot GUI" and lib.Internal.NotiGui.Name == "Peridot Notification", "GUI names")
@@ -332,15 +351,26 @@ run("SetBackground: failed download reports and keeps the current one", function
 	local ok, err = lib.SetBackground("https://example.com/missing.webm")
 	assert(ok == false and tostring(err):find("download failed"), "got " .. tostring(err))
 end)
-run("Background dropdown (UI Settings page) loads the picked file", function()
+run("DownloadBackground saves into workspace/Peridot/Backgrounds once", function()
+	local first = lib.DownloadBackground("https://raw.githubusercontent.com/Ic0u/peridot/main/assets/backgrounds/waves.webm", "waves.webm")
+	assert(first == "new", "first download: " .. tostring(first))
+	assert(FILES["Peridot/Backgrounds/waves.webm"] == "webm-bytes", "file written")
+	assert(lib.DownloadBackground("https://x/waves.webm", "waves.webm") == "exists", "second call skips")
+	local listed = {}
+	for _, path in ipairs(lib.ListBackgrounds()) do listed[path] = true end
+	assert(listed["Peridot/Backgrounds/waves.webm"] and listed["Peridot/Backgrounds/green_night_driving.jpg"], "folder listed")
+end)
+run("Background dropdown (gear page) lists the workspace folder and loads the local file", function()
 	local entry = lib.ControlRegistry.Dropdowns["UI Settings||Background||Background"]
 	assert(entry, "dropdown registered on the UI Settings page")
 	local before = getgenv().UIColor["Background 1 Transparency"]
-	entry.Set("Waves")
-	assert(FILES["Peridot/Backgrounds/waves.webm"] == "webm-bytes", "waves.webm downloaded from assets/backgrounds/")
+	entry.Set("Green Night Driving") -- listed from the folder at startup, no URL involved
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4, "panels see-through")
 	entry.Set("None")
 	assert(getgenv().UIColor["Background 1 Transparency"] == before, "player's transparency restored")
+	assert(lib.SetBackground("Peridot/Backgrounds/waves.webm"), "local video file")
+	local ok, err = lib.SetBackground("Peridot/Backgrounds/nope.png")
+	assert(ok == false and tostring(err):find("not found"), "missing local file reported")
 end)
 
 print("Theme (gear page)")
@@ -364,6 +394,36 @@ run("saved theme is applied on the next load", function()
 	RUN_SPAWNS = false
 	assert(not fresh.SetAccent("NoSuchPreset"), "unknown preset rejected")
 end)
+run("per-color edits, rainbow and logo are saved and reloaded; reset clears them", function()
+	RUN_SPAWNS = true
+	lib.SetThemeColor("Background 2 Color", Color3.fromRGB(10, 20, 30))
+	lib.SetRainbow("Button Color", true)
+	assert(lib.SetLogo("123456"), "logo by asset id")
+	RUN_SPAWNS = false
+	local saved = service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"])
+	assert(saved.Colors["Background 2 Color"][3] == 30, "color edit saved")
+	assert(saved.Rainbow["Button Color"] == true, "rainbow saved")
+	assert(saved.Logo == "123456", "logo saved")
+	assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	assert(math.floor(getgenv().UIColor["Background 2 Color"].B * 255 + 0.5) == 30, "color edit reloaded")
+	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://123456", "logo reloaded")
+	RUN_SPAWNS = true
+	lib.ResetTheme()
+	RUN_SPAWNS = false
+	local cleared = service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"])
+	assert(next(cleared) == nil, "reset empties Theme.json")
+end)
+run("gear page builds (Theme / Colors / Window sub-tabs, color pickers)", function()
+	assert(lib.ToggleUISettings() and lib.ToggleUISettings())
+end)
+run("CreateColorPicker for scripts", function()
+	local w = lib.CreateMain({ Name = "Peridot", Title = "Picker Test" })
+	local got
+	local picker = w.CreatePage({ Page_Name = "ESP", Page_Title = "ESP" }).CreateSection("Colors")
+		.CreateColorPicker({ Title = "Box color", Default = Color3.fromRGB(255, 0, 0) }, function(c) got = c end)
+	picker.Set(Color3.fromRGB(0, 255, 0))
+	assert(picker.Get() ~= nil, "picker returns a color")
+end)
 
 print("Sub-tabs")
 run("sub-tabs keep separate config keys and switch", function()
@@ -373,8 +433,9 @@ run("sub-tabs keep separate config keys and switch", function()
 	local got = {}
 	bounty.CreateSection("Run").CreateToggle({ Title = "Run the rotation" }, function(v) got.bounty = v end)
 	lvl.CreateSection("Run").CreateToggle({ Title = "Run the rotation" }, function(v) got.lvl = v end)
-	assert(lib.ControlRegistry.Toggles["Farm/Bounty Farm||Run||Run the rotation"], "bounty key")
-	assert(lib.ControlRegistry.Toggles["Farm/Lvl Farm||Run||Run the rotation"], "lvl key")
+	-- first one keeps the plain page key (old configs still load); the clashing second one gets the sub-tab name
+	assert(lib.ControlRegistry.Toggles["Farm||Run||Run the rotation"], "bounty keeps the plain key")
+	assert(lib.ControlRegistry.Toggles["Farm/Lvl Farm||Run||Run the rotation"], "lvl gets the sub-tab key")
 	lvl.Select()
 	bounty.Select()
 	page.CreateSection("Always shown").CreateLabel({ Title = "no sub-tab" })
