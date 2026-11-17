@@ -23,30 +23,106 @@ Pmt.__tostring = function() return "P" end
 
 ---------------------------------------------------------------- instances
 local INSTANCES = 0
-local function newInstance(class, parent)
+-- Instances track real parents and children, validate `Visible` the way Roblox does
+-- and fire GetPropertyChangedSignal callbacks. Errors raised inside those callbacks
+-- are collected in UI_ERRORS: Roblox reports them without stopping the setter, and
+-- some games (Blox Fruits) kick the player for any such error.
+UI_ERRORS = {}
+local GUI_CLASSES = {
+	Frame = true, TextLabel = true, TextButton = true, TextBox = true, ImageLabel = true, ImageButton = true,
+	ScrollingFrame = true, CanvasGroup = true, VideoFrame = true, ViewportFrame = true,
+}
+local CHILDREN = setmetatable({}, { __mode = "k" }) -- instance -> ordered child list
+local newInstance
+local function setParent(inst, props, parent)
+	local old = props.Parent
+	if old and CHILDREN[old] then
+		for i, child in ipairs(CHILDREN[old]) do
+			if child == inst then table.remove(CHILDREN[old], i) break end
+		end
+	end
+	props.Parent = parent
+	if parent and CHILDREN[parent] then table.insert(CHILDREN[parent], inst) end
+end
+local function descendants(inst, out)
+	for _, child in ipairs(CHILDREN[inst]) do
+		table.insert(out, child)
+		descendants(child, out)
+	end
+	return out
+end
+function newInstance(class, parent)
 	INSTANCES = INSTANCES + 1
-	local props = { ClassName = class, Name = class, Parent = parent }
+	local props = { ClassName = class, Name = class }
 	local inst = {}
+	local signals = {} -- property -> callbacks
+	CHILDREN[inst] = {}
+	local function find(name, recursive)
+		for _, child in ipairs(CHILDREN[inst]) do
+			if child.Name == name then return child end
+		end
+		if recursive then
+			for _, child in ipairs(CHILDREN[inst]) do
+				local found = child:FindFirstChild(name, true)
+				if found then return found end
+			end
+		end
+		return nil
+	end
 	local methods = {
-		IsA = function(_, c) return c == class end,
-		Destroy = function() props.Parent = nil end,
-		GetChildren = function() return {} end,
-		GetDescendants = function() return {} end,
-		FindFirstChild = function() return nil end,
-		FindFirstChildOfClass = function() return nil end,
+		IsA = function(_, c) return c == class or c == "Instance" or (c == "GuiObject" and GUI_CLASSES[class] == true) end,
+		Destroy = function()
+			setParent(inst, props, nil)
+			CHILDREN[inst] = {}
+		end,
+		GetChildren = function() return { (unpack or table.unpack)(CHILDREN[inst]) } end,
+		GetDescendants = function() return descendants(inst, {}) end,
+		FindFirstChild = function(_, name, recursive) return find(name, recursive) end,
+		FindFirstChildOfClass = function(_, c)
+			for _, child in ipairs(CHILDREN[inst]) do
+				if child.ClassName == c then return child end
+			end
+			return nil
+		end,
 		FindFirstChildWhichIsA = function() return nil end,
-		WaitForChild = function(_, name) return newInstance(name, inst) end,
+		WaitForChild = function(_, name) return find(name) or newInstance(name, inst) end,
+		GetPropertyChangedSignal = function(_, prop)
+			return {
+				Connect = function(_, f)
+					signals[prop] = signals[prop] or {}
+					table.insert(signals[prop], f)
+					return { Disconnect = function() end }
+				end,
+			}
+		end,
 	}
-	return setmetatable(inst, {
+	setmetatable(inst, {
 		__index = function(_, k)
 			if props[k] ~= nil then return props[k] end
 			if methods[k] then return methods[k] end
+			local child = find(k) -- Roblox lets you index a child by its name
+			if child then return child end
 			return P
 		end,
-		__newindex = function(_, k, v) props[k] = v end,
+		__newindex = function(_, k, v)
+			if k == "Parent" then
+				setParent(inst, props, v)
+				return
+			end
+			if k == "Visible" and not GUI_CLASSES[class] then
+				error(("Visible is not a valid member of %s \"%s\""):format(class, tostring(props.Name)), 2)
+			end
+			props[k] = v
+			for _, f in ipairs(signals[k] or {}) do
+				local ok, err = pcall(f)
+				if not ok then table.insert(UI_ERRORS, tostring(err)) end
+			end
+		end,
 		__tostring = function() return props.Name end,
 		__type = "Instance",
 	})
+	if parent then setParent(inst, props, parent) end
+	return inst
 end
 
 ---------------------------------------------------------------- filesystem
@@ -324,6 +400,57 @@ check(lib.ToggleUISettings() == true and lib.ToggleUISettings() == true, "gear o
 check(lib.Internal.Gui.Name == "Peridot GUI" and lib.Internal.NotiGui.Name == "Peridot Notification", "GUI names")
 
 ---------------------------------------------------------------- 2. config round trip
+print("Layering")
+run("the intro loader outranks every other ScreenGui (it must stay top-most)", function()
+	local function read(path)
+		local f = assert(io.open(REPO .. "/" .. path, "rb"))
+		local s = f:read("*a")
+		f:close()
+		return s
+	end
+	local loaderOrder = tonumber(read("loader.lua"):match("screenGui%.DisplayOrder = (%d+)"))
+	assert(loaderOrder and loaderOrder >= 1000000, "the loader's DisplayOrder is very high, got " .. tostring(loaderOrder))
+	for _, file in ipairs({ "libraries/UILibrary.lua", "scripts/Universal.lua", "games/2753915549.lua" }) do
+		for order in read(file):gmatch("DisplayOrder = (%d+)") do
+			assert(tonumber(order) < loaderOrder, file .. " sets a ScreenGui at or above the loader: " .. order)
+		end
+	end
+end)
+
+print("Button labels")
+run("green button labels say what the button does, using real titles from the scripts", function()
+	local expected = {
+		["Triple Katana $60,000"] = "Buy", ["Reset Stats 2,500F"] = "Buy", ["Pole v.2 5,000F"] = "Buy",
+		["Teleport To Third Sea"] = "Teleport", ["Tween Dragon Dojo"] = "Go", ["Server Hop"] = "Hop",
+		["Rejoin Current Server"] = "Rejoin", ["Rejoin Server"] = "Rejoin", ["Redeem All Codes"] = "Redeem",
+		["Remove Lava Prehistoric"] = "Remove", ["Open Haki Color"] = "Open", ["Join Pirates Team"] = "Join",
+		["Stop Current Movement"] = "Stop", ["Resume Movement"] = "Resume", ["Respawn"] = "Respawn",
+		["Refresh List"] = "Refresh", ["Copy Job Id"] = "Copy", ["Random Fruits"] = "Roll",
+		["Save"] = "Save", ["Load"] = "Load", ["Delete"] = "Delete", ["Unload"] = "Unload",
+		["Something unusual"] = "Run", [""] = "Run",
+	}
+	for title, label in pairs(expected) do
+		assert(lib.ButtonVerb(title) == label, ("%q -> %q, expected %q"):format(title, tostring(lib.ButtonVerb(title)), label))
+	end
+end)
+
+print("Search boxes")
+run("typing in any search box raises no errors (one bad child once got a player kicked)", function()
+	UI_ERRORS = {}
+	local boxes = {}
+	for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+		if item.ClassName == "TextBox" and (item.Name == "Search Box" or item.Name == "SearchBox") then
+			table.insert(boxes, item)
+		end
+	end
+	assert(#boxes >= 5, "found the search boxes, got " .. #boxes)
+	for _, box in ipairs(boxes) do
+		box.Text = "walk" -- fires the hide-others / show-matches loops
+		box.Text = ""
+	end
+	assert(#UI_ERRORS == 0, "errors: " .. tostring(UI_ERRORS[1]))
+end)
+
 print("Config")
 run("Save", function()
 	local ok, err = lib.ConfigSystem.Save("harness")
@@ -540,6 +667,29 @@ run("window open/close: state is immediate, Gui.Enabled follows the animation, a
 	flushDelays()
 	assert(anim.IsVisible() and anim.Internal.Gui.Enabled, "the stale close did not hide the reopened window")
 	DEFER_DELAYS = false
+end)
+run("fade: the window is a CanvasGroup with the shadow outside it, opens from clear, no snap when reopened mid-close", function()
+	local anim = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	anim.CreateMain({ Name = "Peridot", Title = "Fade Test" })
+	local gui = anim.Internal.Gui
+	local body = gui:FindFirstChild("Body", true)
+	assert(body and body.ClassName == "CanvasGroup", "the window body is a CanvasGroup")
+	assert(body:FindFirstChild("MainContainer"), "the window is inside the body")
+	local shadow = gui:FindFirstChild("Shadow", true)
+	assert(shadow and shadow.Parent ~= body, "the shadow is outside the group, so it isn't clipped")
+	DEFER_DELAYS = true
+	anim.Hide()
+	flushDelays()
+	assert(body.GroupTransparency == 0 and shadow.ImageTransparency == 0.35, "values reset after hiding")
+	anim.Show()
+	assert(body.GroupTransparency == 1 and shadow.ImageTransparency == 1, "a fresh open starts fully clear")
+	body.GroupTransparency = 0.5 -- pretend the tween is halfway
+	anim.Hide()
+	anim.Show() -- reopened while it was still closing
+	assert(body.GroupTransparency == 0.5, "no snap when reopened mid-close")
+	flushDelays()
+	DEFER_DELAYS = false
+	assert(anim.IsVisible() and gui.Enabled, "ends up open")
 end)
 run("accent preset crossfades through the theme without errors", function()
 	assert(lib.ToggleUISettings() and lib.ToggleUISettings())

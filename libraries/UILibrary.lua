@@ -195,6 +195,28 @@ local function color3ToList(color)
 	return { math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5) }
 end
 
+-- Label for the green button on a button row, inferred from the row's title so it says what
+-- it does ("Buy", "Rejoin", "Teleport") instead of a generic "Click". A button can set
+-- ButtonText itself; anything unrecognised gets "Run".
+local ButtonVerbs = {
+	teleport = "Teleport", tp = "Teleport", tween = "Go", remove = "Remove", redeem = "Redeem", open = "Open",
+	join = "Join", rejoin = "Rejoin", copy = "Copy", refresh = "Refresh", reset = "Reset", save = "Save",
+	load = "Load", delete = "Delete", unload = "Unload", stop = "Stop", resume = "Resume", respawn = "Respawn",
+	get = "Get", start = "Start", select = "Select", equip = "Equip", use = "Use", claim = "Claim",
+	collect = "Collect", clear = "Clear", apply = "Apply", update = "Update", random = "Roll", buy = "Buy",
+	kill = "Kill", spawn = "Spawn", show = "Show", hide = "Hide", enable = "Enable", disable = "Disable",
+}
+local function ButtonVerb(title)
+	local lower = tostring(title or ""):lower()
+	if lower:match("%$%s*%d") or lower:match("%d%s*f%s*$") then
+		return "Buy" -- "Katana $1,000", "Reset Stats 2,500F"
+	end
+	if lower:match("server hop") then
+		return "Hop"
+	end
+	return ButtonVerbs[lower:match("^%s*(%a+)") or ""] or "Run"
+end
+
 local ThemeFile = "Peridot/Theme.json"
 local DefaultTheme = {} -- every theme value as shipped, for "Reset theme"
 for key, value in pairs(T1UIColor) do
@@ -418,9 +440,10 @@ btnHide.MouseLeave:Connect(function()
 	pressToggleButton(false)
 end)
 
--- Open/close: the window pops in from 94% and shrinks back out. The logical state
--- (UIToggled) changes at once; Gui.Enabled follows after the close animation.
+-- Open/close: the window fades and pops in from 94%, and fades and shrinks back out.
+-- The logical state (UIToggled) changes at once; Gui.Enabled follows after the close animation.
 local windowCloseToken = 0
+local WindowShadowAlpha = .35 -- the shadow's resting transparency
 Library.ToggleUI = function()
 	local opening = not getgenv().UIToggled
 	getgenv().UIToggled = opening
@@ -431,22 +454,43 @@ Library.ToggleUI = function()
 	windowCloseToken = windowCloseToken + 1 -- a reopen cancels a close that is still animating
 	local token = windowCloseToken
 	local scale = Library_Function.WindowScale
+	local fade = Library_Function.WindowFade
+	local shadow = Library_Function.WindowShadow
+	local animated = scale and fade and shadow and not DisableAnimation
 	if opening then
-		Library_Function.Gui.Enabled = true
-		if scale and not DisableAnimation then
-			scale.Scale = .94
-			TweenService:Create(scale, TweenInfo.new(.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		if animated then
+			if not Library_Function.Gui.Enabled then -- from closed: start small and clear
+				scale.Scale = .94
+				fade.GroupTransparency = 1
+				shadow.ImageTransparency = 1
+			end -- reopened mid-close: carry on from where it is
+			TweenService:Create(scale, TweenInfo.new(.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 				Scale = 1
 			}):Play()
+			TweenService:Create(fade, TweenInfo.new(.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				GroupTransparency = 0
+			}):Play()
+			TweenService:Create(shadow, TweenInfo.new(.26, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				ImageTransparency = WindowShadowAlpha
+			}):Play()
 		end
-	elseif scale and not DisableAnimation then
-		TweenService:Create(scale, TweenInfo.new(.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Library_Function.Gui.Enabled = true
+	elseif animated then
+		TweenService:Create(scale, TweenInfo.new(.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 			Scale = .94
 		}):Play()
-		task.delay(.14, function()
-			if token == windowCloseToken then
+		TweenService:Create(fade, TweenInfo.new(.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			GroupTransparency = 1
+		}):Play()
+		TweenService:Create(shadow, TweenInfo.new(.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			ImageTransparency = 1
+		}):Play()
+		task.delay(.16, function()
+			if token == windowCloseToken then -- not reopened in the meantime
 				Library_Function.Gui.Enabled = false
 				scale.Scale = 1
+				fade.GroupTransparency = 0
+				shadow.ImageTransparency = WindowShadowAlpha
 			end
 		end)
 	else
@@ -931,11 +975,26 @@ function Library:CreateWindow(Setting)
 
 	maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
 
+	-- Everything visible except the shadow lives in a CanvasGroup, so the window can fade as
+	-- one piece (GroupTransparency). A CanvasGroup clips to its bounds, so it is 4px larger
+	-- than the window on every side and the container sits inside, leaving room for its outline.
+	local Body = Instance.new("CanvasGroup")
+	Body.Name = "Body"
+	Body.Parent = Main
+	Body.AnchorPoint = Vector2.new(0.5, 0.5)
+	Body.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Body.Size = UDim2.new(1, 8, 1, 8)
+	Body.BackgroundTransparency = 1
+	Body.BorderSizePixel = 0
+	Library_Function.WindowFade = Body
+
 	MainContainer = Instance.new("ImageLabel")
 	MainContainer.Name = "MainContainer"
-	MainContainer.Parent = Main
+	MainContainer.Parent = Body
+	MainContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+	MainContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
 	MainContainer.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-	MainContainer.Size = UDim2.new(1, 0, 1, 0)
+	MainContainer.Size = UDim2.new(1, -8, 1, -8)
 	Library_Function.MainContainer = MainContainer -- SetBackground draws on it
 
 	local uistr = Instance.new("UIStroke", MainContainer);
@@ -1182,6 +1241,7 @@ function Library:CreateWindow(Setting)
 
 	local Shadow = Instance.new("ImageLabel", Main)
 	Shadow.Name = "Shadow"
+	Library_Function.WindowShadow = Shadow -- fades with the window
 	Shadow.AnchorPoint = Vector2.new(0.5, 0.5)
 	Shadow.BackgroundColor3 = Color3.fromRGB(163, 162, 165)
 	Shadow.BackgroundTransparency = 1
@@ -1575,7 +1635,7 @@ function Library:CreateWindow(Setting)
 
 		local function hideOtherFrame()
 			for i, v in next, PageList:GetChildren() do 
-				if not v:IsA('UIListLayout') then 
+				if v:IsA('GuiObject') then -- UIPadding and other layout children have no Visible
 					v.Visible = false
 				end
 			end
@@ -1583,7 +1643,7 @@ function Library:CreateWindow(Setting)
 		
 		local function showFrameName()
 			for i, v in pairs(PageList:GetChildren()) do
-				if not v:IsA('UIListLayout') then 
+				if v:IsA('GuiObject') then
 					local inActiveSubTab = SectionOwner[v] == nil or SectionOwner[v] == ActiveSubTab
 					if inActiveSubTab and string.find(string.lower(v.Name), string.lower(SearchBox.Text)) then
 						v.Visible = true
@@ -1612,7 +1672,7 @@ function Library:CreateWindow(Setting)
 			CurrentSelect = selectPage
 
 			for i, v in pairs(MainPage:GetChildren()) do
-				if not (v:IsA('UIPageLayout')) and not (v:IsA('UICorner')) then
+				if v:IsA('GuiObject') then
 					v.Visible = false
 				end
 			end
@@ -2073,7 +2133,7 @@ function Library:CreateWindow(Setting)
              Button_1.BackgroundTransparency = 1
              Button_1.Size = UDim2.new(1, 0,1, 0)
              Button_1.Font = Enum.Font.GothamBold
-             Button_1.Text = Setting.ButtonText or "Click" -- Peridot: e.g. "Reset"
+             Button_1.Text = Setting.ButtonText or ButtonVerb(Title) -- Peridot: says what the button does
              Button_1.TextColor3 = Color3.fromRGB(240, 240, 240)
              Button_1.TextSize = 13
 
@@ -4882,7 +4942,7 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 		options = options or {}
 		local button = banana:AddButton({
 			Title = tostring(options.Title or ""),
-			ButtonText = options.ButtonText, -- label on the green button, "Click" by default
+			ButtonText = options.ButtonText, -- label on the green button; inferred from the title when absent
 			Callback = callback or options.Callback,
 		})
 		return {
@@ -5127,6 +5187,7 @@ end
 
 -- Theme from code; all of these save to Peridot/Theme.json like the gear page does.
 Peridot.SetThemeColor = Library_Function.SetThemeColor -- (key, Color3), e.g. ("Background 2 Color", c)
+Peridot.ButtonVerb = ButtonVerb -- (title) -> label the green button gets by default
 Peridot.SetButtonSize = Library_Function.SetButtonSize -- (28-64 px) UI toggle button
 Peridot.SetButtonVisible = Library_Function.SetButtonVisible -- (on)
 Peridot.SetMenuKey = Library_Function.SetMenuKey -- ("RightControl", "F4", ...) key that opens/closes the window
