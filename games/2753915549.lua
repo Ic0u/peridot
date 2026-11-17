@@ -273,6 +273,25 @@ local function btn(section, title, fn, text)
     return section.CreateButton({ Title = title, ButtonText = text }, safe(title, fn))
 end
 
+local function commandRemote()
+    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+    return remotes and remotes:FindFirstChild("CommF_")
+end
+
+-- A button that sends one game command, with the same arguments the script uses,
+-- and shows what the game answered.
+local function commandButton(section, title, text, ...)
+    local args = { ... }
+    return btn(section, title, function()
+        local remote = commandRemote()
+        if not remote then
+            return notify(title, "The game's remote is not ready.")
+        end
+        local ok, answer = pcall(remote.InvokeServer, remote, unpack(args))
+        notify(title, ok and ("The game answered: " .. tostring(answer)) or tostring(answer))
+    end, text)
+end
+
 -- A dropdown filled from live game data. It shows how many entries it found,
 -- says what to do when there are none, and Refresh re-reads the list.
 local function listPick(section, title, flag, source, noun, hint, lazy)
@@ -619,6 +638,27 @@ do
         tog(haki, "Rainbow Haki Quest: Skip Walking To NPC", "GetQFast")
     end
 
+    local shop = page.CreateSubTab("Shop")
+    local basicStyles = shop.CreateSection("Fighting Styles")
+    commandButton(basicStyles, "Buy Black Leg", "Buy", "BuyBlackLeg")
+    commandButton(basicStyles, "Buy Electro", "Buy", "BuyElectro")
+    commandButton(basicStyles, "Buy Fishman Karate", "Buy", "BuyFishmanKarate")
+    commandButton(basicStyles, "Buy Dragon Claw", "Buy", "BlackbeardReward", "DragonClaw", "2")
+    local advancedStyles = shop.CreateSection("Advanced Fighting Styles")
+    commandButton(advancedStyles, "Buy Superhuman", "Buy", "BuySuperhuman")
+    commandButton(advancedStyles, "Buy Death Step", "Buy", "BuyDeathStep")
+    commandButton(advancedStyles, "Buy Sharkman Karate", "Buy", "BuySharkmanKarate")
+    commandButton(advancedStyles, "Buy Electric Claw", "Buy", "BuyElectricClaw")
+    commandButton(advancedStyles, "Buy Dragon Talon", "Buy", "BuyDragonTalon")
+    commandButton(advancedStyles, "Buy Godhuman", "Buy", "BuyGodhuman")
+    commandButton(advancedStyles, "Buy Sanguine Art", "Buy", "BuySanguineArt")
+    local goods = shop.CreateSection("Items")
+    commandButton(goods, "Buy Bisento", "Buy", "BuyItem", "Bisento")
+    commandButton(goods, "Buy Soul Guitar", "Buy", "soulGuitarBuy", true)
+    commandButton(goods, "Random Bone Roll", "Roll", "Bones", "Buy", 1, 1)
+    commandButton(goods, "Random Fruit From Cousin", "Buy", "Cousin", "Buy")
+    shop.CreateSection("Note").CreateLabel({ Title = "Each button sends the game's own purchase request; the game decides, and its answer shows in a notification." })
+
     local quests = page.CreateSubTab("Quests")
     local unlocks = quests.CreateSection("Quests and Unlocks")
     tog(unlocks, "Second Sea Quest", "TravelDres", nil, SEA1)
@@ -952,14 +992,26 @@ do
         if not position then
             return notify("Portal", "Pick a portal first.")
         end
-        local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-        local remote = remotes and remotes:FindFirstChild("CommF_")
+        local remote = commandRemote()
         if not remote then
             return notify("Portal", "The game's portal remote is not ready.")
         end
         local ok, err = pcall(remote.InvokeServer, remote, "requestEntrance", position)
         notify("Portal", ok and ("Requested " .. _G.PortalTarget .. ". The server may refuse it from here.") or tostring(err))
     end, "Go")
+
+    local seas = teleport.CreateSection("Seas")
+    commandButton(seas, "Travel To First Sea", "Travel", "TravelMain")
+    commandButton(seas, "Travel To Second Sea", "Travel", "TravelDressrosa")
+    commandButton(seas, "Travel To Third Sea", "Travel", "TravelZou")
+
+    local team = teleport.CreateSection("Team")
+    btn(team, "Join Pirates", function()
+        callGlobal("Pirates")
+    end, "Join")
+    btn(team, "Join Marines", function()
+        callGlobal("Marines")
+    end, "Join")
 
     if inSea(SEA3) then
         local submarine = teleport.CreateSection("Submerged Island")
