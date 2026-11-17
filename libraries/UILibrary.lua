@@ -66,7 +66,7 @@ local T1UIColor = {
 	["Title Text Color"] = Color3.fromRGB(140, 172, 68),
 	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
 	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
-	["Background 1 Transparency"] = 0.1,
+	["Background 1 Transparency"] = 0.04,
 	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
 	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
 	["Background Image"] = "",
@@ -111,6 +111,98 @@ local function TI(speedKey)
 		return Enum.EasingStyle[getgenv().UIColor["Tween Easing Style"]]
 	end)
 	return TweenInfo.new(getgenv().UIColor[speedKey], ok and style or Enum.EasingStyle.Quad)
+end
+
+-- Theme helpers. The accent keys all follow one color; the UI Settings page
+-- (title-bar gear) changes it live and saves the choice to Peridot/Theme.json.
+local AccentKeys = {
+	"Border Color", "Search Icon Highlight Color", "Title Text Color", "Page Selected Color",
+	"Section Underline Color", "Toggle Border Color", "Button Color", "Dropdown Selected Color",
+	"Textbox Highlight Color", "Box Highlight Color", "Slider Line Color",
+}
+local AccentPresets = {
+	{ "Peridot", Color3.fromRGB(140, 172, 68) },
+	{ "Ocean", Color3.fromRGB(90, 160, 255) },
+	{ "Ruby", Color3.fromRGB(220, 70, 80) },
+	{ "Amethyst", Color3.fromRGB(155, 105, 230) },
+	{ "Gold", Color3.fromRGB(255, 206, 27) },
+	{ "Sakura", Color3.fromRGB(240, 130, 170) },
+	{ "Mint", Color3.fromRGB(70, 200, 160) },
+	{ "Mono", Color3.fromRGB(200, 200, 200) },
+}
+local function shade(color, factor)
+	return Color3.new(math.clamp(color.R * factor, 0, 1), math.clamp(color.G * factor, 0, 1), math.clamp(color.B * factor, 0, 1))
+end
+local function accentPalette(accent)
+	local palette = {}
+	for _, key in ipairs(AccentKeys) do
+		palette[key] = accent
+	end
+	palette["Dropdown Selected Check Color"] = shade(accent, 0.86)
+	palette["Slider Highlight Color"] = shade(accent, 0.7)
+	return palette
+end
+local function ButtonGradient(accent)
+	return ColorSequence.new({
+		ColorSequenceKeypoint.new(0, shade(accent, 1.18)),
+		ColorSequenceKeypoint.new(0.4, accent),
+		ColorSequenceKeypoint.new(0.6, shade(accent, 0.87)),
+		ColorSequenceKeypoint.new(1, shade(accent, 0.74)),
+	})
+end
+local function color3ToList(color)
+	return { math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5) }
+end
+
+local ThemeFile = "Peridot/Theme.json"
+local DefaultTheme = {
+	PanelTransparency = T1UIColor["Background 1 Transparency"],
+	AnimationSpeed = T1UIColor["Tween Animation 2 Speed"],
+	Easing = T1UIColor["Tween Easing Style"],
+}
+local SavedTheme = {}
+if HasFileSystem then
+	pcall(function()
+		if isfile(ThemeFile) then
+			local data = game:GetService("HttpService"):JSONDecode(readfile(ThemeFile))
+			if type(data) == "table" then
+				SavedTheme = data
+			end
+		end
+	end)
+end
+local themeSaveQueued = false
+local function saveThemeSoon() -- coalesces a slider drag into one write
+	if themeSaveQueued or not HasFileSystem then
+		return
+	end
+	themeSaveQueued = true
+	task.delay(0.5, function()
+		themeSaveQueued = false
+		pcall(function()
+			if not isfolder("Peridot") then
+				makefolder("Peridot")
+			end
+			writefile(ThemeFile, game:GetService("HttpService"):JSONEncode(SavedTheme))
+		end)
+	end)
+end
+
+-- Apply the saved theme before anything is drawn.
+if type(SavedTheme.Accent) == "table" then
+	local c = SavedTheme.Accent
+	for key, value in pairs(accentPalette(Color3.fromRGB(tonumber(c[1]) or 0, tonumber(c[2]) or 0, tonumber(c[3]) or 0))) do
+		T1UIColor[key] = value
+	end
+end
+if tonumber(SavedTheme.PanelTransparency) then
+	T1UIColor["Background 1 Transparency"] = tonumber(SavedTheme.PanelTransparency)
+end
+if tonumber(SavedTheme.AnimationSpeed) then
+	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
+end
+if type(SavedTheme.Easing) == "string" then
+	T1UIColor["Tween Easing Style"] = SavedTheme.Easing
 end
 getgenv().AllControls = {}
 getgenv().UIToggled = false
@@ -338,6 +430,48 @@ function Library_Function.Getcolor(color)
 	}
 end
 
+local function colorKey(color)
+	return math.floor(color.R * 255 + 0.5) .. "," .. math.floor(color.G * 255 + 0.5) .. "," .. math.floor(color.B * 255 + 0.5)
+end
+
+-- Recolors the accent everywhere: the theme keys (for anything drawn later) and
+-- every property already on screen that still holds one of the old accent shades.
+function Library_Function.ApplyAccent(accent)
+	local swap = {}
+	for key, value in pairs(accentPalette(accent)) do
+		local old = getgenv().UIColor[key]
+		if typeof(old) == "Color3" then
+			swap[colorKey(old)] = value
+		end
+		getgenv().UIColor[key] = value
+	end
+	for _, root in ipairs({ Library_Function.Gui, Library_Function.NotiGui, Library_Function.HideGui }) do
+		for _, item in ipairs(root:GetDescendants()) do
+			for _, prop in ipairs({ "BackgroundColor3", "TextColor3", "ImageColor3", "Color" }) do
+				local ok, value = pcall(function()
+					return item[prop]
+				end)
+				if ok and typeof(value) == "Color3" and swap[colorKey(value)] then
+					item[prop] = swap[colorKey(value)]
+				end
+			end
+			if item:IsA("UIGradient") and item.Parent and item.Parent.Name == "ClickArea" then
+				item.Color = ButtonGradient(accent)
+			end
+		end
+	end
+	if Library_Function.RefreshTitle then
+		Library_Function.RefreshTitle()
+	end
+end
+
+function Library_Function.SetAccent(accent, presetName)
+	Library_Function.ApplyAccent(accent)
+	SavedTheme.Accent = color3ToList(accent)
+	SavedTheme.Preset = presetName or "Custom"
+	saveThemeSoon()
+end
+
 local libCreateNoti = function(Setting)
 	getgenv().TitleNameNoti = Setting.Title or ""; 
 	local Description = Setting.Description or Setting.Desc or Setting.Content or ""; 
@@ -506,7 +640,10 @@ function Library:CreateWindow(Setting)
     local TitleNameMain = Setting.Title or "Peridot"
     getgenv().MainDesc = Setting.Desc or Setting.Subtitle or ""
     local SidebarTitle = Setting.SidebarTitle or TitleNameMain -- header above the tab list (the game name)
-    local SettingsPageName = Setting.SettingsPage or "Settings" -- page the title-bar gear opens
+    -- Page switchers, so the gear can open UI Settings and then go back to where you were.
+    local CurrentSelect, PreviousSelect, UISettingsSelect, UISettingsPage
+    local HiddenTabs = {} -- tab buttons kept out of the sidebar (UI Settings)
+    local SubTabRestorers = {} -- re-hide other sub-tabs' sections after a search is cleared
     
     if Setting.Image then
         getgenv().UIColor["Logo Image"] = Setting.Image
@@ -577,8 +714,8 @@ function Library:CreateWindow(Setting)
 	}
 	uigradient.Rotation = 90
 	uigradient.Transparency = NumberSequence.new{
-		NumberSequenceKeypoint.new(0, 0.92),
-		NumberSequenceKeypoint.new(1, 0.92)
+		NumberSequenceKeypoint.new(0, 0.6), -- was 0.92: the window frame was almost fully see-through
+		NumberSequenceKeypoint.new(1, 0.6)
 	}
 
 	getgenv().ReadyForGuiLoaded = true
@@ -643,7 +780,13 @@ function Library:CreateWindow(Setting)
 	local color = colorR .. ',' .. colorG .. ',' .. colorB
     TextLabelMain.Text = "<font color=\"rgb(" .. tostring(color or "140,172,68") .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
 
-	-- Settings gear, top right: opens the SettingsPageName page. Hidden until that page is added.
+	-- Rebuilt when the accent changes (the title color lives inside rich text).
+	Library_Function.RefreshTitle = function()
+		local c = Library_Function.Getcolor(getgenv().UIColor["Title Text Color"])
+		TextLabelMain.Text = "<font color=\"rgb(" .. c[1] .. "," .. c[2] .. "," .. c[3] .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
+	end
+
+	-- Settings gear, top right: toggles the UI Settings page (theme, window options).
 	local SettingsGear = Instance.new("ImageButton")
 	SettingsGear.Name = "SettingsGear"
 	SettingsGear.Parent = TopMain
@@ -655,7 +798,6 @@ function Library:CreateWindow(Setting)
 	SettingsGear.Image = "rbxassetid://7397332215"
 	SettingsGear.ImageColor3 = getgenv().UIColor["Setting Icon Color"]
 	SettingsGear.ZIndex = 2
-	SettingsGear.Visible = false
 	SettingsGear.MouseEnter:Connect(function()
 		TweenService:Create(SettingsGear, TI("Tween Animation 3 Speed"), {
 			ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]
@@ -667,8 +809,8 @@ function Library:CreateWindow(Setting)
 		}):Play()
 	end)
 	SettingsGear.MouseButton1Click:Connect(function()
-		if Library_Function.OpenSettingsPage then
-			Library_Function.OpenSettingsPage()
+		if Library_Function.ToggleUISettings then
+			Library_Function.ToggleUISettings()
 		end
 		TweenService:Create(SettingsGear, TI("Tween Animation 1 Speed"), {
 			Rotation = SettingsGear.Rotation + 180
@@ -680,7 +822,7 @@ function Library:CreateWindow(Setting)
 	PageControl.Position = UDim2.new(0, 5, 0, 0)
 	PageControl.Size = UDim2.new(0, 180, 0, 325)
 	PageControl.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
-	PageControl.BackgroundTransparency = 0.1
+	PageControl.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
 
 	local pageControlStroke = Instance.new("UIStroke", PageControl)
 	pageControlStroke.Color = Color3.fromRGB(90, 90, 70)
@@ -693,8 +835,8 @@ function Library:CreateWindow(Setting)
 	}
 	pageControlGradient.Rotation = 90
 	pageControlGradient.Transparency = NumberSequence.new{
-		NumberSequenceKeypoint.new(0, 0.06),
-		NumberSequenceKeypoint.new(1, 0.12)
+		NumberSequenceKeypoint.new(0, 0.03),
+		NumberSequenceKeypoint.new(1, 0.06)
 	}
 
 	UICorner.CornerRadius = UDim.new(0, 4)
@@ -826,15 +968,18 @@ function Library:CreateWindow(Setting)
             if searchText == "" then
                 -- Hiển thị tất cả như cũ
                 for _, control in pairs(getgenv().AllControls) do
-                    control.TabButton.Visible = true
+                    control.TabButton.Visible = not HiddenTabs[control.TabButton]
                     control.Section.Visible = true
                     control.Element.Visible = true
                 end
                 -- Hiển thị tất cả tab
                 for _, tab in pairs(ControlList:GetChildren()) do
                     if not tab:IsA('UIListLayout') then
-                        tab.Visible = true
+                        tab.Visible = not HiddenTabs[tab]
                     end
+                end
+                for _, restore in ipairs(SubTabRestorers) do
+                    restore()
                 end
                 return
             end
@@ -952,7 +1097,8 @@ function Library:CreateWindow(Setting)
 	local LayoutOrder = -1
 	local PageCounter = 1
 
-	function Main_Function:AddTab(PageName)
+	function Main_Function:AddTab(PageName, TabOptions)
+		local Hidden = TabOptions and TabOptions.Hidden -- no sidebar button (UI Settings, opened by the gear)
 
 		local Page_Name = tostring(PageName)
 		local Page_Title = Page_Name
@@ -978,6 +1124,11 @@ function Library:CreateWindow(Setting)
 		PageName.BackgroundTransparency = 1.000
 		PageName.Size = UDim2.new(1, -10, 0, 25)
 		PageName.LayoutOrder = LayoutOrderBut
+		if Hidden then
+			PageName.Visible = false
+			PageName.LayoutOrder = 100000
+			HiddenTabs[PageName] = true
+		end
 
 		Frame.Parent = PageName
 		Frame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
@@ -1053,7 +1204,7 @@ function Library:CreateWindow(Setting)
 		PageContainer.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
 		PageContainer.Position = UDim2.new(0, 190, 0, 30)
 		PageContainer.Size = UDim2.new(0, 435, 0, 325)
-		PageContainer.LayoutOrder = LayoutOrder
+		PageContainer.LayoutOrder = Hidden and 100000 or LayoutOrder -- never the page shown at start
 		PageContainer.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
 
 		UICorner.CornerRadius = UDim.new(0, 4)
@@ -1093,6 +1244,9 @@ function Library:CreateWindow(Setting)
 		Pagelistlayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 			PageList.CanvasSize = UDim2.new(0, 0, 0, Pagelistlayout.AbsoluteContentSize.Y)
 		end)
+
+		-- Sub-tab state: which sub-tab owns each section frame, and which one is showing.
+		local SectionOwner, ActiveSubTab = {}, nil
 
 		local PageSearch = Instance.new("Frame")
 		local PageSearchCorner = Instance.new("UICorner")
@@ -1186,7 +1340,8 @@ function Library:CreateWindow(Setting)
 		local function showFrameName()
 			for i, v in pairs(PageList:GetChildren()) do
 				if not v:IsA('UIListLayout') then 
-					if string.find(string.lower(v.Name), string.lower(SearchBox.Text)) then 
+					local inActiveSubTab = SectionOwner[v] == nil or SectionOwner[v] == ActiveSubTab
+					if inActiveSubTab and string.find(string.lower(v.Name), string.lower(SearchBox.Text)) then
 						v.Visible = true
 					end
 				end
@@ -1210,6 +1365,7 @@ function Library:CreateWindow(Setting)
 			if tostring(UIPage.CurrentPage) == PageContainer.Name then
 				return
 			end
+			CurrentSelect = selectPage
 
 			for i, v in pairs(MainPage:GetChildren()) do
 				if not (v:IsA('UIPageLayout')) and not (v:IsA('UICorner')) then
@@ -1235,9 +1391,10 @@ function Library:CreateWindow(Setting)
 			end
 		end
 		PageButton.MouseButton1Click:Connect(selectPage)
-		if Page_Name == SettingsPageName then
-			Library_Function.OpenSettingsPage = selectPage
-			SettingsGear.Visible = true
+		if Hidden then
+			UISettingsSelect = selectPage
+		elseif not CurrentSelect then
+			CurrentSelect = selectPage -- the first page is the one showing at start
 		end
 
 		local pageFunction = {}
@@ -1256,7 +1413,7 @@ function Library:CreateWindow(Setting)
 			Section.Parent = PageList
 			Section.Size = UDim2.new(1, -5, 0, 30)
 			Section.BackgroundColor3 = Color3.fromRGB(48, 48, 56)
-			Section.BackgroundTransparency = 0.25
+			Section.BackgroundTransparency = 0.15
 			Section.ClipsDescendants = true
 
 			local sectionStroke = Instance.new("UIStroke", Section)
@@ -1418,7 +1575,7 @@ function Library:CreateWindow(Setting)
 					}):Play()
 				end
 			end)
-			local sectionFunction = {}
+			local sectionFunction = { Frame = Section } -- sub-tabs show/hide sections through this
 			function sectionFunction:AddToggle(idk,Setting)
 				local Title = tostring(Setting.Text or Setting.Title) or ""
 				local Desc = Setting.Desc or Setting.Description
@@ -1464,7 +1621,7 @@ function Library:CreateWindow(Setting)
 				check.Name = "check"
 				check.Parent = checkbox
 				check.AnchorPoint = Vector2.new(0.5, 0.5)
-				check.BackgroundColor3 = Color3.fromRGB(140, 172, 68)
+				check.BackgroundColor3 = getgenv().UIColor["Button Color"]
 				check.Position = UDim2.new(0.5, 0, 0.5, 0)
 				local cac = 5
 				if Desc then
@@ -1626,7 +1783,7 @@ function Library:CreateWindow(Setting)
              ClickArea_1.Name = "ClickArea"
              ClickArea_1.Parent = RowBG_1
              ClickArea_1.AnchorPoint = Vector2.new(1, 0.5)
-             ClickArea_1.BackgroundColor3 = Color3.fromRGB(140, 172, 68)
+             ClickArea_1.BackgroundColor3 = getgenv().UIColor["Button Color"]
              ClickArea_1.Position = UDim2.new(1, -8,0.5, 0)
              ClickArea_1.Size = UDim2.new(0, 94,0, 30)
              ClickArea_1.ClipsDescendants = true  -- THÊM DÒNG NÀY: Ngăn ripple tràn ra
@@ -1635,12 +1792,7 @@ function Library:CreateWindow(Setting)
              UICorner_3.CornerRadius = UDim.new(0,12)
              
              UIGradient_1.Parent = ClickArea_1
-             UIGradient_1.Color = ColorSequence.new{
-                 ColorSequenceKeypoint.new(0, Color3.fromRGB(166, 198, 92)), 
-                 ColorSequenceKeypoint.new(0.4, Color3.fromRGB(140, 172, 68)), 
-                 ColorSequenceKeypoint.new(0.6, Color3.fromRGB(122, 154, 52)), 
-                 ColorSequenceKeypoint.new(1, Color3.fromRGB(104, 136, 40))
-             }
+             UIGradient_1.Color = ButtonGradient(getgenv().UIColor["Button Color"]) -- follows the accent
              UIGradient_1.Rotation = 90
              
              ImageLabel_1.Parent = ClickArea_1
@@ -3640,6 +3792,30 @@ end
 			end
 			return sectionFunction
 		end
+		-- Sub-tabs: a strip under the page title; each sub-tab shows only its own sections.
+		local SubTabBar
+		local SubTabs = {}
+		local SubTabCount = 0
+		local function applySubTabVisibility()
+			for frame, owner in pairs(SectionOwner) do
+				frame.Visible = owner == ActiveSubTab
+			end
+		end
+		local function selectSubTab(name)
+			ActiveSubTab = name
+			for subName, sub in pairs(SubTabs) do
+				local selected = subName == name
+				TweenService:Create(sub.Button, TI("Tween Animation 3 Speed"), {
+					TextColor3 = selected and getgenv().UIColor["GUI Text Color"] or getgenv().UIColor["Placeholder Text Color"]
+				}):Play()
+				TweenService:Create(sub.Underline, TI("Tween Animation 1 Speed"), {
+					Size = selected and UDim2.new(1, 0, 0, 2) or UDim2.new(0, 0, 0, 2)
+				}):Play()
+			end
+			applySubTabVisibility()
+			PageList.CanvasPosition = Vector2.new(0, 0)
+		end
+
         local pagefunc = {}
         function pagefunc:AddLeftGroupbox(name)
             return pageFunction:AddSection(name)
@@ -3647,8 +3823,183 @@ end
         function pagefunc:AddRightGroupbox(name)
             return pageFunction:AddSection(name)
         end
+		function pagefunc:AddSubTab(name)
+			name = tostring(name)
+			if not SubTabBar then
+				SubTabBar = Instance.new("ScrollingFrame")
+				SubTabBar.Name = "SubTabBar"
+				SubTabBar.Parent = PageContainer
+				SubTabBar.BackgroundTransparency = 1
+				SubTabBar.BorderSizePixel = 0
+				SubTabBar.Position = UDim2.new(0, 5, 0, 28)
+				SubTabBar.Size = UDim2.new(1, -10, 0, 26)
+				SubTabBar.ScrollingDirection = Enum.ScrollingDirection.X -- scrolls sideways when the tabs don't fit
+				SubTabBar.ScrollBarThickness = 0
+				SubTabBar.CanvasSize = UDim2.new(0, 0, 0, 0)
+				SubTabBar.AutomaticCanvasSize = Enum.AutomaticSize.X
+				local layout = Instance.new("UIListLayout")
+				layout.Parent = SubTabBar
+				layout.FillDirection = Enum.FillDirection.Horizontal
+				layout.SortOrder = Enum.SortOrder.LayoutOrder
+				layout.Padding = UDim.new(0, 14)
+				local padding = Instance.new("UIPadding")
+				padding.PaddingLeft = UDim.new(0, 4)
+				padding.PaddingRight = UDim.new(0, 4)
+				padding.Parent = SubTabBar
+				-- sections start below the strip
+				PageList.Position = UDim2.new(0, 5, 0, 58)
+				PageList.Size = UDim2.new(1, -10, 1, -58)
+				table.insert(SubTabRestorers, applySubTabVisibility)
+			end
+
+			SubTabCount = SubTabCount + 1
+			local button = Instance.new("TextButton")
+			button.Name = name .. "_SubTab"
+			button.Parent = SubTabBar
+			button.LayoutOrder = SubTabCount
+			button.AutomaticSize = Enum.AutomaticSize.X
+			button.Size = UDim2.new(0, 0, 1, 0)
+			button.BackgroundTransparency = 1
+			button.AutoButtonColor = false
+			button.Font = Enum.Font.GothamBold
+			button.Text = name
+			button.TextSize = 14
+			button.TextColor3 = getgenv().UIColor["Placeholder Text Color"]
+
+			local underline = Instance.new("Frame")
+			underline.Name = "Underline"
+			underline.Parent = button
+			underline.AnchorPoint = Vector2.new(0.5, 1)
+			underline.Position = UDim2.new(0.5, 0, 1, 0)
+			underline.Size = UDim2.new(0, 0, 0, 2)
+			underline.BorderSizePixel = 0
+			underline.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+			local underlineCorner = Instance.new("UICorner")
+			underlineCorner.CornerRadius = UDim.new(1, 0)
+			underlineCorner.Parent = underline
+
+			SubTabs[name] = { Button = button, Underline = underline }
+			button.MouseButton1Click:Connect(function()
+				selectSubTab(name)
+			end)
+			if not ActiveSubTab then
+				selectSubTab(name) -- the first sub-tab starts selected
+			end
+
+			local subTab = {}
+			function subTab:AddSection(sectionName, ...)
+				local section = pageFunction:AddSection(sectionName, ...)
+				SectionOwner[section.Frame] = name
+				section.Frame.Visible = ActiveSubTab == name
+				return section
+			end
+			subTab.AddLeftGroupbox = subTab.AddSection
+			subTab.AddRightGroupbox = subTab.AddSection
+			function subTab:Select()
+				selectSubTab(name)
+			end
+			return subTab
+		end
 		return pagefunc
         end
+
+	-- UI Settings: the page behind the title-bar gear. Players restyle the hub here;
+	-- choices are saved to Peridot/Theme.json. Built on first use so it sorts after
+	-- the script's own pages, and scripts can add sections to it (backgrounds).
+	function Main_Function:GetUISettingsPage()
+		if UISettingsPage then
+			return UISettingsPage
+		end
+		UISettingsPage = Main_Function:AddTab("UI Settings", { Hidden = true })
+
+		local theme = UISettingsPage:AddLeftGroupbox("Theme")
+		local presetNames = {}
+		for _, preset in ipairs(AccentPresets) do
+			table.insert(presetNames, preset[1])
+		end
+		local accentDropdown = theme:AddDropdown(nil, {
+			Title = "Accent",
+			Values = presetNames,
+			Default = SavedTheme.Preset or "Peridot",
+			Callback = function(name)
+				for _, preset in ipairs(AccentPresets) do
+					if preset[1] == name then
+						Library_Function.SetAccent(preset[2], name)
+					end
+				end
+			end,
+		})
+		theme:AddInput(nil, {
+			Title = "Custom accent",
+			Placeholder = "hex, e.g. #8CAC44",
+			Callback = function(text)
+				local hex = tostring(text):gsub("#", "")
+				if hex:match("^%x%x%x%x%x%x$") then
+					local r, g, b = tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
+					Library_Function.SetAccent(Color3.fromRGB(r, g, b), "Custom")
+				end
+			end,
+		})
+
+		local windowSection = UISettingsPage:AddLeftGroupbox("Window")
+		local transparencySlider = windowSection:AddSlider({
+			Title = "Panel transparency",
+			Min = 0,
+			Max = 0.9,
+			Rouding = 2,
+			Default = getgenv().UIColor["Background 1 Transparency"],
+			Callback = function(value)
+				getgenv().UIColor["Background 1 Transparency"] = value
+				SavedTheme.PanelTransparency = value
+				saveThemeSoon()
+			end,
+		})
+		local speedSlider = windowSection:AddSlider({
+			Title = "Animation speed",
+			Min = 0,
+			Max = 1,
+			Rouding = 2,
+			Default = getgenv().UIColor["Tween Animation 2 Speed"],
+			Callback = function(value)
+				getgenv().UIColor["Tween Animation 2 Speed"] = value
+				SavedTheme.AnimationSpeed = value
+				saveThemeSoon()
+			end,
+		})
+		local easingDropdown = windowSection:AddDropdown(nil, {
+			Title = "Easing style",
+			Values = { "Quad", "Quint", "Back", "Sine", "Linear" },
+			Default = getgenv().UIColor["Tween Easing Style"],
+			Callback = function(style)
+				getgenv().UIColor["Tween Easing Style"] = style
+				SavedTheme.Easing = style
+				saveThemeSoon()
+			end,
+		})
+		windowSection:AddButton({
+			Title = "Reset theme",
+			Callback = function()
+				accentDropdown:SetValue("Peridot")
+				transparencySlider.SetValue(DefaultTheme.PanelTransparency)
+				speedSlider.SetValue(DefaultTheme.AnimationSpeed)
+				easingDropdown:SetValue(DefaultTheme.Easing)
+			end,
+		})
+		return UISettingsPage
+	end
+
+	-- Gear: open UI Settings, or go back to the page you came from.
+	Library_Function.ToggleUISettings = function()
+		Main_Function:GetUISettingsPage()
+		if CurrentSelect == UISettingsSelect then
+			if PreviousSelect then
+				PreviousSelect()
+			end
+		else
+			PreviousSelect = CurrentSelect
+			UISettingsSelect()
+		end
+	end
 
 	return Main_Function
 end
@@ -4002,12 +4353,11 @@ function Peridot.CreateMain(options)
 	options = options or {}
 	getgenv().HubName = options.Name or getgenv().HubName or "Peridot"
 	-- Old layout: "<Name> <Desc>" top-left in the title bar, the game name (Title)
-	-- as the header above the tab list, the gear opening the "Settings" page.
+	-- as the header above the tab list, the gear opening UI Settings.
 	local window = Library:CreateWindow({
 		Title = getgenv().HubName,
 		Desc = options.Desc or "",
 		SidebarTitle = options.Title or getgenv().HubName,
-		SettingsPage = options.SettingsPage,
 	})
 
 	if options.FloatingButton == false then
@@ -4027,8 +4377,32 @@ function Peridot.CreateMain(options)
 			local sectionKey = tostring(name or "")
 			return wrapSection(tab:AddLeftGroupbox(sectionKey), pageKey, sectionKey)
 		end
+		-- A strip of sub-tabs under the page title; each has its own sections.
+		-- Saved-config keys include the sub-tab, so sub-tabs can reuse section names.
+		function page.CreateSubTab(subName)
+			subName = tostring(subName or "")
+			local subKey = pageKey .. "/" .. subName
+			local sub = tab:AddSubTab(subName)
+			local subTab = {}
+			function subTab.CreateSection(name)
+				local sectionKey = tostring(name or "")
+				return wrapSection(sub:AddSection(sectionKey), subKey, sectionKey)
+			end
+			function subTab.Select()
+				sub:Select()
+			end
+			return subTab
+		end
 		return page
 	end
+
+	-- The gear's UI Settings page; scripts can add their own sections (Universal adds backgrounds).
+	main.UISettings = {
+		CreateSection = function(name)
+			local sectionKey = tostring(name or "")
+			return wrapSection(window:GetUISettingsPage():AddLeftGroupbox(sectionKey), "UI Settings", sectionKey)
+		end,
+	}
 	return main
 end
 
@@ -4042,12 +4416,27 @@ function Peridot.CreateNoti(options)
 	}, true)
 end
 
--- Same as clicking the title-bar gear. Returns false when there is no Settings page.
-function Peridot.OpenSettings()
-	if not Library_Function.OpenSettingsPage then
+-- Same as clicking the title-bar gear: opens UI Settings, or goes back to the previous page.
+function Peridot.ToggleUISettings()
+	if not Library_Function.ToggleUISettings then
 		return false
 	end
-	Library_Function.OpenSettingsPage()
+	Library_Function.ToggleUISettings()
+	return true
+end
+
+-- Change the accent from code: a preset name ("Peridot", "Ocean", "Ruby", ...) or a Color3. Saved like the gear's choice.
+function Peridot.SetAccent(accent)
+	if type(accent) == "string" then
+		for _, preset in ipairs(AccentPresets) do
+			if preset[1] == accent then
+				Library_Function.SetAccent(preset[2], preset[1])
+				return true
+			end
+		end
+		return false
+	end
+	Library_Function.SetAccent(accent, "Custom")
 	return true
 end
 

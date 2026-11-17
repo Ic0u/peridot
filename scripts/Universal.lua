@@ -1151,31 +1151,24 @@ Interface.CreateKeybind({
     Default = MenuKey,
 }, toggleMenu)
 
-Interface.CreateSlider({
-    Title   = "Animation Speed",
-    Min     = 0,
-    Max     = 1,
-    Default = 0.5,
-    Precise = true,
-}, function(value)
-    getgenv().UIColor["Tween Animation 2 Speed"] = value
-end)
+-- Theme, animation and panel options are on the title-bar gear's UI Settings page
+-- (built by the library). Backgrounds go there too, as their own section.
+local Backgrounds = Window.UISettings.CreateSection("Background")
 
-Interface.CreateDropdown({
-    Title   = "Easing Style",
-    List    = { "Quad", "Quint", "Back", "Sine", "Linear" },
-    Default = "Quad",
-}, function(style)
-    getgenv().UIColor["Tween Easing Style"] = style
-end)
-
+local transparencyBeforeBackground
 local function applyBackground(source)
     local ok, err = UILibrary.SetBackground(source)
     if not ok then
         return notify("Background", tostring(err))
     end
-    -- see-through panels so the background shows; back to solid when cleared
-    getgenv().UIColor["Background 1 Transparency"] = source ~= "" and 0.4 or 0.1
+    -- see-through panels while a background shows; the player's own setting comes back when cleared
+    if source ~= "" then
+        transparencyBeforeBackground = transparencyBeforeBackground or getgenv().UIColor["Background 1 Transparency"]
+        getgenv().UIColor["Background 1 Transparency"] = 0.4
+    elseif transparencyBeforeBackground then
+        getgenv().UIColor["Background 1 Transparency"] = transparencyBeforeBackground
+        transparencyBeforeBackground = nil
+    end
 end
 
 -- assets/backgrounds/backgrounds.json on GitHub: { "Name in dropdown": "file in assets/backgrounds/" }
@@ -1193,7 +1186,7 @@ end
 table.sort(backgroundNames)
 table.insert(backgroundNames, 1, "None")
 
-Interface.CreateDropdown({
+Backgrounds.CreateDropdown({
     Title   = "Background",
     List    = backgroundNames,
     Default = "None",
@@ -1206,7 +1199,7 @@ Interface.CreateDropdown({
     applyBackground(source)
 end)
 
-Interface.CreateBox({
+Backgrounds.CreateBox({
     Title       = "Custom Background",
     Placeholder = "rbxassetid://, image or .webm URL",
     Default     = "",
@@ -1214,16 +1207,6 @@ Interface.CreateBox({
     if url ~= "" then
         applyBackground(url)
     end
-end)
-
-Interface.CreateSlider({
-    Title   = "Panel Transparency",
-    Min     = 0,
-    Max     = 1,
-    Default = 0,
-    Precise = true,
-}, function(value)
-    getgenv().UIColor["Background 1 Transparency"] = value
 end)
 
 Interface.CreateButton({ Title = "Unload" }, function()
