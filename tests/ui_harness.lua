@@ -854,14 +854,24 @@ end
 
 -- Buttons have no handle in the registry, so wrap the section factories while the
 -- module builds and keep each button's callback by title.
-local BUTTONS = {}
+local BUTTONS, BOXES, DROPDOWNS = {}, {}, {}
 local function recordButtons()
 	local realCreateMain = lib.CreateMain
 	local function patch(section)
-		local realButton = section.CreateButton
+		local realButton, realBox, realDropdown = section.CreateButton, section.CreateBox, section.CreateDropdown
 		section.CreateButton = function(options, callback)
 			BUTTONS[options.Title] = callback
 			return realButton(options, callback)
+		end
+		section.CreateBox = function(options, callback)
+			local handle = realBox(options, callback)
+			BOXES[options.Title] = { callback = callback, handle = handle }
+			return handle
+		end
+		section.CreateDropdown = function(options, callback)
+			local handle = realDropdown(options, callback)
+			DROPDOWNS[options.Title] = handle
+			return handle
 		end
 		return section
 	end
@@ -890,7 +900,7 @@ run("module builds with no errors (stub core, shared library)", function()
 	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE
 	_G.__HARNESS_LIB = lib
 	PLACE_ID_OVERRIDE = 2753915549
-	getgenv().PeridotBloxFruitsLoaded = nil
+	getgenv().PeridotBloxFruitsLoaded, getgenv().PeridotBloxFruitsCoreLoaded = nil, nil
 	UI_ERRORS, WARNINGS = {}, {}
 	CAPTURE_SPAWNS = true
 	local stopRecording = recordButtons()
@@ -1052,24 +1062,77 @@ run("Stop All Features switches everything off", function()
 	assert(farm.Get() == false and _G.Level == false)
 end)
 
-run("config saves and restores the Blox Fruits controls", function()
+run("config manager: create, overwrite, load, autoload, export and import, delete", function()
+	local folder = "Peridot/BloxFruits/"
 	local farm = control("Toggles", "||Auto Farm||Auto Farm Level")
-	control("Boxes", "Settings||Config||Config Name").Set("bf")
+	local speed = control("Sliders", "||Tween Speed||Short Hop Speed")
+	UI_ERRORS, WARNINGS = {}, {}
+
+	BOXES["Config name"].callback("bf")
+	BUTTONS["Create config"]()
+	assert(FILES[folder .. "bf.json"], "created")
+	local first = FILES[folder .. "bf.json"]
+	BUTTONS["Create config"]() -- same name again: refused, file untouched
+	assert(FILES[folder .. "bf.json"] == first, "Create does not overwrite")
+
+	BUTTONS["Load config"]() -- nothing picked yet: says so
+	DROPDOWNS["Config list"].Set("bf")
 	farm.Set(true)
-	control("Sliders", "||Tween Speed||Short Hop Speed").Set(222)
-	BUTTONS["Save"]()
-	assert(FILES["Peridot/BloxFruits/bf.json"], "config written to the Blox Fruits folder")
+	speed.Set(222)
+	BUTTONS["Overwrite config"]()
+	assert(FILES[folder .. "bf.json"] ~= first, "overwritten with the current values")
+
 	farm.Set(false)
-	control("Sliders", "||Tween Speed||Short Hop Speed").Set(100)
+	speed.Set(100)
 	RUN_SPAWNS = true -- Load applies values from task.spawn
-	BUTTONS["Load"]()
+	BUTTONS["Load config"]()
 	RUN_SPAWNS = false
 	assert(farm.Get() == true and _G.Level == true, "toggle restored")
 	assert(_G.TweenSpeedNear == 222, "slider restored, got " .. tostring(_G.TweenSpeedNear))
-	BUTTONS["Delete"]()
-	assert(not FILES["Peridot/BloxFruits/bf.json"], "config deleted")
+
+	BUTTONS["Set as autoload"]()
+	assert(FILES[folder .. "autoload.txt"] == "bf", "autoload remembered")
+	assert(hasLabel("Current autoload config: bf"), "label shows it")
+	assert(lib.ConfigSystem.GetAutoload() == "bf")
+
+	BUTTONS["Export current config"]()
+	local exported = BOXES["Config JSON"].handle.Get()
+	assert(exported ~= "", "export fills the JSON box")
+	farm.Set(false)
+	RUN_SPAWNS = true
+	BOXES["Config JSON"].callback(exported)
+	BUTTONS["Import config"]()
+	RUN_SPAWNS = false
+	assert(farm.Get() == true, "import applies the exported values")
+	BOXES["Config JSON"].callback("not json")
+	BUTTONS["Import config"]() -- reports instead of throwing
+
+	BUTTONS["Reset autoload"]()
+	assert(FILES[folder .. "autoload.txt"] == nil and hasLabel("Current autoload config: none"))
+	BUTTONS["Set as autoload"]()
+	BUTTONS["Delete config"]()
+	assert(FILES[folder .. "bf.json"] == nil, "deleted")
+	assert(FILES[folder .. "autoload.txt"] == nil, "deleting the autoload config clears autoload")
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "no errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
 	farm.Set(false)
 end)
+
+run("config names with slashes are refused", function()
+	local ok, err = lib.ConfigSystem.Create("../evil")
+	assert(not ok and tostring(err):find("slashes"), tostring(err))
+end)
+
+run("controls marked NoSave stay out of configs", function()
+	local text = lib.ConfigSystem.Export()
+	local data = service("HttpService"):JSONDecode(text)
+	for key in pairs(data.Boxes) do
+		assert(not key:find("Config JSON", 1, true) and not key:find("Config name", 1, true), "saved: " .. key)
+	end
+	for key in pairs(data.Dropdowns) do
+		assert(not key:find("Config list", 1, true), "saved: " .. key)
+	end
+end)
+
 
 -- The page container is 435 px wide; the sub-tab bar loses 10 px to its inset and 8 px to padding.
 -- Text is GothamBold 14, about 8.5 px a letter, so 9 px a letter leaves some room.
@@ -1158,7 +1221,7 @@ local function buildSea(world, stubExtra)
 		for _, handle in pairs(entries) do known[handle] = true end
 	end
 	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE .. "\nenv.World" .. world .. " = true\n" .. (stubExtra or "")
-	getgenv().PeridotBloxFruitsLoaded = nil
+	getgenv().PeridotBloxFruitsLoaded, getgenv().PeridotBloxFruitsCoreLoaded = nil, nil
 	_G.World1, _G.World2, _G.World3 = nil, nil, nil
 	PLACE_ID_OVERRIDE = 2753915549
 	UI_ERRORS, WARNINGS = {}, {}
@@ -1211,6 +1274,147 @@ end)
 run("an unknown sea hides nothing", function()
 	-- the first run, with no World flag set, built every control
 	assert(#bfToggles >= 200)
+end)
+
+run("Unload UI stops everything, removes the windows, and a re-run skips the core", function()
+	local farm = control("Toggles", "Farm||Auto Farm||Auto Farm Level") -- the first window's switch
+	farm.Set(true)
+	local menuKey = getgenv().PeridotMenuKeyConnection
+	BUTTONS["Unload UI"]()
+	assert(_G.Level == false, "features stopped")
+	assert(getgenv().PeridotBloxFruitsLoaded == nil, "the script can run again")
+	assert(getgenv().PeridotBloxFruitsCoreLoaded == true, "but the core stays loaded")
+	assert(getgenv().PeridotMenuKeyConnection == nil or getgenv().PeridotMenuKeyConnection ~= menuKey, "menu key handler dropped")
+	runLoops(nil, 3) -- the interface loops now end on their own
+	local coreFetches = 0
+	for _, path in ipairs(HTTP_LOG) do
+		if path == "libraries/BloxFruitsCore.lua" then coreFetches = coreFetches + 1 end
+	end
+	OVERRIDES["libraries/UILibrary.lua"] = nil -- a real re-run downloads a fresh library
+	PLACE_ID_OVERRIDE = 2753915549
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/2753915549.lua")))
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	local after = 0
+	for _, path in ipairs(HTTP_LOG) do
+		if path == "libraries/BloxFruitsCore.lua" then after = after + 1 end
+	end
+	assert(after == coreFetches, "the core was not downloaded or run twice")
+end)
+
+---------------------------------------------------------------- 5. port check
+-- The Blox Fruits port must keep every option of the source reachable. These read
+-- libraries/BloxFruitsCore.lua (the ported script) and games/2753915549.lua (its UI).
+print("Port check")
+local function readRepo(path)
+	local f = assert(io.open(REPO .. "/" .. path, "rb"))
+	local text = f:read("*a")
+	f:close()
+	return text
+end
+local CORE, UI = readRepo("libraries/BloxFruitsCore.lua"), readRepo("games/2753915549.lua")
+
+local function set(list)
+	local out = {}
+	for name in list:gmatch("%S+") do out[name] = true end
+	return out
+end
+-- Read through _G / getgenv() by the core but not options a player sets.
+local NOT_OPTIONS = set([[
+OnFarm SelectWeapon CDKDoorOpenedAt CDKDoorTry LastTPCall WasOnFarm TweenCache CheckQuestVisible HopTimer
+LastCDKBossKick T1Yama T2Yama T3Yama DoneT1 DoneT2 DoneT3 LastPHReset Raiding SendHitsToServer Core
+Sea1_Islands Sea2_Islands Sea3_Islands IslandData GetMobs toggleFly updateFlySpeed ShareServerEvents
+]]) -- the core's own state and exports
+for name in pairs(set([[
+Prefully CollectPresent TpLab AutoPhoenixF AutoHolyTorch Doughv2 AuraBoss CraftVM AutoFarmRaid AutoFMon
+AutoEvoRace AutoGetQuestBounty AutoFarmGodChalice AutoFistDarkness AutoMiror Teleport FarmGodChalice Lvthan
+beasthunter DangerLV tweenKitsune snaguine tweenKitShrine AutoFishSlap FarmEliteHop StartEvent
+AutoAttackRipIndra AutoFarmCandy AutoTP_Gift AutoTPGift AutoTPAndCollect MasterAutoLevel MasterAutoCandy
+AutoMagnetToken AutoChestBP PortalUnLock
+]])) do
+	-- no logic in the source: only listed in one combined check (AutoChestBP is only ever
+	-- switched off, PortalUnLock needs pad positions the source never defines)
+	NOT_OPTIONS[name] = true
+end
+-- Options the core reads as plain globals.
+local PLAIN_OPTIONS = [[
+SelectMaterial pSats ABmethod RandomCFrame SelectIsland RDeath RemoveDamage LookM LookMV3 SpectatePlys NPClist
+InfAblities PlayerEsp IslandESP DevilFruitESP FlowerESP EspEventIsland ESPGear advanEsp ColorEsp LegenS ChestESP
+BerryEsp Range FARM_RANGE Num_self
+]]
+
+run("every option the core reads has a control", function()
+	local seen = {}
+	for name in CORE:gmatch("_G%.([%a_][%w_]*)") do seen[name] = true end
+	for name in CORE:gmatch("getgenv%(%)%.([%a_][%w_]*)") do seen[name] = true end
+	for name in PLAIN_OPTIONS:gmatch("%S+") do seen[name] = true end
+	local missing = {}
+	for name in pairs(seen) do
+		if not NOT_OPTIONS[name] and not UI:find('"' .. name .. '"', 1, true) then
+			missing[#missing + 1] = name
+		end
+	end
+	table.sort(missing)
+	assert(#missing == 0, "no control for: " .. table.concat(missing, ", "))
+end)
+
+local function defines(name)
+	for _, pattern in ipairs({ "\n%s*" .. name .. " = function", "\n%s*Core%." .. name .. " = function",
+		"\n%s*function " .. name .. "%(", "\n%s*Core%." .. name .. " = " .. name .. "\n" }) do
+		if CORE:find(pattern) then return true end
+	end
+	return false
+end
+
+run("every core function the UI calls exists in the core", function()
+	local wanted = { "_tp", "IsInSubmergedIsland", "toggleFly", "updateFlySpeed" }
+	for name in UI:gmatch('callGlobal%("([%w_]+)"') do wanted[#wanted + 1] = name end
+	for name in UI:match("local ESP_ROUTINES = (%b{})"):gmatch('"([%w_]+)"') do wanted[#wanted + 1] = name end
+	local missing = {}
+	for _, name in ipairs(wanted) do
+		if not defines(name) then missing[#missing + 1] = name end
+	end
+	assert(#wanted > 20, "found the calls")
+	assert(#missing == 0, "the UI calls functions the core does not define: " .. table.concat(missing, ", "))
+end)
+
+-- Defined by the core, called by nothing in it, and deliberately not on the UI.
+local NOT_EXPOSED = set([[
+GetIn IsAlive GetNearbyTargets GetTargetParts Execute ListServers requestentrance
+Getmoon BypassTP BTP old_tp
+]]) -- helpers; ListServers is the older twin of fetchServersData; requestentrance's portal table drives
+    -- Misc > Teleport > Portals; Getmoon only returns a texture id (the source has no phase table);
+    -- BypassTP / BTP / old_tp move you by respawning or setting your position outright
+
+local function calledIn(text, name)
+	local init = 1
+	while true do
+		local first, last = text:find(name .. "%s*%(", init)
+		if not first then return false end
+		local before = first > 1 and text:sub(first - 1, first - 1) or ""
+		local prefix = text:sub(math.max(1, first - 10), first - 1)
+		if not before:match("[%w_%.:]") and not prefix:match("function%s*$") then return true end
+		init = last + 1
+	end
+end
+
+run("every core function is called by the core, used by the UI, or reviewed as not exposed", function()
+	local names = {}
+	for name in CORE:gmatch("\n%s*([%a_][%w_]*) = function") do names[name] = true end
+	for name in CORE:gmatch("\n%s*Core%.([%a_][%w_]*) = function") do names[name] = true end
+	local unreachable, stale = {}, {}
+	for name in pairs(names) do
+		if not calledIn(CORE, name) and not UI:find(name, 1, true) and not NOT_EXPOSED[name] then
+			unreachable[#unreachable + 1] = name
+		end
+	end
+	for name in pairs(NOT_EXPOSED) do
+		if not names[name] or calledIn(CORE, name) or UI:find(name, 1, true) then stale[#stale + 1] = name end
+	end
+	table.sort(unreachable)
+	table.sort(stale)
+	assert(#unreachable == 0, "core functions nothing can reach: " .. table.concat(unreachable, ", "))
+	assert(#stale == 0, "listed as not exposed but now used or gone: " .. table.concat(stale, ", "))
 end)
 
 print(("instances created: %d, http fetches: %s"):format(INSTANCES, table.concat(HTTP_LOG, ", ")))

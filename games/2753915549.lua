@@ -101,9 +101,16 @@ task.spawn(function()
     end
 end)
 
-local coreLoaded, coreError = pcall(loadRemoteModule, "libraries/BloxFruitsCore.lua")
-if not coreLoaded then
-    warn("[Peridot] Blox Fruits core failed: " .. tostring(coreError))
+-- The core's loops run for the rest of the session, so it loads once; running the
+-- script again after Unload UI only rebuilds the interface.
+local coreLoaded, coreError = true, nil
+if not environment.PeridotBloxFruitsCoreLoaded then
+    coreLoaded, coreError = pcall(loadRemoteModule, "libraries/BloxFruitsCore.lua")
+    if coreLoaded then
+        environment.PeridotBloxFruitsCoreLoaded = true
+    else
+        warn("[Peridot] Blox Fruits core failed: " .. tostring(coreError))
+    end
 end
 
 local Core = type(environment.Core) == "table" and environment.Core or {}
@@ -201,6 +208,7 @@ local function callGlobal(name, ...)
 end
 
 local tracked = {}
+local alive = true -- Unload UI sets this false and the interface's loops stop
 
 local function tog(section, title, flags, desc, seas)
     if not inSea(seas) then
@@ -292,7 +300,7 @@ end
 -- Keep switches in step when the core turns a feature off by itself (a finished
 -- quest, a stopped farm) so the saved config never says "on" for something idle.
 task.spawn(function()
-    while true do
+    while alive do
         task.wait(1)
         for _, entry in ipairs(tracked) do
             pcall(function()
@@ -1039,7 +1047,7 @@ end
 -- The core's tween is called again each pass, the way its farm loops do.
 local submarineTries = 0
 task.spawn(function()
-    while true do
+    while alive do
         task.wait(0.3)
         pcall(function()
             local character = LocalPlayer.Character
@@ -1103,13 +1111,21 @@ end)
 -- The core ships the ESP routines but nothing calls them, so run them here while
 -- any ESP switch is on, plus one last pass after the last switch goes off so the
 -- labels get removed.
+local ESP_ROUTINES = {
+    "EspPly", "LocationEsp", "DevEsp", "flowerEsp", "EventIslandEsp", "gearEsp",
+    "AdvanFruitEsp", "HakiClorEsp", "LegenSword", "ChestEsp", "berriesEsp",
+}
+local function runEspRoutines()
+    for _, name in ipairs(ESP_ROUTINES) do
+        local routine = Core[name]
+        if type(routine) == "function" then
+            pcall(routine)
+        end
+    end
+end
 task.spawn(function()
-    local routines = {
-        "EspPly", "LocationEsp", "DevEsp", "flowerEsp", "EventIslandEsp", "gearEsp",
-        "AdvanFruitEsp", "HakiClorEsp", "LegenSword", "ChestEsp", "berriesEsp",
-    }
     local wasOn = false
-    while true do
+    while alive do
         task.wait(0.5)
         local anyOn = false
         for _, name in ipairs(espFlags) do
@@ -1119,12 +1135,7 @@ task.spawn(function()
             end
         end
         if anyOn or wasOn then
-            for _, name in ipairs(routines) do
-                local routine = Core[name]
-                if type(routine) == "function" then
-                    pcall(routine)
-                end
-            end
+            runEspRoutines()
         end
         wasOn = anyOn
     end
@@ -1136,65 +1147,29 @@ end)
 
 do
     local page = Window.CreatePage({ Page_Name = "Settings", Page_Title = "Settings" })
+    UILibrary.AddConfigSection(page.CreateSubTab("Config"))
 
-    local config = page.CreateSection("Config")
-    local configName = ""
-    local configList
-
-    local function refresh()
-        local ok, list = pcall(UILibrary.ConfigSystem.List)
-        if ok and type(list) == "table" and configList then
-            configList.GetNewList(list)
-        end
-    end
-
-    if not UILibrary.HasFileSystem then
-        config.CreateLabel({ Title = "Executor has no file access, so configs are disabled" })
-    end
-
-    config.CreateBox({ Title = "Config Name", Placeholder = "name", Default = "" }, safe("Config Name", function(text)
-        configName = text
-    end))
-    configList = config.CreateDropdown({ Title = "Saved Configs", List = {}, Default = "" }, safe("Saved Configs", function(value)
-        configName = value
-    end))
-    btn(config, "Save", function()
-        if configName == "" then
-            return notify("Config", "Enter a name first.")
-        end
-        local ok, err = UILibrary.ConfigSystem.Save(configName)
-        notify("Config", ok and ("Saved " .. configName) or tostring(err))
-        refresh()
-    end)
-    btn(config, "Load", function()
-        if configName == "" then
-            return notify("Config", "Pick a config first.")
-        end
-        local ok, err = UILibrary.ConfigSystem.Load(configName)
-        notify("Config", ok and ("Loaded " .. configName) or tostring(err))
-    end)
-    btn(config, "Delete", function()
-        if configName == "" then
-            return notify("Config", "Pick a config first.")
-        end
-        local ok, err = UILibrary.ConfigSystem.Delete(configName)
-        notify("Config", ok and ("Deleted " .. configName) or tostring(err))
-        configName = ""
-        refresh()
-    end)
-    btn(config, "Refresh List", refresh)
-    refresh()
-
-    local utility = page.CreateSection("Utility")
-    btn(utility, "Stop All Features", function()
+    local utility = page.CreateSubTab("Utility").CreateSection("Utility")
+    local function stopAll()
         for _, entry in ipairs(tracked) do
-            entry.handle.Set(false)
+            pcall(entry.handle.Set, false)
         end
         if flyHandle then
-            flyHandle.Set(false)
+            pcall(flyHandle.Set, false)
         end
+    end
+    btn(utility, "Stop All Features", function()
+        stopAll()
         notify("Stopped", "Every farm and feature switch is off.")
     end, "Stop")
+    btn(utility, "Unload UI", function()
+        stopAll()
+        alive = false
+        runEspRoutines() -- with every ESP switch off, this removes the labels
+        environment.PeridotBloxFruitsLoaded = nil
+        UILibrary.Unload()
+    end, "Unload")
+    utility.CreateLabel({ Title = "After unloading, run the loadstring again to bring the UI back." })
     if not coreLoaded then
         utility.CreateLabel({ Title = "Core failed to load. Rejoin and run again." })
     end
