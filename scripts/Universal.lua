@@ -1169,15 +1169,50 @@ Interface.CreateDropdown({
     getgenv().UIColor["Tween Easing Style"] = style
 end)
 
+local function applyBackground(source)
+    local ok, err = UILibrary.SetBackground(source)
+    if not ok then
+        return notify("Background", tostring(err))
+    end
+    -- see-through panels so the background shows; back to solid when cleared
+    getgenv().UIColor["Background 1 Transparency"] = source ~= "" and 0.4 or 0.1
+end
+
+-- assets/backgrounds/backgrounds.json on GitHub: { "Name in dropdown": "file in assets/backgrounds/" }
+local backgroundFiles = {}
+pcall(function()
+    local list = HttpService:JSONDecode(game:HttpGet(BASE_URL .. "assets/backgrounds/backgrounds.json"))
+    if type(list) == "table" then
+        backgroundFiles = list
+    end
+end)
+local backgroundNames = {}
+for name in pairs(backgroundFiles) do
+    table.insert(backgroundNames, name)
+end
+table.sort(backgroundNames)
+table.insert(backgroundNames, 1, "None")
+
+Interface.CreateDropdown({
+    Title   = "Background",
+    List    = backgroundNames,
+    Default = "None",
+    Search  = true,
+}, function(name)
+    local source = backgroundFiles[name] or ""
+    if source ~= "" and not source:match("^%a+://") and not source:match("^%d+$") then
+        source = BASE_URL .. "assets/backgrounds/" .. source
+    end
+    applyBackground(source)
+end)
+
 Interface.CreateBox({
-    Title       = "Background",
-    Placeholder = "rbxassetid:// or image URL",
+    Title       = "Custom Background",
+    Placeholder = "rbxassetid://, image or .webm URL",
     Default     = "",
 }, function(url)
     if url ~= "" then
-        getgenv().UIColor["Background 1 Transparency"] = 0.4
-        UILibrary.SetBackground(url)
-        getgenv().UIColor["Background 1 Transparency"] = 0.4
+        applyBackground(url)
     end
 end)
 
@@ -1273,7 +1308,7 @@ About.CreateLabel({ Title = "Peridot  v0.1a" })
 About.CreateLabel({ Title = "Game: " .. GameName })
 About.CreateLabel({ Title = "Place Id: " .. tostring(game.PlaceId) })
 About.CreateLabel({ Title = "Executor: " .. tostring(executorName) })
-About.CreateLabel({ Title = "UI Library: SeaUI " .. tostring(UILibrary.VERSION or "?") })
+About.CreateLabel({ Title = "UI Library: " .. tostring(UILibrary.VERSION or "?") })
 
 -- live server readout
 
