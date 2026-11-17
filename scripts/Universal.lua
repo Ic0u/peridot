@@ -387,7 +387,10 @@ end)
 
 -- Visual
 
-local PlayerESP = VisualPage.CreateSection("Player ESP")
+local VisualESPTab   = VisualPage.CreateSubTab("ESP")
+local VisualWorldTab = VisualPage.CreateSubTab("World")
+
+local PlayerESP = VisualESPTab.CreateSection("Player ESP")
 
 if ESP then
     ESP.Color = getgenv().UIColor["Title Text Color"]
@@ -554,7 +557,7 @@ else
     })
 end
 
-local WorldVisuals = VisualPage.CreateSection("World Visuals")
+local WorldVisuals = VisualWorldTab.CreateSection("World Visuals")
 
 local worldDefaults = {
     Ambient = Lighting.Ambient,
@@ -903,7 +906,11 @@ end)
 
 -- Settings
 
-local Rejoin = SettingsPage.CreateSection("Rejoin")
+local SettingsServerTab    = SettingsPage.CreateSubTab("Server")
+local SettingsConfigTab    = SettingsPage.CreateSubTab("Config")
+local SettingsInterfaceTab = SettingsPage.CreateSubTab("Interface")
+
+local Rejoin = SettingsServerTab.CreateSection("Rejoin")
 
 local ServerState = {
     AutoRejoin  = false,
@@ -1051,7 +1058,7 @@ task.spawn(function()
     end
 end)
 
-local Utility = SettingsPage.CreateSection("Utility")
+local Utility = SettingsServerTab.CreateSection("Utility")
 
 local idleConnection
 local fpsConnection
@@ -1082,7 +1089,7 @@ Utility.CreateButton({ Title = "Rejoin Current Server" }, function()
     if not ok then notify("Server", "Teleport was rejected.") end
 end)
 
-local Config = SettingsPage.CreateSection("Config")
+local Config = SettingsConfigTab.CreateSection("Config")
 
 local ConfigName = ""
 local ConfigList
@@ -1139,7 +1146,7 @@ Config.CreateButton({ Title = "Refresh List" }, refresh)
 
 refresh()
 
-local Interface = SettingsPage.CreateSection("Interface")
+local Interface = SettingsInterfaceTab.CreateSection("Interface")
 
 local function toggleMenu()
     local gui = UILibrary.Internal.Gui
@@ -1171,37 +1178,78 @@ local function applyBackground(source)
     end
 end
 
--- assets/backgrounds/backgrounds.json on GitHub: { "Name in dropdown": "file in assets/backgrounds/" }
-local backgroundFiles = {}
-pcall(function()
-    local list = HttpService:JSONDecode(game:HttpGet(BASE_URL .. "assets/backgrounds/backgrounds.json"))
-    if type(list) == "table" then
-        backgroundFiles = list
+-- Backgrounds live in the executor workspace at Peridot/Backgrounds: the hub
+-- downloads its own set there (assets/backgrounds/backgrounds.json on GitHub)
+-- and players can drop in their own .png / .jpg / .webm files.
+local function backgroundTitle(path) -- "Peridot/Backgrounds/persona_5_rainy.jpg" -> "Persona 5 Rainy"
+    local words = {}
+    for word in path:match("([^/\\]+)$"):gsub("%.%w+$", ""):gmatch("[^_%s]+") do
+        table.insert(words, word:sub(1, 1):upper() .. word:sub(2))
     end
-end)
-local backgroundNames = {}
-for name in pairs(backgroundFiles) do
-    table.insert(backgroundNames, name)
+    return table.concat(words, " ")
 end
-table.sort(backgroundNames)
-table.insert(backgroundNames, 1, "None")
 
-Backgrounds.CreateDropdown({
+local backgroundPaths = {}
+local BackgroundDropdown
+local function refreshBackgroundList()
+    backgroundPaths = {}
+    local names = {}
+    for _, path in ipairs(UILibrary.ListBackgrounds()) do
+        local title = backgroundTitle(path)
+        if not backgroundPaths[title] then
+            backgroundPaths[title] = path
+            table.insert(names, title)
+        end
+    end
+    table.sort(names)
+    table.insert(names, 1, "None")
+    if BackgroundDropdown then
+        BackgroundDropdown.GetNewList(names)
+    end
+    return names
+end
+
+BackgroundDropdown = Backgrounds.CreateDropdown({
     Title   = "Background",
-    List    = backgroundNames,
+    List    = refreshBackgroundList(),
     Default = "None",
     Search  = true,
 }, function(name)
-    local source = backgroundFiles[name] or ""
-    if source ~= "" and not source:match("^%a+://") and not source:match("^%d+$") then
-        source = BASE_URL .. "assets/backgrounds/" .. source
+    applyBackground(backgroundPaths[name] or "")
+end)
+
+Backgrounds.CreateButton({ Title = "Refresh list" }, refreshBackgroundList)
+
+Backgrounds.CreateLabel({ Title = "Add your own: put images or .webm videos in workspace/Peridot/Backgrounds, then Refresh." })
+
+-- First run: download the hub's backgrounds into the workspace folder, then list them.
+task.spawn(function()
+    local ok, list = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet(BASE_URL .. "assets/backgrounds/backgrounds.json"))
+    end)
+    if not ok or type(list) ~= "table" then
+        return
     end
-    applyBackground(source)
+    local added, failed = 0, 0
+    for _, file in pairs(list) do
+        local result = UILibrary.DownloadBackground(BASE_URL .. "assets/backgrounds/" .. file, file)
+        if result == "new" then
+            added = added + 1
+        elseif not result then
+            failed = failed + 1
+        end
+    end
+    if added > 0 then
+        refreshBackgroundList()
+    end
+    if failed > 0 then
+        notify("Background", failed .. " background(s) couldn't be downloaded")
+    end
 end)
 
 Backgrounds.CreateBox({
     Title       = "Custom Background",
-    Placeholder = "rbxassetid://, image or .webm URL",
+    Placeholder = "rbxassetid://, URL or workspace file",
     Default     = "",
 }, function(url)
     if url ~= "" then
