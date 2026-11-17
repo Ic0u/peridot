@@ -48,8 +48,6 @@ pcall(function()
     end
 end)
 
-local MenuKey = Enum.KeyCode.RightControl
-
 local Window = UILibrary.CreateMain({
     Name  = "Peridot",
     Title = GameName,
@@ -908,7 +906,6 @@ end)
 
 local SettingsServerTab    = SettingsPage.CreateSubTab("Server")
 local SettingsConfigTab    = SettingsPage.CreateSubTab("Config")
-local SettingsInterfaceTab = SettingsPage.CreateSubTab("Interface")
 
 local Rejoin = SettingsServerTab.CreateSection("Rejoin")
 
@@ -1146,19 +1143,7 @@ Config.CreateButton({ Title = "Refresh List" }, refresh)
 
 refresh()
 
-local Interface = SettingsInterfaceTab.CreateSection("Interface")
-
-local function toggleMenu()
-    local gui = UILibrary.Internal.Gui
-    if gui then gui.Enabled = not gui.Enabled end
-end
-
-Interface.CreateKeybind({
-    Title   = "Menu Key",
-    Default = MenuKey,
-}, toggleMenu)
-
--- Theme, animation and panel options are on the title-bar gear's UI Option page
+-- Theme, animation and panel options are on the title-bar gear's Interface Settings page
 -- (built by the library). Backgrounds go there too, as their own section.
 local Backgrounds = Window.UISettings.CreateSection("Background")
 
@@ -1257,7 +1242,8 @@ Backgrounds.CreateBox({
     end
 end)
 
-Interface.CreateButton({ Title = "Unload" }, function()
+-- Unload sits with the other utilities; the menu key and every look option are on the Interface Settings page.
+Utility.CreateButton({ Title = "Unload" }, function()
     if idleConnection then idleConnection:Disconnect() end
     if movementConnection then movementConnection:Disconnect() end
     if jumpConnection then jumpConnection:Disconnect() end

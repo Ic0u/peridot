@@ -139,7 +139,7 @@ local function TI(speedKey)
 	return TweenInfo.new(getgenv().UIColor[speedKey], ok and style or Enum.EasingStyle.Quad)
 end
 
--- Theme helpers. The accent keys all follow one color; the UI Option page
+-- Theme helpers. The accent keys all follow one color; the Interface Settings page
 -- (title-bar gear) changes it live and saves the choice to Peridot/Theme.json.
 local AccentKeys = {
 	"Border Color", "Search Icon Highlight Color", "Title Text Color", "Page Selected Color",
@@ -323,16 +323,22 @@ Library_Function.HideGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 Library_Function.HideGui.Name = 'Peridot Btn'
 
 
-local btnHide = Instance.new('TextButton', Library_Function.HideGui) 
+-- Floating button: its size is a player option (Interface Settings > Interface), 38px by default.
+local ButtonSize = math.clamp(tonumber(SavedTheme.ButtonSize) or 38, 28, 64)
+local function buttonImageSize(open)
+	return math.floor(ButtonSize * (open and 0.8 or 0.6) + 0.5)
+end
+
+local btnHide = Instance.new('TextButton', Library_Function.HideGui)
 btnHide.BackgroundTransparency = 1
 btnHide.Text = ""
 btnHide.AnchorPoint = Vector2.new(0, 1)
-btnHide.Size = UDim2.new(0, 50, 0, 50)
-btnHide.Position = UDim2.new(0, 15, 1, -15)
+btnHide.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
+btnHide.Position = UDim2.new(0, 12, 1, -12)
 
 local btnHideFrame = Instance.new('Frame', btnHide)
 btnHideFrame.AnchorPoint = Vector2.new(0, 1)
-btnHideFrame.Size = UDim2.new(0, 50, 0, 50)
+btnHideFrame.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
 btnHideFrame.Position = UDim2.new(0, 0, 1, 0)
 btnHideFrame.Name = "dut dit"
 Bind(btnHideFrame, "BackgroundColor3", "Background Main Color") -- dark, not the old white circle
@@ -342,29 +348,29 @@ local imgHide = Instance.new('ImageLabel', btnHide)
 imgHide.AnchorPoint = Vector2.new(0, 0)
 Bind(imgHide, "Image", "Logo Image")
 imgHide.BackgroundTransparency = 1
-imgHide.Size = UDim2.new(0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30), 0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30))
+imgHide.Size = UDim2.new(0, buttonImageSize(getgenv().UIToggled), 0, buttonImageSize(getgenv().UIToggled))
 imgHide.AnchorPoint = Vector2.new(.5, .5)
 imgHide.Position = UDim2.new(.5, 0, .5, 0)
 
 local UICornerBtnHide = Instance.new("UICorner")
 UICornerBtnHide.Parent = btnHideFrame
-UICornerBtnHide.CornerRadius = UDim.new(0, 12) -- rounded square
+UICornerBtnHide.CornerRadius = UDim.new(0, 10) -- rounded square
 
 -- Accent outline, stronger while the window is open. Follows the theme's accent live.
 local btnHideStroke = Instance.new("UIStroke")
 btnHideStroke.Parent = btnHideFrame
-btnHideStroke.Thickness = 2
+btnHideStroke.Thickness = 1
 btnHideStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 btnHideStroke.Transparency = getgenv().UIToggled and 0 or .35
 Bind(btnHideStroke, "Color", "Border Color")
 
 local imgHideCorner = Instance.new("UICorner")
 imgHideCorner.Parent = imgHide
-imgHideCorner.CornerRadius = UDim.new(0, 8) -- logo follows the rounded frame
+imgHideCorner.CornerRadius = UDim.new(0, 6) -- logo follows the rounded frame
 
 Library.ToggleUI = function()
 	getgenv().UIToggled = not Library_Function.Gui.Enabled -- follow the real state: scripts may flip Gui.Enabled directly
-	local sizeXY = getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30)
+	local sizeXY = buttonImageSize(getgenv().UIToggled)
 	TweenService:Create(imgHide, TweenInfo.new(DisableAnimation and 0 or .25), {
 		Size = UDim2.new(0, sizeXY, 0, sizeXY)
 	}):Play()
@@ -375,6 +381,50 @@ Library.ToggleUI = function()
 		Transparency = getgenv().UIToggled and 0 or .35
 	}):Play()
 	Library_Function.Gui.Enabled = getgenv().UIToggled
+end
+
+-- Floating button options (Interface Settings > Interface). Both save to Peridot/Theme.json.
+function Library_Function.SetButtonSize(px)
+	ButtonSize = math.clamp(math.floor(tonumber(px) or 38), 28, 64)
+	btnHide.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
+	btnHideFrame.Size = UDim2.new(0, ButtonSize, 0, ButtonSize)
+	local imageSize = buttonImageSize(getgenv().UIToggled)
+	imgHide.Size = UDim2.new(0, imageSize, 0, imageSize)
+	SavedTheme.ButtonSize = ButtonSize
+	saveThemeSoon()
+end
+
+function Library_Function.SetButtonVisible(on)
+	Library_Function.HideGui.Enabled = on and true or false
+	SavedTheme.FloatingButton = on and true or false
+	saveThemeSoon()
+end
+
+-- Menu key: opens/closes the window. Lives here, not in the page, so it works from the
+-- start and in every script. A key picked on the page is saved by watching the control.
+local MenuKeyName = type(SavedTheme.MenuKey) == "string" and SavedTheme.MenuKey or "RightControl"
+if getgenv().PeridotMenuKeyConnection then -- re-running the script: drop the old copy's handler
+	pcall(function()
+		getgenv().PeridotMenuKeyConnection:Disconnect()
+	end)
+end
+getgenv().PeridotMenuKeyConnection = uis.InputBegan:Connect(function(input, processed)
+	if processed or input.UserInputType ~= Enum.UserInputType.Keyboard or uis:GetFocusedTextBox() then
+		return
+	end
+	if input.KeyCode.Name == MenuKeyName then
+		Library.ToggleUI()
+	end
+end)
+
+function Library_Function.SetMenuKey(name)
+	name = tostring(name):gsub("^Enum%.KeyCode%.", "")
+	MenuKeyName = name
+	SavedTheme.MenuKey = name
+	saveThemeSoon()
+	if Library_Function.MenuKeybind then
+		Library_Function.MenuKeybind:Set(name) -- keep the control on the page in step
+	end
 end
 
 Library.DestroyUI = function()
@@ -558,7 +608,7 @@ function Library_Function.SetAccentRainbow(on)
 	end
 end
 
--- Back to the shipped theme (UI Option > Window > Reset theme).
+-- Back to the shipped theme (Interface Settings > Window > Reset theme).
 function Library_Function.ResetTheme()
 	for key in pairs(RainbowKeys) do
 		RainbowKeys[key] = nil
@@ -749,9 +799,9 @@ function Library:CreateWindow(Setting)
     local TitleNameMain = Setting.Title or "Peridot"
     getgenv().MainDesc = Setting.Desc or Setting.Subtitle or ""
     local SidebarTitle = Setting.SidebarTitle or TitleNameMain -- header above the tab list (the game name)
-    -- Page switchers, so the gear can open UI Option and then go back to where you were.
+    -- Page switchers, so the gear can open Interface Settings and then go back to where you were.
     local CurrentSelect, PreviousSelect, UISettingsSelect, UISettingsPage
-    local HiddenTabs = {} -- tab buttons kept out of the sidebar (UI Option)
+    local HiddenTabs = {} -- tab buttons kept out of the sidebar (Interface Settings)
     local SubTabRestorers = {} -- re-hide other sub-tabs' sections after a search is cleared
     
     if Setting.Image then
@@ -895,7 +945,7 @@ function Library:CreateWindow(Setting)
 		TextLabelMain.Text = "<font color=\"rgb(" .. c[1] .. "," .. c[2] .. "," .. c[3] .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
 	end
 
-	-- Settings gear, top right: toggles the UI Option page (theme, window options).
+	-- Settings gear, top right: toggles the Interface Settings page (theme, window options).
 	local SettingsGear = Instance.new("ImageButton")
 	SettingsGear.Name = "SettingsGear"
 	SettingsGear.Parent = TopMain
@@ -1207,7 +1257,7 @@ function Library:CreateWindow(Setting)
 	local PageCounter = 1
 
 	function Main_Function:AddTab(PageName, TabOptions)
-		local Hidden = TabOptions and TabOptions.Hidden -- no sidebar button (UI Option, opened by the gear)
+		local Hidden = TabOptions and TabOptions.Hidden -- no sidebar button (Interface Settings, opened by the gear)
 
 		local Page_Name = tostring(PageName)
 		local Page_Title = Page_Name
@@ -4305,7 +4355,7 @@ end
 		return pagefunc
         end
 
-	-- UI Option: the page behind the title-bar gear, like the old library's
+	-- Interface Settings: the page behind the title-bar gear, like the old library's
 	-- customizer. Sub-tabs: Theme (accent, logo), Colors (a picker per theme color,
 	-- each with Rainbow), Window (panels, animation, reset), plus any the script adds
 	-- (Universal: Background). Everything saves to Peridot/Theme.json. Built on first
@@ -4313,7 +4363,7 @@ end
 	local ColorGroups = {
 		{ "Main", { "Title Text Color", "Setting Icon Color", "Search Icon Color", "Search Icon Highlight Color" } },
 		{ "Text", { "GUI Text Color", "Text Color", "Placeholder Text Color", "Section Text Color", "Toggle Desc Color" } },
-		{ "Background", { "Background 1 Color", "Background 2 Color", "Background 3 Color" } },
+		{ "Background", { "Background Main Color", "Background 1 Color", "Background 2 Color", "Background 3 Color" } },
 		{ "Controls", { "Page Selected Color", "Section Underline Color", "Toggle Border Color", "Button Color",
 			"Dropdown Icon Color", "Dropdown Selected Check Color", "Box Highlight Color", "Slider Line Color", "Slider Highlight Color" } },
 	}
@@ -4327,10 +4377,11 @@ end
 		if UISettingsPage then
 			return UISettingsPage
 		end
-		UISettingsPage = Main_Function:AddTab("UI Option", { Hidden = true })
+		UISettingsPage = Main_Function:AddTab("Interface Settings", { Hidden = true })
 		local themeTab = UISettingsPage:AddSubTab("Theme")
 		local colorsTab = UISettingsPage:AddSubTab("Colors")
 		local windowTab = UISettingsPage:AddSubTab("Window")
+		local interfaceTab = UISettingsPage:AddSubTab("Interface")
 		local pickers = {}
 		local sliders = {}
 
@@ -4465,6 +4516,47 @@ end
 				saveThemeSoon()
 			end,
 		})
+		-- Interface: the floating button and the menu key
+		local buttonSection = interfaceTab:AddSection("Floating button")
+		local showToggle = buttonSection:AddToggle(nil, {
+			Title = "Show button",
+			Default = Library_Function.HideGui.Enabled,
+			Callback = function(on)
+				Library_Function.SetButtonVisible(on)
+			end,
+		})
+		local sizeSlider = buttonSection:AddSlider({
+			Title = "Button size",
+			Min = 28,
+			Max = 64,
+			Default = ButtonSize,
+			Callback = function(value)
+				Library_Function.SetButtonSize(value)
+			end,
+		})
+		buttonSection:AddLabel("With the button hidden, open and close the menu with the key below.")
+		local menuSection = interfaceTab:AddSection("Menu")
+		local menuKeybind = menuSection:AddKeyBind({
+			Title = "Menu key",
+			Default = MenuKeyName,
+			Mode = "Toggle",
+		}, function() end) -- the key itself is handled by the library, so it works before this page exists
+		Library_Function.MenuKeybind = menuKeybind
+		-- Picking a new key on the control is saved by watching it.
+		local menuKeyWatcher
+		menuKeyWatcher = RunService.Heartbeat:Connect(function()
+			if not Library_Function.Gui.Parent then
+				menuKeyWatcher:Disconnect()
+				return
+			end
+			local key = menuKeybind:Get()
+			if key ~= MenuKeyName then
+				MenuKeyName = key
+				SavedTheme.MenuKey = key
+				saveThemeSoon()
+			end
+		end)
+
 		windowTab:AddSection("Reset"):AddButton({
 			Title = "Reset theme",
 			Callback = function()
@@ -4476,12 +4568,16 @@ end
 				for _, spec in ipairs(AnimationSliders) do
 					sliders[spec[1]].SetValue(DefaultTheme[spec[1]])
 				end
+				-- Interface options too
+				sizeSlider.SetValue(38)
+				showToggle.SetStage(Library_Function.DefaultFloatingButton ~= false)
+				Library_Function.SetMenuKey("RightControl")
 			end,
 		})
 		return UISettingsPage
 	end
 
-	-- Gear: open UI Option, or go back to the page you came from.
+	-- Gear: open Interface Settings, or go back to the page you came from.
 	Library_Function.ToggleUISettings = function()
 		Main_Function:GetUISettingsPage()
 		if CurrentSelect == UISettingsSelect then
@@ -4874,16 +4970,21 @@ function Peridot.CreateMain(options)
 	options = options or {}
 	getgenv().HubName = options.Name or getgenv().HubName or "Peridot"
 	-- Old layout: "<Name> <Desc>" top-left in the title bar, the game name (Title)
-	-- as the header above the tab list, the gear opening UI Option.
+	-- as the header above the tab list, the gear opening Interface Settings.
 	local window = Library:CreateWindow({
 		Title = getgenv().HubName,
 		Desc = options.Desc or "",
 		SidebarTitle = options.Title or getgenv().HubName,
 	})
 
-	if options.FloatingButton == false then
-		Library_Function.HideGui.Enabled = false
+	-- Floating button: a script can start with it hidden (FloatingButton = false);
+	-- the player's own choice from Interface Settings > Interface wins once saved.
+	Library_Function.DefaultFloatingButton = options.FloatingButton ~= false
+	local showButton = SavedTheme.FloatingButton
+	if showButton == nil then
+		showButton = Library_Function.DefaultFloatingButton
 	end
+	Library_Function.HideGui.Enabled = showButton
 	if not Library_Function.Gui.Enabled then
 		Library.ToggleUI() -- BananaLib starts hidden; the old library opened straight away
 	end
@@ -4905,12 +5006,12 @@ function Peridot.CreateMain(options)
 		return page
 	end
 
-	-- The gear's UI Option page. Scripts add their own sub-tabs to it
+	-- The gear's Interface Settings page. Scripts add their own sub-tabs to it
 	-- (Universal adds "Background"); CreateSection(name) makes a sub-tab with one
 	-- section of the same name.
 	main.UISettings = {
 		CreateSubTab = function(subName)
-			-- the page key stays "UI Settings" (not the "UI Option" title) so saved configs keep loading
+			-- the page key stays "UI Settings" (not the "Interface Settings" title) so saved configs keep loading
 			return wrapSubTab(window:GetUISettingsPage():AddSubTab(tostring(subName or "")), "UI Settings", subName)
 		end,
 		CreateSection = function(name)
@@ -4930,7 +5031,7 @@ function Peridot.CreateNoti(options)
 	}, true)
 end
 
--- Same as clicking the title-bar gear: opens UI Option, or goes back to the previous page.
+-- Same as clicking the title-bar gear: opens Interface Settings, or goes back to the previous page.
 function Peridot.ToggleUISettings()
 	if not Library_Function.ToggleUISettings then
 		return false
@@ -4941,6 +5042,9 @@ end
 
 -- Theme from code; all of these save to Peridot/Theme.json like the gear page does.
 Peridot.SetThemeColor = Library_Function.SetThemeColor -- (key, Color3), e.g. ("Background 2 Color", c)
+Peridot.SetButtonSize = Library_Function.SetButtonSize -- (28-64 px) floating button
+Peridot.SetButtonVisible = Library_Function.SetButtonVisible -- (on)
+Peridot.SetMenuKey = Library_Function.SetMenuKey -- ("RightControl", "F4", ...) key that opens/closes the window
 Peridot.SetRainbow = Library_Function.SetRainbow -- (key, on)
 Peridot.SetAccentRainbow = Library_Function.SetAccentRainbow -- (on)
 Peridot.ResetTheme = Library_Function.ResetTheme
