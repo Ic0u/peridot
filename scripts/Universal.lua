@@ -1,6 +1,6 @@
--- Vinsers Hub
+-- Peridot
 
-local BASE_URL = "https://raw.githubusercontent.com/Ic0u/austina/main/"
+local BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 
 local function loadRemoteModule(path)
     local fetched, source = pcall(game.HttpGet, game, BASE_URL .. path)
@@ -23,7 +23,7 @@ end
 
 local UILibrary, uiError = loadRemoteModule("libraries/UILibrary.lua")
 if not UILibrary then
-    error("Vinsers Hub UI library failed: " .. tostring(uiError))
+    error("Peridot UI library failed: " .. tostring(uiError))
 end
 
 local ESP, espError = loadRemoteModule("libraries/ESPLibrary.lua")
@@ -51,12 +51,12 @@ end)
 local MenuKey = Enum.KeyCode.RightControl
 
 local Window = UILibrary.CreateMain({
-    Name  = "Vinsers Hub",
+    Name  = "Peridot",
     Title = GameName,
     Desc  = "",
 })
 
-UILibrary.SetConfigFolder("Vinsers Hub/Configs")
+UILibrary.SetConfigFolder("Peridot/Configs")
 
 -- the library already prefixes every notification with the hub name,
 -- so Title here is the subject only
@@ -150,8 +150,8 @@ local function stopFly()
     local root = character and character:FindFirstChild("HumanoidRootPart")
 
     if root then
-        local velocity = root:FindFirstChild("VinsersHubFlyVelocity")
-        local gyro = root:FindFirstChild("VinsersHubFlyGyro")
+        local velocity = root:FindFirstChild("PeridotFlyVelocity")
+        local gyro = root:FindFirstChild("PeridotFlyGyro")
         if velocity then velocity:Destroy() end
         if gyro then gyro:Destroy() end
     end
@@ -170,19 +170,19 @@ local function updateFly(character, humanoid)
         return
     end
 
-    local velocity = root:FindFirstChild("VinsersHubFlyVelocity")
+    local velocity = root:FindFirstChild("PeridotFlyVelocity")
     if not velocity then
         velocity = Instance.new("BodyVelocity")
-        velocity.Name = "VinsersHubFlyVelocity"
+        velocity.Name = "PeridotFlyVelocity"
         velocity.MaxForce = Vector3.new(1000000, 1000000, 1000000)
         velocity.P = 1250
         velocity.Parent = root
     end
 
-    local gyro = root:FindFirstChild("VinsersHubFlyGyro")
+    local gyro = root:FindFirstChild("PeridotFlyGyro")
     if not gyro then
         gyro = Instance.new("BodyGyro")
-        gyro.Name = "VinsersHubFlyGyro"
+        gyro.Name = "PeridotFlyGyro"
         gyro.MaxTorque = Vector3.new(1000000, 1000000, 1000000)
         gyro.P = 3000
         gyro.D = 100
@@ -1269,7 +1269,7 @@ pcall(function()
         or "Unknown"
 end)
 
-About.CreateLabel({ Title = "Vinsers Hub  v0.1a" })
+About.CreateLabel({ Title = "Peridot  v0.1a" })
 About.CreateLabel({ Title = "Game: " .. GameName })
 About.CreateLabel({ Title = "Place Id: " .. tostring(game.PlaceId) })
 About.CreateLabel({ Title = "Executor: " .. tostring(executorName) })

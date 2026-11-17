@@ -1,8 +1,8 @@
--- Vinsers Hub Blox Fruits compatibility port.
+-- Peridot Blox Fruits compatibility port.
 -- The attached script is treated as source material only. Its custom UI,
 -- promotional clipboard action, and third-party remote loader are excluded.
 
-local MODULE_BASE_URL = "https://raw.githubusercontent.com/Ic0u/austina/main/"
+local MODULE_BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 local SUPPORTED_PLACES = {
     [2753915549] = true,
     [4442272183] = true,
@@ -10,7 +10,7 @@ local SUPPORTED_PLACES = {
 }
 
 if not SUPPORTED_PLACES[game.PlaceId] then
-    warn("Vinsers Hub Blox Fruits module was loaded in an unsupported place")
+    warn("Peridot Blox Fruits module was loaded in an unsupported place")
     return
 end
 
@@ -25,26 +25,26 @@ pcall(function()
 end)
 
 local environment = (getgenv and getgenv()) or _G
-if environment.VinsersHubBloxFruitsLoaded then
-    warn("Vinsers Hub Blox Fruits is already running")
+if environment.PeridotBloxFruitsLoaded then
+    warn("Peridot Blox Fruits is already running")
     return
 end
-environment.VinsersHubBloxFruitsLoaded = true
+environment.PeridotBloxFruitsLoaded = true
 
 local function loadRemoteModule(path)
     local fetched, source = pcall(game.HttpGet, game, MODULE_BASE_URL .. path)
     if not fetched or type(source) ~= "string" or source == "" then
-        error("Vinsers Hub could not download " .. path)
+        error("Peridot could not download " .. path)
     end
 
     local chunk, compileError = loadstring(source)
     if not chunk then
-        error("Vinsers Hub could not compile " .. path .. ": " .. tostring(compileError))
+        error("Peridot could not compile " .. path .. ": " .. tostring(compileError))
     end
 
     local ok, result = pcall(chunk)
     if not ok then
-        error("Vinsers Hub could not initialize " .. path .. ": " .. tostring(result))
+        error("Peridot could not initialize " .. path .. ": " .. tostring(result))
     end
 
     return result
@@ -54,7 +54,7 @@ local UILibrary = loadRemoteModule("libraries/UILibrary.lua")
 local UIAdapter = loadRemoteModule("libraries/BloxFruitsUIAdapter.lua")
 local ESP = loadRemoteModule("libraries/ESPLibrary.lua")
 
-UILibrary.SetConfigFolder("Vinsers Hub/BloxFruits")
+UILibrary.SetConfigFolder("Peridot/BloxFruits")
 
 local TEAM_NAMES = {
     pirates = "Pirates",
@@ -135,7 +135,7 @@ local function initializeFastAttack()
     local characters = workspace:WaitForChild("Characters", 10)
 
     if not player or not registerAttack or not registerHit or not enemies or not characters then
-        warn("Vinsers Hub fast attack is unavailable in this game build")
+        warn("Peridot fast attack is unavailable in this game build")
         return
     end
 
@@ -190,7 +190,7 @@ local function initializeFastAttack()
 
     environment.rz_FastAttack = fastAttack
     task.spawn(function()
-        while environment.VinsersHubBloxFruitsLoaded do
+        while environment.PeridotBloxFruitsLoaded do
             if _G.FastAttack then
                 fastAttack:AttackNearest()
             end
@@ -2481,10 +2481,10 @@ spawn(function()
     while wait() do
         pcall(function()
             if NoClip == true and not movementPaused then
-                if not plr.Character.Head:FindFirstChild("VinsersHubClipVelocity") then
+                if not plr.Character.Head:FindFirstChild("PeridotClipVelocity") then
                     local Bucaccho = Instance.new("BodyVelocity", plr.Character.Head)
                     Bucaccho.P = 1500
-                    Bucaccho.Name = "VinsersHubClipVelocity"
+                    Bucaccho.Name = "PeridotClipVelocity"
                     Bucaccho.MaxForce = Vector3.new(0, 100000, 0)
                     Bucaccho.Velocity = Vector3.new(0, 0, 0)
                 end
@@ -2494,8 +2494,8 @@ spawn(function()
                     end
                 end
             else
-                if plr.Character.Head:FindFirstChild("VinsersHubClipVelocity") then
-                    plr.Character.Head:FindFirstChild("VinsersHubClipVelocity"):Destroy()
+                if plr.Character.Head:FindFirstChild("PeridotClipVelocity") then
+                    plr.Character.Head:FindFirstChild("PeridotClipVelocity"):Destroy()
                 end
             end
         end)
@@ -3165,7 +3165,7 @@ function CheckItemBPCRBPCR(name)
 end
 
 local Window = UIAdapter.Create(UILibrary, {
-    Name = "Vinsers Hub",
+    Name = "Peridot",
     Title = GameName,
     Desc = "",
 })
@@ -3177,14 +3177,14 @@ local function createQuickControls()
     uiParent = uiParent or playerGui
 
     for _, parent in ipairs({ uiParent, playerGui }) do
-        local existing = parent and parent:FindFirstChild("VinsersHubQuickControls")
+        local existing = parent and parent:FindFirstChild("PeridotQuickControls")
         if existing then
             existing:Destroy()
         end
     end
 
     local quickGui = Instance.new("ScreenGui")
-    quickGui.Name = "VinsersHubQuickControls"
+    quickGui.Name = "PeridotQuickControls"
     quickGui.DisplayOrder = 1000
     quickGui.IgnoreGuiInset = true
     quickGui.ResetOnSpawn = false
@@ -3552,7 +3552,7 @@ AutoFarm:Dropdown("Select Weapons", { "Melee", "Sword", "Gun", "Blox Fruit" }, {
 end)
 
 task.spawn(function()
-    while environment.VinsersHubBloxFruitsLoaded do
+    while environment.PeridotBloxFruitsLoaded do
         local tool = resolveFarmTool()
         if tool then
             _G.SelectWeapon = tool.Name
@@ -3572,7 +3572,7 @@ AutoFarm:Toggle("Auto Farm Level", false, function(value)
 end)
 
 task.spawn(function()
-    while environment.VinsersHubBloxFruitsLoaded do
+    while environment.PeridotBloxFruitsLoaded do
         if _G.AutoFarm then
             local ok, farmError = pcall(runAutoFarmStep)
             if not ok then

@@ -8,10 +8,10 @@ local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
 
-local BASE_URL = "https://raw.githubusercontent.com/Ic0u/austina/main/"
+local BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 local UNIVERSAL_URL = BASE_URL .. "scripts/Universal.lua"
-local GUI_NAME = "VinsersHubLoaderGui"
-local BLUR_NAME = "VinsersHubLoaderBlur"
+local GUI_NAME = "PeridotLoaderGui"
+local BLUR_NAME = "PeridotLoaderBlur"
 local DEFAULT_GAMES = {
     ["2753915549"] = "Blox Fruits - First Sea",
     ["4442272183"] = "Blox Fruits - Second Sea",
@@ -270,8 +270,8 @@ local function createLoaderContent(parent)
     titleLayout.Parent = title
 
     local letterViews = {}
-    local brandLetters = { "V", "I", "N", "S", "E", "R", "S", " ", "H", "U", "B" }
-    local letterRotations = { -7, 4, -3, 5, -4, 3, -5, 0, 4, -3, 5 }
+    local brandLetters = { "P", "E", "R", "I", "D", "O", "T" }
+    local letterRotations = { -7, 4, -3, 5, -4, 3, -5 }
     for index, character in ipairs(brandLetters) do
         local slot = Instance.new("Frame")
         slot.Name = "LetterSlot" .. index
@@ -289,22 +289,22 @@ local function createLoaderContent(parent)
             letter.Rotation = letterRotations[index]
             letter.Size = UDim2.fromScale(1, 1)
             letter.Text = character
-            letter.TextColor3 = Color3.fromRGB(231, 242, 255)
+            letter.TextColor3 = Color3.fromRGB(244, 250, 228)
             letter.TextSize = 38
             letter.TextTransparency = 1
             letter.Parent = slot
 
             local letterStroke = Instance.new("UIStroke")
-            letterStroke.Color = Color3.fromRGB(49, 106, 190)
+            letterStroke.Color = Color3.fromRGB(74, 112, 24)
             letterStroke.Thickness = 1.25
             letterStroke.Transparency = 1
             letterStroke.Parent = letter
 
             local letterGradient = Instance.new("UIGradient")
             letterGradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(92, 155, 255)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(236, 245, 255)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(67, 129, 225)),
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(166, 217, 66)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(240, 249, 205)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(122, 184, 38)),
             })
             letterGradient.Offset = Vector2.new(-0.22, 0)
             letterGradient.Rotation = 90
@@ -339,7 +339,7 @@ local function createLoaderContent(parent)
 
     local progressFill = Instance.new("Frame")
     progressFill.Name = "ProgressFill"
-    progressFill.BackgroundColor3 = Color3.fromRGB(90, 160, 255)
+    progressFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- UIGradient multiplies this, so white lets the gradient set the hue
     progressFill.BackgroundTransparency = 1
     progressFill.BorderSizePixel = 0
     progressFill.Size = UDim2.fromScale(0, 1)
@@ -351,9 +351,9 @@ local function createLoaderContent(parent)
 
     local fillGradient = Instance.new("UIGradient")
     fillGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(54, 117, 211)),
-        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(225, 241, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(76, 145, 240)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(118, 176, 34)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(232, 246, 176)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 212, 62)),
     })
     fillGradient.Offset = Vector2.new(-1, 0)
     fillGradient.Parent = progressFill
@@ -569,7 +569,7 @@ function Loader.Start(onComplete)
         task.spawn(function()
             local ok, err = pcall(callback)
             if not ok then
-                warn("Vinsers Hub loader callback failed:", err)
+                warn("Peridot loader callback failed:", err)
             end
         end)
     end)

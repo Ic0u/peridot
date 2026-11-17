@@ -35,13 +35,13 @@ local cam = Workspace.CurrentCamera
 local WorldToViewportPoint = cam and cam.WorldToViewportPoint
 local globalConnections = {}
 local sharedEnvironment = getgenv and getgenv() or _G
-local renderBindName = "VinsersHubESPRender"
+local renderBindName = "PeridotESPRender"
 
-local previousESP = sharedEnvironment.VinsersHubESP
+local previousESP = sharedEnvironment.PeridotESP
 if previousESP and previousESP ~= ESP and previousESP.Destroy then
     pcall(previousESP.Destroy, previousESP)
 end
-sharedEnvironment.VinsersHubESP = ESP
+sharedEnvironment.PeridotESP = ESP
 
 local MAX_SKELETON_LINES = 14
 local R6_BONES = {
@@ -251,7 +251,7 @@ function boxBase:UpdateHighlight(color)
 
     if not self.Highlight then
         local highlight = Instance.new("Highlight")
-        highlight.Name = "VinsersHubChams"
+        highlight.Name = "PeridotChams"
         highlight.Adornee = self.Object
         highlight.Parent = self.Object
         self.Highlight = highlight
@@ -748,7 +748,7 @@ local function renderESP()
             local success, err = pcall(object.Update, object)
             if not success then
                 local objectName = object.Object and object.Object:GetFullName() or "custom object"
-                warn("[Vinsers Hub ESP]", err, objectName)
+                warn("[Peridot ESP]", err, objectName)
             end
         end
     end
@@ -781,8 +781,8 @@ function ESP:Destroy()
     end
     globalConnections = {}
 
-    if sharedEnvironment.VinsersHubESP == self then
-        sharedEnvironment.VinsersHubESP = nil
+    if sharedEnvironment.PeridotESP == self then
+        sharedEnvironment.PeridotESP = nil
     end
 end
 
