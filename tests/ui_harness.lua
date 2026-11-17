@@ -536,7 +536,7 @@ run("Background dropdown (gear page) lists the workspace folder and loads the lo
 	assert(entry, "dropdown registered on the UI Settings page")
 	local before = getgenv().UIColor["Background 1 Transparency"]
 	entry.Set("Green Night Driving") -- listed from the folder at startup, no URL involved
-	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4, "panels see-through")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels see-through")
 	entry.Set("None")
 	assert(getgenv().UIColor["Background 1 Transparency"] == before, "player's transparency restored")
 	assert(lib.SetBackground("Peridot/Backgrounds/waves.webm"), "local video file")
@@ -756,6 +756,21 @@ run("UIColor writes (Settings page) reach the theme", function()
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4)
 end)
 
+---------------------------------------------------------------- dark, solid window
+print("Dark window")
+run("the window frame and panels are solid by default, and an old see-through setting is capped", function()
+	local source = io.open(REPO .. "/libraries/UILibrary.lua", "rb"):read("*a")
+	assert(source:find("uigradient.Transparency = NumberSequence.new(0)", 1, true), "the window frame is not see-through")
+	local priorTheme, priorColors = FILES["Peridot/Theme.json"], getgenv().UIColor
+	FILES["Peridot/Theme.json"] = nil
+	assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0, "panels start solid")
+	FILES["Peridot/Theme.json"] = service("HttpService"):JSONEncode({ PanelTransparency = 0.9 })
+	assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "an old 0.9 is capped at 0.3")
+	FILES["Peridot/Theme.json"], getgenv().UIColor = priorTheme, priorColors
+end)
+
 ---------------------------------------------------------------- 4. Blox Fruits module
 print("games/2753915549.lua")
 
@@ -777,6 +792,18 @@ env.IslandData = { ["Pirate Village"] = {}, ["Frozen Village"] = {} }
 env.GetMobs = function() return { "Bandit", "Monkey" } end
 env.HopServer = function() HARNESS_CALLS.hop = HARNESS_CALLS.hop + 1 end
 env.LowCpu = function() HARNESS_CALLS.lowcpu = HARNESS_CALLS.lowcpu + 1 end
+env.getInfinity_Ability = function(kind, on) HARNESS_CALLS.ability = kind .. tostring(on) end
+env.getFruitStock = function() HARNESS_CALLS.stock = (HARNESS_CALLS.stock or 0) + 1 return "Advance Fruit Stock\nRocket-Rocket - $5,000\n" end
+env.Check_Eye = function() HARNESS_CALLS.eyes = true return 3, false end
+env.IsInSubmergedIsland = function() return HARNESS_CALLS.submerged == true end
+env.fetchServersData = function()
+	return {
+		{ id = "job", playing = 5, maxPlayers = 12, ping = 80 }, -- this server: not offered
+		{ id = "aaaaaaaa11", playing = 9, maxPlayers = 12, ping = 60 },
+		{ id = "bbbbbbbb22", playing = 2, maxPlayers = 12, ping = 120 },
+		{ id = "cccccccc33", playing = 12, maxPlayers = 12, ping = 40 }, -- full: not offered
+	}
+end
 _G.toggleFly = function(on) HARNESS_CALLS.fly = on end
 _G.updateFlySpeed = function(v) HARNESS_CALLS.flySpeed = v end
 ]==]
@@ -818,6 +845,7 @@ local function runLoops(hook, limit) -- run each captured task.spawn body until 
 	end
 end
 
+local universalBackground = lib.ControlRegistry.Dropdowns["UI Settings||Background||Background"]
 local registryBefore = {}
 for kind, entries in pairs(lib.ControlRegistry) do
 	registryBefore[kind] = {}
@@ -906,8 +934,8 @@ end)
 
 run("defaults reach the flags the core reads", function()
 	assert(_G.ChooseWP == "Melee" and _G.SelectedBoat == "Guardian" and _G.DangerSc == "Lv 1")
-	assert(_G.TweenSpeedNear == 180 and _G.TweenSpeedFar == 150 and _G.HopDelay == 1800)
-	assert(_G.MasteryHealthPct == 70 and _G.pSats == 3 and _G.Num_self == 25 and _G.Range == 100)
+	assert(_G.TweenSpeedNear == 120 and _G.TweenSpeedFar == 100 and _G.HopDelay == 1800, "tween defaults are the slower, safer pair")
+	assert(_G.MasteryHealthPct == 70 and _G.pSats == 1 and _G.Num_self == 25 and _G.Range == 100)
 	assert(_G.FishCatchDelay == nil, "0 means the core's random delay")
 	assert(_G.ABmethod == "Aim Player" and _G.SelectDN == "Day" and _G.SelectIslandMastery == "Cake")
 	assert(#_G.SelectedMasterySkills == 5)
@@ -916,11 +944,11 @@ end)
 run("dropdowns and sliders write their flags", function()
 	control("Dropdowns", "||Auto Farm||Weapon").Set("Sword")
 	assert(_G.ChooseWP == "Sword")
-	control("Dropdowns", "||Auto Farm||Mob").Set("Monkey")
+	control("Dropdowns", "||Selected Mob||Mob").Set("Monkey")
 	assert(_G.SelectMob == "Monkey" and getgenv().SelectMob == "Monkey")
-	control("Dropdowns", "||Auto Farm||Island").Set("Frozen Village")
+	control("Dropdowns", "||Selected Island||Island").Set("Frozen Village")
 	assert(_G.SelectIsland == "Frozen Village")
-	control("Dropdowns", "||Bosses||Boss").Set("Bobby")
+	control("Dropdowns", "||Boss Farm||Boss").Set("Bobby")
 	assert(_G.FindBoss == "Bobby")
 	control("Sliders", "||Server||Hop Every (Minutes)").Set(10)
 	assert(_G.HopDelay == 600, "minutes become seconds, got " .. tostring(_G.HopDelay))
@@ -949,7 +977,7 @@ run("a switch follows the core when it turns a feature off by itself", function(
 end)
 
 run("ESP routines run while a switch is on and once more after it goes off", function()
-	local esp = control("Toggles", "||ESP||Players")
+	local esp = control("Toggles", "||ESP Targets||Players")
 	local calls = {}
 	runLoops(function(n)
 		calls[n] = HARNESS_CALLS.esp
@@ -992,7 +1020,7 @@ end)
 
 run("lists show how many entries they found, and Refresh re-reads them", function()
 	assert(hasLabel("2 mobs found") and hasLabel("2 islands found"), "initial counts")
-	control("Dropdowns", "||Auto Farm||Mob").Set("Monkey")
+	control("Dropdowns", "||Selected Mob||Mob").Set("Monkey")
 	getgenv().GetMobs = function() return { "A", "B", "C" } end
 	BUTTONS["Refresh Mob List"]()
 	assert(hasLabel("3 mobs found"), "count updated after Refresh")
@@ -1000,6 +1028,21 @@ run("lists show how many entries they found, and Refresh re-reads them", functio
 	getgenv().GetMobs = function() return {} end
 	BUTTONS["Refresh Mob List"]()
 	assert(hasLabel("No mobs found. Press Refresh once the game has finished loading."), "empty state says what to do")
+end)
+
+run("Interface Settings has the Background section, and it loads a background", function()
+	local entry -- the second window's picker is registered under its sub-tab key
+	for key, handle in pairs(lib.ControlRegistry.Dropdowns) do
+		if key:sub(-#"||Background||Background") == "||Background||Background" and handle ~= universalBackground then
+			entry = handle
+		end
+	end
+	assert(entry, "the Blox Fruits window built its own Background picker")
+	local before = getgenv().UIColor["Background 1 Transparency"]
+	entry.Set("Green Night Driving")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn see-through while a background shows")
+	entry.Set("None")
+	assert(getgenv().UIColor["Background 1 Transparency"] == before, "and come back when it is cleared")
 end)
 
 run("Stop All Features switches everything off", function()
@@ -1013,11 +1056,11 @@ run("config saves and restores the Blox Fruits controls", function()
 	local farm = control("Toggles", "||Auto Farm||Auto Farm Level")
 	control("Boxes", "Settings||Config||Config Name").Set("bf")
 	farm.Set(true)
-	control("Sliders", "||Movement||Tween Speed Near").Set(222)
+	control("Sliders", "||Tween Speed||Short Hop Speed").Set(222)
 	BUTTONS["Save"]()
 	assert(FILES["Peridot/BloxFruits/bf.json"], "config written to the Blox Fruits folder")
 	farm.Set(false)
-	control("Sliders", "||Movement||Tween Speed Near").Set(100)
+	control("Sliders", "||Tween Speed||Short Hop Speed").Set(100)
 	RUN_SPAWNS = true -- Load applies values from task.spawn
 	BUTTONS["Load"]()
 	RUN_SPAWNS = false
@@ -1026,6 +1069,87 @@ run("config saves and restores the Blox Fruits controls", function()
 	BUTTONS["Delete"]()
 	assert(not FILES["Peridot/BloxFruits/bf.json"], "config deleted")
 	farm.Set(false)
+end)
+
+-- The page container is 435 px wide; the sub-tab bar loses 10 px to its inset and 8 px to padding.
+-- Text is GothamBold 14, about 8.5 px a letter, so 9 px a letter leaves some room.
+local STRIP_WIDTH = 435 - 10 - 8
+local function stripsFit()
+	local strips = 0
+	for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+		if item.Name == "SubTabBar" then
+			strips = strips + 1
+			local width, tabs, names = 0, 0, {}
+			for _, tab in ipairs(item:GetChildren()) do
+				if tab.ClassName == "TextButton" then
+					tabs = tabs + 1
+					names[#names + 1] = tab.Text
+					width = width + #tab.Text * 9
+				end
+			end
+			width = width + 14 * math.max(tabs - 1, 0)
+			assert(width <= STRIP_WIDTH, ("sub-tabs %s need about %d px, the bar has %d"):format(table.concat(names, ", "), width, STRIP_WIDTH))
+		end
+	end
+	assert(strips > 0, "found the sub-tab bars")
+end
+
+run("every page's sub-tab bar fits without scrolling (all seas unknown, so every tab is built)", stripsFit)
+
+run("Go Through Portal sends the entrance request for the chosen portal", function()
+	local rs = service("ReplicatedStorage")
+	local remotes = rs:FindFirstChild("Remotes") or newInstance("Remotes", rs)
+	local comm = remotes:FindFirstChild("CommF_") or newInstance("CommF_", remotes)
+	local sent
+	comm.InvokeServer = function(_, ...) sent = { ... } end
+	UI_ERRORS, WARNINGS = {}, {}
+	BUTTONS["Go Through Portal"]() -- nothing picked yet: says so instead of sending
+	assert(sent == nil, "no request without a portal")
+	control("Dropdowns", "||Portals||Portal").Set("Hydra Island")
+	assert(_G.PortalTarget == "Hydra Island")
+	BUTTONS["Go Through Portal"]()
+	assert(sent and sent[1] == "requestEntrance" and sent[2] ~= nil, "request sent")
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "no errors")
+end)
+
+run("the submarine trip switches itself off once you are on the Submerged Island", function()
+	local trip = control("Toggles", "||Submerged Island||Go To Submerged Island (Submarine)")
+	trip.Set(true)
+	HARNESS_CALLS.submerged = true
+	runLoops(nil, 2)
+	runLoops(nil, 2) -- the second pass lets the sync loop see the flag change
+	assert(_G.SubmarineTravel == false and trip.Get() == false)
+	HARNESS_CALLS.submerged = false
+end)
+
+run("Go To Island with no island picked switches itself off instead of erroring", function()
+	local go = control("Toggles", "||Islands||Go To Island")
+	go.Set(true)
+	runLoops(nil, 2)
+	runLoops(nil, 2)
+	assert(_G.TeleportIslandOn == false and go.Get() == false)
+end)
+
+run("server list: fewest players first, this server and full ones left out", function()
+	BUTTONS["Refresh Server List"]()
+	assert(hasLabel("2 servers found"), "two joinable servers")
+	local dropdown = control("Dropdowns", "||Server List||Server")
+	dropdown.Set("2 of 12 players, ping 120, bbbbbbbb")
+	assert(_G.ServerChoice == "2 of 12 players, ping 120, bbbbbbbb")
+	UI_ERRORS, WARNINGS = {}, {}
+	BUTTONS["Join Selected Server"]()
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0)
+end)
+
+run("stock, eye check and ability buttons call the core", function()
+	BUTTONS["Check Advanced Dealer Stock"]()
+	assert(HARNESS_CALLS.stock == 1)
+	BUTTONS["Check Tyrant Eyes"]()
+	assert(HARNESS_CALLS.eyes == true)
+	BUTTONS["Infinite Energy (until you rejoin)"]()
+	assert(HARNESS_CALLS.ability == "Energytrue")
+	BUTTONS["Infinite Observation Range"]()
+	assert(HARNESS_CALLS.ability == "Observationtrue")
 end)
 
 local function buildSea(world, stubExtra)
@@ -1042,6 +1166,7 @@ local function buildSea(world, stubExtra)
 	PLACE_ID_OVERRIDE = nil
 	assert(ok, err)
 	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
+	stripsFit()
 	local titles = {}
 	for _, entries in pairs(lib.ControlRegistry) do
 		for key, handle in pairs(entries) do
@@ -1058,10 +1183,12 @@ end
 run("Sea 1 hides the controls that only work in Sea 2 and Sea 3", function()
 	local titles = buildSea(1, "env.GetMobs = function() return {} end")
 	expectControls(titles,
-		{ "Auto Farm Level", "Get Saber", "Get Marine Coat", "Second Sea Quest", "Farm Chests", "Auto Server Hop" },
+		{ "Auto Farm Level", "Get Saber", "Get Marine Coat", "Second Sea Quest", "Farm Chests", "Auto Server Hop",
+		  "Kill Chief Warden", "Unlock Flamingo Access (Level 1500+)", "Go To Island", "Go To NPC" },
 		{ "Farm Bones", "Dough King", "Get Tushita", "Get Trident", "Factory Raid", "Castle Raid", "Auto Start Raid",
-		  "Buy Microchip", "Dojo Belt Quests", "Find Mirage Island", "Find Kitsune Island", "Find Prehistoric Island",
-		  "Elite Hunter", "Tyrant of the Skies", "Third Sea Quest" })
+		  "Buy Microchip", "Dojo Belt Quests", "Find Mirage Island", "Find Kitsune Island", "Find Prehistoric Island and Go To Head",
+		  "Elite Hunter", "Kill Tyrant of the Skies", "Third Sea Quest", "Get Electric Claw", "Kill Kilo Admiral",
+		  "Go To Submerged Island (Submarine)" })
 	assert(_G.SelectIslandMastery == "Selected Mob", "mastery target only offers what works here")
 	assert(hasLabel("No mobs found. Press Refresh once the game has finished loading."), "empty list explains itself")
 end)

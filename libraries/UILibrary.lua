@@ -69,7 +69,7 @@ local T1UIColor = {
 	["Title Text Color"] = Color3.fromRGB(140, 172, 68),
 	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
 	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
-	["Background 1 Transparency"] = 0.04,
+	["Background 1 Transparency"] = 0,
 	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
 	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
 	["Background Image"] = "",
@@ -259,7 +259,8 @@ if type(SavedTheme.Accent) == "table" then
 	end
 end
 if tonumber(SavedTheme.PanelTransparency) then
-	T1UIColor["Background 1 Transparency"] = tonumber(SavedTheme.PanelTransparency)
+	-- capped: an old saved value near 0.9 once left the window unreadable
+	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
 end
 if tonumber(SavedTheme.AnimationSpeed) then
 	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
@@ -1007,10 +1008,7 @@ function Library:CreateWindow(Setting)
 		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 200, 200))
 	}
 	uigradient.Rotation = 90
-	uigradient.Transparency = NumberSequence.new{
-		NumberSequenceKeypoint.new(0, 0.6), -- was 0.92: the window frame was almost fully see-through
-		NumberSequenceKeypoint.new(1, 0.6)
-	}
+	uigradient.Transparency = NumberSequence.new(0) -- solid dark frame; the game must never show through the window
 
 	getgenv().ReadyForGuiLoaded = true
 	
@@ -4623,7 +4621,7 @@ end
 		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
-			Max = 0.9,
+			Max = 0.3,
 			Rouding = 2,
 			Default = getgenv().UIColor["Background 1 Transparency"],
 			Callback = function(value)
@@ -5401,6 +5399,107 @@ function Peridot.SetBackground(source)
 	end
 	backgroundLayer = layer
 	return true
+end
+
+-- The Background section of the Interface Settings page, shared by every script:
+-- a picker over workspace/Peridot/Backgrounds, a custom source box, and a first-run
+-- download of the hub's own set (assets/backgrounds/backgrounds.json under baseUrl).
+function Peridot.AddBackgroundSection(window, baseUrl)
+	baseUrl = baseUrl or "https://raw.githubusercontent.com/Ic0u/peridot/main/"
+	local function notify(desc)
+		Peridot.CreateNoti({ Title = "Background", Desc = desc, ShowTime = 4 })
+	end
+	local section = window.UISettings.CreateSection("Background")
+
+	local transparencyBefore
+	local function applyBackground(source)
+		local ok, err = Peridot.SetBackground(source)
+		if not ok then
+			return notify(tostring(err))
+		end
+		-- see-through panels while a background shows; the player's own setting comes back when cleared
+		if source ~= "" then
+			transparencyBefore = transparencyBefore or getgenv().UIColor["Background 1 Transparency"]
+			getgenv().UIColor["Background 1 Transparency"] = 0.25
+		elseif transparencyBefore then
+			getgenv().UIColor["Background 1 Transparency"] = transparencyBefore
+			transparencyBefore = nil
+		end
+	end
+
+	local function backgroundTitle(path) -- "Peridot/Backgrounds/persona_5_rainy.jpg" -> "Persona 5 Rainy"
+		local words = {}
+		for word in path:match("([^/\\]+)$"):gsub("%.%w+$", ""):gmatch("[^_%s]+") do
+			table.insert(words, word:sub(1, 1):upper() .. word:sub(2))
+		end
+		return table.concat(words, " ")
+	end
+
+	local backgroundPaths = {}
+	local dropdown
+	local function refreshList()
+		backgroundPaths = {}
+		local names = {}
+		for _, path in ipairs(Peridot.ListBackgrounds()) do
+			local title = backgroundTitle(path)
+			if not backgroundPaths[title] then
+				backgroundPaths[title] = path
+				table.insert(names, title)
+			end
+		end
+		table.sort(names)
+		table.insert(names, 1, "None")
+		if dropdown then
+			dropdown.GetNewList(names)
+		end
+		return names
+	end
+
+	dropdown = section.CreateDropdown({
+		Title = "Background",
+		List = refreshList(),
+		Default = "None",
+		Search = true,
+	}, function(name)
+		applyBackground(backgroundPaths[name] or "")
+	end)
+	section.CreateButton({ Title = "Refresh list" }, refreshList)
+	section.CreateLabel({ Title = "Add your own: put images or .webm videos in workspace/Peridot/Backgrounds, then Refresh." })
+
+	task.spawn(function()
+		local ok, list = pcall(function()
+			local http = game:GetService("HttpService")
+			return http:JSONDecode(game:HttpGet(baseUrl .. "assets/backgrounds/backgrounds.json"))
+		end)
+		if not ok or type(list) ~= "table" then
+			return
+		end
+		local added, failed = 0, 0
+		for _, file in pairs(list) do
+			local result = Peridot.DownloadBackground(baseUrl .. "assets/backgrounds/" .. file, file)
+			if result == "new" then
+				added = added + 1
+			elseif not result then
+				failed = failed + 1
+			end
+		end
+		if added > 0 then
+			refreshList()
+		end
+		if failed > 0 then
+			notify(failed .. " background(s) couldn't be downloaded")
+		end
+	end)
+
+	section.CreateBox({
+		Title = "Custom Background",
+		Placeholder = "rbxassetid://, URL or workspace file",
+		Default = "",
+	}, function(url)
+		if url ~= "" then
+			applyBackground(url)
+		end
+	end)
 end
 
 Peridot.ConfigSystem = ConfigSystem
