@@ -739,7 +739,7 @@ WorldVisuals.CreateToggle({
     end
 end)
 
-WorldVisuals.CreateButton({ Title = "Get Technology" }, function()
+WorldVisuals.CreateButton({ Title = "Get Technology", ButtonText = "Check" }, function()
     local current = "Unavailable"
     pcall(function()
         current = technologyName(Lighting.Technology)
