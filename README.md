@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./assets/donaldtrump.png" alt="Vinsers Hub logo" width="100">
+<img src="./assets/donaldtrump.png" alt="Peridot logo" width="100">
 
-<h3>Vinsers Hub</h3>
+<h3>Peridot</h3>
 
 A free roblox scripts hub developed by marcus.
 
@@ -16,7 +16,7 @@ A free roblox scripts hub developed by marcus.
 ## Loadstring
 
 ```lua
-local a,b,c=loadstring,request or http_request or (http and http.request) or (syn and syn.request) or (fluxus and fluxus.request),"https://raw.githubusercontent.com/Ic0u/austina/main/loader.lua";assert(a and b,"Executor not supported");local r=b({Url=c,Method="GET",Headers={["User-Agent"]="VinsersHub",["Cache-Control"]="no-cache"}});local s=type(r)=="table" and (r.Body or r.body) or r;assert(type(s)=="string" and s~="","Request failed");a(s)().Start()
+local a,b,c=loadstring,request or http_request or (http and http.request) or (syn and syn.request) or (fluxus and fluxus.request),"https://raw.githubusercontent.com/Ic0u/peridot/main/loader.lua";assert(a and b,"Executor not supported");local r=b({Url=c,Method="GET",Headers={["User-Agent"]="Peridot",["Cache-Control"]="no-cache"}});local s=type(r)=="table" and (r.Body or r.body) or r;assert(type(s)=="string" and s~="","Request failed");a(s)().Start()
 ```
 
 ## Executors
