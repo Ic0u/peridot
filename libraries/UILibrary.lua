@@ -1,9 +1,11 @@
 --[[
-    UILIbrary.lua
+    UILibrary.lua - Peridot UI
     ---------------------------------------------------------------------------
-    Sea Hub UI Lib reverse from feral gpo source leak using claude fable 5.1 
+    Drawing: BananaLib v2 (Banana Cat Hub / Nousigi UI), readable upstream source
+    from github.com/BananaHubRemakeFreeVersion, recolored peridot green.
+    Peridot API at the bottom (CreateMain / CreatePage / CreateSection /
+    Create*, ConfigSystem), which Universal.lua and the Blox Fruits module call.
 --]]
-
 
 local getgenv = getgenv or function() return _G end
 
@@ -38,5029 +40,4076 @@ local function MigrateLegacyFolder()
 end
 MigrateLegacyFolder()
 
+local GuiParent = gethui()
+for _, parent in ipairs({ GuiParent, game:GetService("CoreGui") }) do
+	pcall(function()
+		for _, v in ipairs(parent:GetChildren()) do
+			if v.Name == "Peridot GUI" or v.Name == "Peridot Notification" or v.Name == "Peridot Btn" then
+				v:Destroy()
+			end
+		end
+	end)
+end
+getgenv().PeridotUI = true
 
-local HttpRequest =
-    (syn and syn.request)
-    or (http and http.request)
-    or http_request
-    or request
-local GetCustomAsset = getcustomasset or getsynasset or function(p) return "rbxasset://" .. tostring(p) end
+local DisableAnimation = game.Players.LocalPlayer.PlayerGui:FindFirstChild('TouchGui')
+local T1UIColor = {
+	["Border Color"] = Color3.fromRGB(140, 172, 68),
+	["Click Effect Color"] = Color3.fromRGB(230, 230, 230),
+	["Setting Icon Color"] = Color3.fromRGB(230, 230, 230),
+	["Logo Image"] = "rbxassetid://99041243486180",
+	["Search Icon Color"] = Color3.fromRGB(240, 240, 230),
+	["Search Icon Highlight Color"] = Color3.fromRGB(140, 172, 68),
+	["GUI Text Color"] = Color3.fromRGB(235, 235, 230),
+	["Text Color"] = Color3.fromRGB(235, 235, 230),
+	["Placeholder Text Color"] = Color3.fromRGB(170, 170, 160),
+	["Title Text Color"] = Color3.fromRGB(140, 172, 68),
+	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
+	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
+	["Background 1 Transparency"] = 0.1,
+	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
+	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
+	["Background Image"] = "",
+	["Page Selected Color"] = Color3.fromRGB(140, 172, 68),
+	["Section Text Color"] = Color3.fromRGB(220, 220, 210),
+	["Section Underline Color"] = Color3.fromRGB(140, 172, 68),
+	["Toggle Border Color"] = Color3.fromRGB(140, 172, 68),
+	["Toggle Checked Color"] = Color3.fromRGB(230, 230, 230),
+	["Toggle Desc Color"] = Color3.fromRGB(185, 185, 185),
+	["Button Color"] = Color3.fromRGB(140, 172, 68),
+	["Label Color"] = Color3.fromRGB(38, 38, 42),
+	["Dropdown Icon Color"] = Color3.fromRGB(230, 230, 230),
+	["Dropdown Selected Color"] = Color3.fromRGB(140, 172, 68),
+	["Dropdown Selected Check Color"] = Color3.fromRGB(120, 150, 56),
+	["Textbox Highlight Color"] = Color3.fromRGB(140, 172, 68),
+	["Box Highlight Color"] = Color3.fromRGB(140, 172, 68),
+	["Slider Line Color"] = Color3.fromRGB(140, 172, 68),
+	["Slider Highlight Color"] = Color3.fromRGB(96, 124, 44),
+	["Tween Animation 1 Speed"] = DisableAnimation and 0 or 0.25,
+	["Tween Animation 2 Speed"] = DisableAnimation and 0 or 0.5,
+	["Tween Animation 3 Speed"] = DisableAnimation and 0 or 0.1,
+	["Text Stroke Transparency"] = 0.5,
+	["Tween Easing Style"] = "Quad",
+}
+
+-- UIColor is a proxy so a theme change made after the window exists (panel
+-- transparency from the Settings page) can reach frames already built.
+local ThemeListeners = {}
+getgenv().UIColor = setmetatable({}, {
+	__index = T1UIColor,
+	__newindex = function(_, key, value)
+		T1UIColor[key] = value
+		if ThemeListeners[key] then
+			pcall(ThemeListeners[key], value)
+		end
+	end,
+})
+
+-- Animated tweens go through here so the Settings page's easing style applies.
+local function TI(speedKey)
+	local ok, style = pcall(function()
+		return Enum.EasingStyle[getgenv().UIColor["Tween Easing Style"]]
+	end)
+	return TweenInfo.new(getgenv().UIColor[speedKey], ok and style or Enum.EasingStyle.Quad)
+end
+getgenv().AllControls = {}
+getgenv().UIToggled = false
 
 
-local _AssetCache = {}
-local function CacheAsset(id)
-    if not id or id == "" then return "" end
-    if _AssetCache[id] then return _AssetCache[id] end
+local currcolor = {}
+local Library = {};
+local Library_Function = {}
+local TweenService = game:GetService('TweenService')
+local uis = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
-    -- If the executor lacks filesystem support, fall through to the raw id.
-    if not HasFileSystem then
-        _AssetCache[id] = id
-        return id
+local function makeDraggable(topBarObject, object)
+	local dragging = nil
+	local dragInput = nil
+	local dragStart = nil
+	local startPosition = nil
+	topBarObject.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPosition = object.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+	topBarObject.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+	uis.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			if not djtmemay and cac then
+				TweenService:Create(object, TweenInfo.new(DisableAnimation and 0 or 0.35, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+					Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
+				}):Play()
+			elseif not djtmemay and not cac then
+				object.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
+			end
+		end
+	end)
+end
+
+Library_Function.Gui = Instance.new('ScreenGui')
+Library_Function.Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Library_Function.Gui.Name = 'Peridot GUI'
+Library_Function.Gui.Enabled = false
+
+getgenv().ReadyForGuiLoaded = false
+spawn(function()
+	repeat
+		task.wait()
+	until getgenv().ReadyForGuiLoaded
+	if getgenv().UIToggled then
+		Library_Function.Gui.Enabled = true
+	end
+end)
+
+
+Library_Function.NotiGui = Instance.new('ScreenGui')
+Library_Function.NotiGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Library_Function.NotiGui.Name = 'Peridot Notification'
+
+Library_Function.HideGui = Instance.new('ScreenGui')
+Library_Function.HideGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Library_Function.HideGui.Name = 'Peridot Btn'
+
+
+local btnHide = Instance.new('TextButton', Library_Function.HideGui) 
+btnHide.BackgroundTransparency = 1
+btnHide.Text = ""
+btnHide.AnchorPoint = Vector2.new(0, 1)
+btnHide.Size = UDim2.new(0, 50, 0, 50)
+btnHide.Position = UDim2.new(0, 15, 1, -15)
+
+local btnHideFrame = Instance.new('Frame', btnHide)
+btnHideFrame.AnchorPoint = Vector2.new(0, 1)
+btnHideFrame.Size = UDim2.new(0, 50, 0, 50)
+btnHideFrame.Position = UDim2.new(0, 0, 1, 0)
+btnHideFrame.Name = "dut dit"
+btnHideFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+btnHideFrame.BackgroundTransparency = getgenv().UIToggled and 0 or .25
+
+local imgHide = Instance.new('ImageLabel', btnHide)
+imgHide.AnchorPoint = Vector2.new(0, 0)
+imgHide.Image = getgenv().UIColor["Logo Image"]
+imgHide.BackgroundTransparency = 1
+imgHide.Size = UDim2.new(0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30), 0, getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30))
+imgHide.AnchorPoint = Vector2.new(.5, .5)
+imgHide.Position = UDim2.new(.5, 0, .5, 0)
+
+local UICornerBtnHide = Instance.new("UICorner")
+UICornerBtnHide.Parent = btnHideFrame
+UICornerBtnHide.CornerRadius = UDim.new(1, 0)
+
+Library.ToggleUI = function()
+	getgenv().UIToggled = not Library_Function.Gui.Enabled -- follow the real state: scripts may flip Gui.Enabled directly
+	local sizeXY = getgenv().UIToggled and (getgenv().T1 and 30 or 40) or (getgenv().T1 and 25 or 30)
+	TweenService:Create(imgHide, TweenInfo.new(DisableAnimation and 0 or .25), {
+		Size = UDim2.new(0, sizeXY, 0, sizeXY)
+	}):Play()
+	TweenService:Create(btnHideFrame, TweenInfo.new(DisableAnimation and 0 or .25), {
+		BackgroundTransparency = getgenv().UIToggled and 0 or .25
+	}):Play()
+	Library_Function.Gui.Enabled = getgenv().UIToggled
+end
+
+Library.DestroyUI = function()
+	for _, gui in ipairs({ Library_Function.Gui, Library_Function.NotiGui, Library_Function.HideGui }) do
+		pcall(gui.Destroy, gui)
+	end
+end
+
+if true then
+	local button = btnHide -- Assuming this is a TextButton or ImageButton
+	local UIS = game:GetService("UserInputService")
+	
+	local dragging = false
+	local dragInput, dragStart, startPos
+	local holdTime = 0.1 -- Time to hold before dragging is enabled
+	local holdStarted = 0
+	
+	-- Function to update the button's position
+	local function update(input)
+		local delta = input.Position - dragStart
+		button.Position = UDim2.new(
+			startPos.X.Scale, startPos.X.Offset + delta.X,
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
+		)
+	end
+	
+	-- Function to detect the start of dragging (for both mouse and touch)
+	local function onInputBegan(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			holdStarted = tick() -- Record the time when holding starts
+			dragStart = input.Position
+			startPos = button.Position
+	
+			-- Listen for release to stop dragging
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+					holdStarted = 0 -- Reset the hold timer
+				end
+			end)
+		end
+	end
+	
+	-- Function to detect when dragging stops
+	local function onInputEnded(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+			holdStarted = 0 -- Reset the hold timer
+		end
+	end
+	
+	-- Detect input movement (for both mouse and touch)
+	local function onInputChanged(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end
+	
+	-- Connect the events
+	button.InputBegan:Connect(onInputBegan)
+	button.InputEnded:Connect(onInputEnded)
+	button.InputChanged:Connect(onInputChanged)
+	
+	-- RenderStepped updates the position while dragging
+	RunService.RenderStepped:Connect(function()
+		if holdStarted > 0 and (tick() - holdStarted >= holdTime) and not dragging then
+			dragging = true
+		end
+	
+		if dragging and dragInput then
+			update(dragInput)
+		end
+	end)
+		
+end
+
+btnHide.MouseButton1Click:Connect(function() 
+	Library.ToggleUI()
+end)
+
+local NotiContainer = Instance.new("Frame")
+local NotiList = Instance.new("UIListLayout")
+
+NotiContainer.Name = "NotiContainer"
+NotiContainer.Parent = Library_Function.NotiGui
+NotiContainer.AnchorPoint = Vector2.new(1, 1)
+NotiContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+NotiContainer.BackgroundTransparency = 1.000
+NotiContainer.Position = UDim2.new(1, -5, 1, -5)
+NotiContainer.Size = UDim2.new(0, 350, 1, -10)
+
+NotiList.Name = "NotiList"
+NotiList.Parent = NotiContainer
+NotiList.SortOrder = Enum.SortOrder.LayoutOrder
+NotiList.VerticalAlignment = Enum.VerticalAlignment.Bottom
+NotiList.Padding = UDim.new(0, 5)
+
+
+Library_Function.Gui.Parent = GuiParent
+Library_Function.Gui.AncestryChanged:Connect(function(_, parent)
+	if not parent then
+		pcall(function()
+			Library_Function.HideGui:Destroy()
+		end)
+	end
+end)
+Library_Function.NotiGui.Parent = GuiParent
+Library_Function.HideGui.Parent = GuiParent
+
+function Library_Function.Getcolor(color)
+	return {
+		math.floor(color.r * 255),
+		math.floor(color.g * 255),
+		math.floor(color.b * 255)
+	}
+end
+
+local libCreateNoti = function(Setting)
+	getgenv().TitleNameNoti = Setting.Title or ""; 
+	local Description = Setting.Description or Setting.Desc or Setting.Content or ""; 
+	local Duration = Setting.Duration or Setting.Timeshow or Setting.Delay or 10;
+
+	local NotiFrame = Instance.new("Frame")
+	local Noticontainer = Instance.new("Frame")
+	local UICorner = Instance.new("UICorner")
+	local Topnoti = Instance.new("Frame")
+	local Ruafimg = Instance.new("ImageLabel")
+	local RuafimgCorner = Instance.new("UICorner")
+	local TextLabelNoti = Instance.new("TextLabel")
+	local CloseContainer = Instance.new("Frame")
+	local CloseImage = Instance.new("ImageLabel")
+	local TextButton = Instance.new("TextButton")
+	local TextLabelNoti2 = Instance.new("TextLabel")
+
+	NotiFrame.Name = "NotiFrame"
+	NotiFrame.Parent = NotiContainer
+	NotiFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	NotiFrame.BackgroundTransparency = 1.000
+	NotiFrame.ClipsDescendants = true
+	NotiFrame.Position = UDim2.new(0, 0, 0, 0)
+	NotiFrame.Size = UDim2.new(1, 0, 0, 0)
+	NotiFrame.AutomaticSize = Enum.AutomaticSize.Y
+
+	Noticontainer.Name = "Noticontainer"
+	Noticontainer.Parent = NotiFrame
+	Noticontainer.Position = UDim2.new(1, 0, 0, 0)
+	Noticontainer.Size = UDim2.new(1, 0, 1, 6)
+	Noticontainer.AutomaticSize = Enum.AutomaticSize.Y
+	Noticontainer.BackgroundColor3 = getgenv().UIColor["Background 3 Color"]
+	UICorner.CornerRadius = UDim.new(0, 4)
+	UICorner.Parent = Noticontainer
+
+	Topnoti.Name = "Topnoti"
+	Topnoti.Parent = Noticontainer
+	Topnoti.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	Topnoti.BackgroundTransparency = 1.000
+	Topnoti.Position = UDim2.new(0, 0, 0, 5)
+	Topnoti.Size = UDim2.new(1, 0, 0, 25)
+
+	Ruafimg.Name = "Ruafimg"
+	Ruafimg.Parent = Topnoti
+	Ruafimg.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	Ruafimg.BackgroundTransparency = 1.000
+	Ruafimg.Position = UDim2.new(0, 5, 0, getgenv().T1 and 5 or 0)
+	Ruafimg.Size = UDim2.new(0, getgenv().T1 and 30 or 25, 0, getgenv().T1 and 15 or 25)
+	Ruafimg.Image = getgenv().UIColor["Logo Image"]
+
+	RuafimgCorner.CornerRadius = UDim.new(1, 0)
+	RuafimgCorner.Name = "RuafimgCorner"
+	RuafimgCorner.Parent = Ruafimg
+	
+	local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+	local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+	local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+	local color = colorR .. ',' .. colorG .. ',' .. colorB
+    TextLabelNoti.Text = "<font color=\"rgb(" .. tostring(color or "140,172,68") .. ")\">" .. tostring(getgenv().HubName or "Peridot") .. "</font> " .. tostring(getgenv().TitleNameNoti or "")
+    
+	TextLabelNoti.Name = "TextLabelNoti"
+	TextLabelNoti.Parent = Topnoti
+	TextLabelNoti.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	TextLabelNoti.BackgroundTransparency = 1.000
+	TextLabelNoti.Position = UDim2.new(0, getgenv().T1 and 40 or 35, 0, 0)
+	TextLabelNoti.Size = UDim2.new(1, getgenv().T1 and -40 or -35, 1, 0)
+	TextLabelNoti.Font = Enum.Font.GothamBold
+	TextLabelNoti.TextSize = 14.000
+	TextLabelNoti.TextWrapped = true
+	TextLabelNoti.TextXAlignment = Enum.TextXAlignment.Left
+	TextLabelNoti.RichText = true
+	TextLabelNoti.TextColor3 = getgenv().UIColor["GUI Text Color"]
+
+	CloseContainer.Name = "CloseContainer"
+	CloseContainer.Parent = Topnoti
+	CloseContainer.AnchorPoint = Vector2.new(1, 0.5)
+	CloseContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	CloseContainer.BackgroundTransparency = 1.000
+	CloseContainer.Position = UDim2.new(1, -4, 0.5, 0)
+	CloseContainer.Size = UDim2.new(0, 22, 0, 22)
+
+	CloseImage.Name = "CloseImage"
+	CloseImage.Parent = CloseContainer
+	CloseImage.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	CloseImage.BackgroundTransparency = 1.000
+	CloseImage.Size = UDim2.new(1, 0, 1, 0)
+	CloseImage.Image = "rbxassetid://3926305904"
+	CloseImage.ImageRectOffset = Vector2.new(284, 4)
+	CloseImage.ImageRectSize = Vector2.new(24, 24)
+	CloseImage.ImageColor3 = getgenv().UIColor["Search Icon Color"]
+
+	TextButton.Parent = CloseContainer
+	TextButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	TextButton.BackgroundTransparency = 1.000
+	TextButton.Size = UDim2.new(1, 0, 1, 0)
+	TextButton.Font = Enum.Font.SourceSans
+	TextButton.Text = ""
+	TextButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+	TextButton.TextSize = 14.000
+
+	if Description then
+		TextLabelNoti2.Name = 'TextColor'
+		TextLabelNoti2.Parent = Noticontainer
+		TextLabelNoti2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TextLabelNoti2.BackgroundTransparency = 1.000
+		TextLabelNoti2.Position = UDim2.new(0, 10, 0, 35)
+		TextLabelNoti2.Size = UDim2.new(1, -15, 0, 0)
+		TextLabelNoti2.Font = Enum.Font.GothamBold
+		TextLabelNoti2.Text = Description
+		TextLabelNoti2.TextSize = 14.000
+		TextLabelNoti2.TextXAlignment = Enum.TextXAlignment.Left
+		TextLabelNoti2.RichText = true
+		TextLabelNoti2.TextColor3 = getgenv().UIColor["Text Color"]
+		TextLabelNoti2.AutomaticSize = Enum.AutomaticSize.Y
+		TextLabelNoti2.TextWrapped = true
+	end
+
+	local function remove()
+		TweenService:Create(Noticontainer, TI("Tween Animation 1 Speed"), {
+			Position = UDim2.new(1, 0, 0, 0)
+		}):Play()
+		wait(.25)
+		NotiFrame:Destroy()
+	end
+
+	TweenService:Create(Noticontainer, TI("Tween Animation 1 Speed"), {
+		Position = UDim2.new(0, 0, 0, 0)
+	}):Play()
+
+	TextButton.MouseEnter:Connect(function()
+		TweenService:Create(CloseImage, TI("Tween Animation 1 Speed"), {
+			ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]
+		}):Play()
+	end)
+
+	TextButton.MouseLeave:Connect(function()
+		TweenService:Create(CloseImage, TI("Tween Animation 1 Speed"), {
+			ImageColor3 = getgenv().UIColor["Search Icon Color"]
+		}):Play()
+	end)
+
+	TextButton.MouseButton1Click:Connect(function()
+		wait(.25)
+		remove()
+	end)
+
+	spawn(function()
+		wait(Duration)
+		remove()
+	end)
+
+end
+
+function Library:Notify(Setting, bypass)
+	if not getgenv().Config or bypass then
+		local s, e = pcall(function()
+			libCreateNoti(Setting)
+		end)
+		if e then
+			print(e)
+		end
+	end
+end
+
+function Library:CreateWindow(Setting)
+    local TitleNameMain = Setting.Title or "Peridot"
+    getgenv().MainDesc = Setting.Desc or Setting.Subtitle or ""
+    
+    if Setting.Image then
+        getgenv().UIColor["Logo Image"] = Setting.Image
     end
+    
+	local djtmemay = false
+	cac = false
 
-    local ok, result = pcall(function()
-        if not isfolder("Peridot") then makefolder("Peridot") end
-        if not isfolder("Peridot/Assets") then makefolder("Peridot/Assets") end
+	local Main = Instance.new("Frame")
+	local maingui = Instance.new("ImageLabel")
+	local MainCorner = Instance.new("UICorner")
+	local TopMain = Instance.new("Frame")
+	local Ruafimg = Instance.new("ImageLabel")
+	local TextLabelMain = Instance.new("TextLabel")
+	local PageControl = Instance.new("Frame")
+	local UICorner = Instance.new("UICorner")
+	local ControlList = Instance.new("ScrollingFrame")
+	local UIListLayout = Instance.new("UIListLayout")
+	local ControlTitle = Instance.new("TextLabel")
+	local MainPage = Instance.new("Frame")
+	local UIPage = Instance.new("UIPageLayout")
+	local Concacontainer = Instance.new("Frame")
+	local Concacmain = Instance.new("Frame")
+	local MainContainer
 
-        -- Derive a deterministic filename from the asset id.
-        local name = tostring(id):gsub("%W", "_") .. ".png"
-        local path = "Peridot/Assets/" .. name
+	Main.Name = "Main"
+	Main.Parent = Library_Function.Gui
+	Main.BackgroundColor3 = Color3.fromRGB(42, 42, 42)
+	Main.BackgroundTransparency = 1.000
+	Main.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Main.AnchorPoint = Vector2.new(0.5, 0.5)
+	Main.Size = UDim2.new(0, 629, 0, 359)
 
-        if not isfile(path) then
-            local numId = tostring(id):match("%d+")
-            if numId then
-                local url = "https://assetdelivery.roblox.com/v1/asset/?id=" .. numId
-                local response = (HttpRequest and HttpRequest({Url = url, Method = "GET"}))
-                                  or {Body = game:HttpGet(url)}
-                if response and response.Body then
-                    writefile(path, response.Body)
+	makeDraggable(Main, Main)
+
+	maingui.Name = "maingui"
+	maingui.Parent = Main
+	maingui.AnchorPoint = Vector2.new(0.5, 0.5)
+	maingui.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	maingui.BackgroundTransparency = 1.000
+	maingui.Position = UDim2.new(0.5, 0, 0.5, 0)
+	maingui.Selectable = true
+	maingui.Size = UDim2.new(1, 30, 1, 30)
+	maingui.Image = "rbxassetid://8068653048"
+	maingui.ScaleType = Enum.ScaleType.Slice
+	maingui.SliceCenter = Rect.new(15, 15, 175, 175)
+	maingui.SliceScale = 1.300
+	maingui.ImageColor3 = getgenv().UIColor["Border Color"]
+	maingui.ImageTransparency = 1
+
+	maingui.ImageColor3 = getgenv().UIColor['Title Text Color']
+
+	MainContainer = Instance.new("ImageLabel")
+	MainContainer.Name = "MainContainer"
+	MainContainer.Parent = Main
+	MainContainer.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	MainContainer.Size = UDim2.new(1, 0, 1, 0)
+	Library_Function.MainContainer = MainContainer -- SetBackground draws on it
+
+	local uistr = Instance.new("UIStroke", MainContainer);
+	uistr.Thickness = 1;
+	uistr.Color = Color3.fromRGB(90, 90, 70);
+
+	local uigradient = Instance.new("UIGradient", MainContainer);
+	uigradient.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 200, 200))
+	}
+	uigradient.Rotation = 90
+	uigradient.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.92),
+		NumberSequenceKeypoint.new(1, 0.92)
+	}
+
+	getgenv().ReadyForGuiLoaded = true
+	
+	MainCorner.CornerRadius = UDim.new(0, 5)
+	MainCorner.Name = "MainCorner"
+	MainCorner.Parent = MainContainer
+
+	Concacontainer.Name = "Concacontainer"
+	Concacontainer.Parent = MainContainer
+	Concacontainer.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	Concacontainer.BackgroundTransparency = 1.000
+	Concacontainer.ClipsDescendants = true
+	Concacontainer.Position = UDim2.new(0, 0, 0, 30)
+	Concacontainer.Size = UDim2.new(1, 0, 1, -30)
+	
+	Concacmain.Name = "Concacmain"
+	Concacmain.Parent = Concacontainer
+	Concacmain.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	Concacmain.BackgroundTransparency = 1.000
+	Concacmain.Selectable = true
+	Concacmain.Size = UDim2.new(1, 0, 1, 0)
+	
+	TopMain.Name = "TopMain"
+	TopMain.Parent = MainContainer
+	TopMain.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	TopMain.BackgroundTransparency = 1.000
+	TopMain.Size = UDim2.new(1, 0, 0, 25)
+	
+	local TopStroke = Instance.new("Frame", TopMain)
+	TopStroke.Name = "TopStroke"
+	TopStroke.BackgroundColor3 = Color3.fromRGB(90, 90, 70)
+	TopStroke.BackgroundTransparency = 0.6
+	TopStroke.BorderSizePixel = 0
+	TopStroke.Position = UDim2.new(0, 0, 1, -1)
+	TopStroke.Size = UDim2.new(1, 0, 0, 1)
+	
+	Ruafimg.Name = "Ruafimg"
+	Ruafimg.Parent = TopMain
+	Ruafimg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	Ruafimg.BackgroundTransparency = 1.000
+	Ruafimg.Position = UDim2.new(0, 5, 0, 0)
+	Ruafimg.Size = UDim2.new(0, 25, 0, 25)
+	Ruafimg.Image = getgenv().UIColor["Logo Image"]
+
+	TextLabelMain.Name = "TextLabelMain"
+	TextLabelMain.Parent = TopMain
+	TextLabelMain.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	TextLabelMain.BackgroundTransparency = 1.000
+	TextLabelMain.Position = UDim2.new(0, 220, 0, 0)
+	TextLabelMain.Size = UDim2.new(1, -35, 1, 0)
+	TextLabelMain.Font = Enum.Font.GothamBold
+	TextLabelMain.RichText = true
+	TextLabelMain.TextSize = 16.000
+	TextLabelMain.TextWrapped = true
+	TextLabelMain.TextXAlignment = Enum.TextXAlignment.Left
+	TextLabelMain.TextColor3 = getgenv().UIColor["GUI Text Color"]
+
+	local colorR = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[1])
+	local colorG = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[2])
+	local colorB = tostring(Library_Function.Getcolor(getgenv().UIColor['Title Text Color'])[3])
+	local color = colorR .. ',' .. colorG .. ',' .. colorB
+    TextLabelMain.Text = "<font color=\"rgb(" .. tostring(color or "140,172,68") .. ")\">" .. tostring(TitleNameMain or "Peridot") .. "</font> " .. tostring(getgenv().MainDesc or "")
+
+	PageControl.Name = "Background1"
+	PageControl.Parent = Concacmain
+	PageControl.Position = UDim2.new(0, 5, 0, 0)
+	PageControl.Size = UDim2.new(0, 180, 0, 325)
+	PageControl.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+	PageControl.BackgroundTransparency = 0.1
+
+	local pageControlStroke = Instance.new("UIStroke", PageControl)
+	pageControlStroke.Color = Color3.fromRGB(90, 90, 70)
+	pageControlStroke.Thickness = 1
+
+	local pageControlGradient = Instance.new("UIGradient", PageControl)
+	pageControlGradient.Color = ColorSequence.new{
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 34)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(38, 38, 46))
+	}
+	pageControlGradient.Rotation = 90
+	pageControlGradient.Transparency = NumberSequence.new{
+		NumberSequenceKeypoint.new(0, 0.06),
+		NumberSequenceKeypoint.new(1, 0.12)
+	}
+
+	UICorner.CornerRadius = UDim.new(0, 4)
+	UICorner.Parent = PageControl
+
+	ControlList.Name = "ControlList"
+	ControlList.Parent = PageControl
+	ControlList.Active = true
+	ControlList.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	ControlList.BackgroundTransparency = 1.000
+	ControlList.BorderColor3 = Color3.fromRGB(27, 42, 53)
+	ControlList.BorderSizePixel = 0
+	ControlList.Position = UDim2.new(0, 0, 0, 30)
+	ControlList.Size = UDim2.new(1, -5, 1, -30)
+	ControlList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+	ControlList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	ControlList.ScrollBarThickness = 5
+	ControlList.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+
+	UIListLayout.Parent = ControlList
+	UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	UIListLayout.Padding = UDim.new(0, 5)
+
+	ControlTitle.Name = "GUITextColor"
+	ControlTitle.Parent = PageControl
+	ControlTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	ControlTitle.BackgroundTransparency = 1.000
+	ControlTitle.Position = UDim2.new(0, 5, 0, 0)
+	ControlTitle.Size = UDim2.new(1, 0, 0, 25)
+	ControlTitle.Font = Enum.Font.GothamBold
+	ControlTitle.Text = TitleNameMain
+	ControlTitle.TextSize = 14.000
+	ControlTitle.TextXAlignment = Enum.TextXAlignment.Left
+	ControlTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
+
+	local PageSearch = Instance.new("Frame")
+	local PageSearchCorner = Instance.new("UICorner")
+	local SearchFrame = Instance.new("Frame")
+	local SearchIcon = Instance.new("ImageLabel")
+	local SearchBox = Instance.new("TextBox")
+
+	PageSearch.Name = "PageSearch"
+	PageSearch.Parent = PageControl
+	PageSearch.AnchorPoint = Vector2.new(1, 0)
+	PageSearch.BackgroundColor3 = Color3.fromRGB(38, 38, 46)
+	PageSearch.Position = UDim2.new(1, -5, 0, 5)
+	PageSearch.Size = UDim2.new(0, 170, 0, 25)
+	PageSearch.ClipsDescendants = true
+
+	PageSearchCorner.Parent = PageSearch
+	PageSearchCorner.CornerRadius = UDim.new(0, 4)
+
+	SearchFrame.Name = "SearchFrame"
+	SearchFrame.Parent = PageSearch
+	SearchFrame.BackgroundColor3 = Color3.fromRGB(163, 162, 165)
+	SearchFrame.BackgroundTransparency = 1
+	SearchFrame.Size = UDim2.new(0, 25, 1, 0)
+
+	SearchIcon.Name = "SearchIcon"
+	SearchIcon.Parent = SearchFrame
+	SearchIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	SearchIcon.BackgroundColor3 = Color3.fromRGB(163, 162, 165)
+	SearchIcon.BackgroundTransparency = 1
+	SearchIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+	SearchIcon.Size = UDim2.new(0, 16, 0, 16)
+	SearchIcon.Image = "rbxassetid://8154282545"
+	SearchIcon.ImageColor3 = Color3.fromRGB(240, 240, 230)
+
+    SearchBox.Name = "SearchBox"
+    SearchBox.Parent = PageSearch
+    SearchBox.Active = true
+    SearchBox.BackgroundColor3 = Color3.fromRGB(163, 162, 165)
+    SearchBox.BackgroundTransparency = 1
+    SearchBox.CursorPosition = -1
+    SearchBox.Position = UDim2.new(0, 30, 0, 0)
+    SearchBox.Size = UDim2.new(1, -30, 1, 0)
+    SearchBox.Font = Enum.Font.GothamBold
+    SearchBox.PlaceholderColor3 = Color3.fromRGB(170, 170, 160)
+    SearchBox.PlaceholderText = "Search section or Function..."
+    SearchBox.Text = ""
+    SearchBox.TextColor3 = Color3.fromRGB(235, 235, 230)
+    SearchBox.TextSize = 14
+    SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+
+	MainPage.Name = "MainPage"
+	MainPage.Parent = Concacmain
+	MainPage.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+	MainPage.BackgroundTransparency = 1.000
+	MainPage.ClipsDescendants = true
+	MainPage.Position = UDim2.new(0, 190, 0, 0)
+	MainPage.Size = UDim2.new(0, 435, 0, 325)
+
+	UIPage.Name = "UIPage"
+	UIPage.Parent = MainPage
+	UIPage.FillDirection = Enum.FillDirection.Vertical
+	UIPage.SortOrder = Enum.SortOrder.LayoutOrder
+	UIPage.EasingDirection = Enum.EasingDirection.InOut
+	UIPage.EasingStyle = Enum.EasingStyle.Quart
+	UIPage.Padding = UDim.new(0, 10)
+	UIPage.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"]
+
+	UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		ControlList.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 5)
+	end)
+
+	local Shadow = Instance.new("ImageLabel", Main)
+	Shadow.Name = "Shadow"
+	Shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	Shadow.BackgroundColor3 = Color3.fromRGB(163, 162, 165)
+	Shadow.BackgroundTransparency = 1
+	Shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+	Shadow.Size = UDim2.new(1, 40, 1, 40)
+	Shadow.ZIndex = 0
+	Shadow.Image = "rbxassetid://5028857084"
+	Shadow.ImageTransparency = 0.35
+	Shadow.ScaleType = Enum.ScaleType.Slice
+	Shadow.SliceCenter = Rect.new(24, 24, 276, 276)
+
+    -- Thêm biến để lưu thông tin section
+    local sectionInfo = {}
+    
+    -- Tạo hàm GlobalSearch nếu chưa tồn tại
+    local GlobalSearch
+    do -- rebuilt per window: a global from an earlier run would point at a destroyed GUI
+        GlobalSearch = function(searchText)
+            searchText = string.lower(searchText)
+            
+            if searchText == "" then
+                -- Hiển thị tất cả như cũ
+                for _, control in pairs(getgenv().AllControls) do
+                    control.TabButton.Visible = true
+                    control.Section.Visible = true
+                    control.Element.Visible = true
+                end
+                -- Hiển thị tất cả tab
+                for _, tab in pairs(ControlList:GetChildren()) do
+                    if not tab:IsA('UIListLayout') then
+                        tab.Visible = true
+                    end
+                end
+                return
+            end
+            
+            -- Ẩn tất cả trước
+            for _, control in pairs(getgenv().AllControls) do
+                control.Section.Visible = false
+                control.Element.Visible = false
+            end
+            
+            -- Ẩn tất cả tab
+            for _, tab in pairs(ControlList:GetChildren()) do
+                if not tab:IsA('UIListLayout') then
+                    tab.Visible = false
                 end
             end
+            
+            -- Tạo bản đồ section
+            local sectionsWithElements = {}
+            local elementsInSection = {}
+            
+            -- Phân tích từng control
+            for _, control in pairs(getgenv().AllControls) do
+                local elementName = string.lower(control.Name or "")
+                local sectionName = string.lower(control.SectionName or "")
+                
+                -- Kiểm tra phần tử (sử dụng string.find thay vì string.match)
+                local elementFound = string.find(elementName, searchText, 1, true) ~= nil
+                -- Kiểm tra section
+                local sectionFound = string.find(sectionName, searchText, 1, true) ~= nil
+                
+                -- Tạo bản đồ section
+                if not elementsInSection[control.Section] then
+                    elementsInSection[control.Section] = {}
+                end
+                table.insert(elementsInSection[control.Section], {
+                    control = control,
+                    elementFound = elementFound,
+                    sectionFound = sectionFound
+                })
+                
+                -- Đánh dấu section có phần tử khớp
+                if elementFound then
+                    sectionsWithElements[control.Section] = true
+                end
+            end
+            
+            -- Xử lý hiển thị
+            local foundTabs = {}
+            
+            for section, elements in pairs(elementsInSection) do
+                local shouldShowSection = false
+                local hasElementMatch = false
+                
+                -- Kiểm tra section có khớp không
+                for _, elementInfo in ipairs(elements) do
+                    if elementInfo.sectionFound then
+                        shouldShowSection = true
+                    end
+                    if elementInfo.elementFound then
+                        hasElementMatch = true
+                    end
+                end
+                
+                -- Logic hiển thị
+                for _, elementInfo in ipairs(elements) do
+                    local control = elementInfo.control
+                    
+                    if elementInfo.elementFound then
+                        -- Phần tử khớp: hiển thị phần tử
+                        control.Element.Visible = true
+                        
+                        -- Nếu section cũng khớp hoặc có phần tử khớp: hiện section
+                        if elementInfo.sectionFound or hasElementMatch then
+                            control.Section.Visible = true
+                        end
+                        
+                        foundTabs[control.TabName] = true
+                        control.TabButton.Visible = true
+                    elseif elementInfo.sectionFound and not hasElementMatch then
+                        -- Section khớp nhưng không có phần tử khớp: chỉ hiện section
+                        control.Section.Visible = true
+                        control.Element.Visible = false
+                        
+                        foundTabs[control.TabName] = true
+                        control.TabButton.Visible = true
+                    end
+                end
+            end
+            
+            -- Hiển thị các tab có kết quả
+            for tabName, _ in pairs(foundTabs) do
+                for _, tab in pairs(ControlList:GetChildren()) do
+                    if not tab:IsA('UIListLayout') and string.find(tab.Name, tabName, 1, true) then
+                        tab.Visible = true
+                    end
+                end
+            end
+            
+            -- Nếu không tìm thấy gì cả, hiển thị thông báo
+            if not next(foundTabs) then
+                -- Có thể thêm thông báo "Không tìm thấy kết quả" ở đây nếu muốn
+            end
         end
-
-        if isfile(path) then
-            return GetCustomAsset(path)
-        end
-        return id
+    end
+    
+    -- Kết nối sự kiện search (giữ nguyên)
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        GlobalSearch(SearchBox.Text)
     end)
 
-    local asset = ok and result or id
-    _AssetCache[id] = asset
-    return asset
-end
+	local Main_Function = {}
 
-local RequirementsTracker = {
-    UserHas = {},
-    Presets = {},
-    ActiveConnections = {},
-}
-function RequirementsTracker:Update(key, value) self.UserHas[key] = value end
-function RequirementsTracker:Check(key)
-    if self.Presets[key] then return self.Presets[key]() end
-    return false
-end
-function RequirementsTracker:AddPreset(key, fn) self.Presets[key] = fn end
+	local LayoutOrderBut = -1
+	local LayoutOrder = -1
+	local PageCounter = 1
 
-local HttpService = cloneref(game:GetService("HttpService"));
-local ControlRegistry = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {} };
-local function RegistryKey(page, section, title)
-    return tostring(page) .. "||" .. tostring(section) .. "||" .. tostring(title);
-end;
-local function BuildLibrary()
-    if getgenv().Tvk and gethui():FindFirstChild("Peridot GUI") then
-        for L_635, L_636 in ipairs(gethui():GetChildren()) do
-            if L_636.Name == "Peridot GUI" then
-                L_636:Destroy();
-            end;
-        end;
-    end;
-    getgenv().Tvk = true;
-    getgenv().Chon = true;
-    local ThemeDefaultLight = { ["Border Color"] = Color3.fromRGB(156, 190, 84), ["Click Effect Color"] = Color3.fromRGB(230, 230, 230), ["Setting Icon Color"] = Color3.fromRGB(230, 230, 230), ["Logo Image"] = CacheAsset("rbxassetid://99041243486180"), ["Search Icon Color"] = Color3.fromRGB(255, 255, 255), ["Search Icon Highlight Color"] = Color3.fromRGB(156, 190, 84), ["GUI Text Color"] = Color3.fromRGB(230, 230, 230), ["Text Color"] = Color3.fromRGB(230, 230, 230), ["Placeholder Text Color"] = Color3.fromRGB(178, 178, 178), ["Title Text Color"] = Color3.fromRGB(156, 190, 84), ["Background 1 Color"] = Color3.fromRGB(43, 43, 43), ["Background 1 Transparency"] = 0, ["Background 2 Color"] = Color3.fromRGB(90, 90, 90), ["Background 3 Color"] = Color3.fromRGB(53, 53, 53), ["Background Image"] = "", ["Page Selected Color"] = Color3.fromRGB(156, 190, 84), ["Section Text Color"] = Color3.fromRGB(156, 190, 84), ["Section Underline Color"] = Color3.fromRGB(156, 190, 84), ["Toggle Border Color"] = Color3.fromRGB(156, 190, 84), ["Toggle Checked Color"] = Color3.fromRGB(230, 230, 230), ["Toggle Desc Color"] = Color3.fromRGB(185, 185, 185), ["Button Color"] = Color3.fromRGB(156, 190, 84), ["Label Color"] = Color3.fromRGB(126, 156, 60), ["Dropdown Icon Color"] = Color3.fromRGB(230, 230, 230), ["Dropdown Selected Color"] = Color3.fromRGB(156, 190, 84), ["Textbox Highlight Color"] = Color3.fromRGB(156, 190, 84), ["Box Highlight Color"] = Color3.fromRGB(156, 190, 84), ["Slider Line Color"] = Color3.fromRGB(75, 75, 75), ["Slider Highlight Color"] = Color3.fromRGB(70, 88, 40), ["Tween Easing Style"] = "Quad", ["Tween Easing Direction"] = "Out", ["Tween Animation 1 Speed"] = 0.25, ["Tween Animation 2 Speed"] = 0.5, ["Tween Animation 3 Speed"] = 0.1 };
-    local ThemeDefaultDark = { ["Border Color"] = Color3.fromRGB(40, 40, 40), ["Click Effect Color"] = Color3.fromRGB(60, 60, 60), ["Setting Icon Color"] = Color3.fromRGB(200, 200, 200), ["Logo Image"] = CacheAsset("rbxassetid://99041243486180"), ["Search Icon Color"] = Color3.fromRGB(200, 200, 200), ["Search Icon Highlight Color"] = Color3.fromRGB(140, 172, 68), ["GUI Text Color"] = Color3.fromRGB(220, 220, 220), ["Text Color"] = Color3.fromRGB(220, 220, 220), ["Placeholder Text Color"] = Color3.fromRGB(150, 150, 150), ["Title Text Color"] = Color3.fromRGB(140, 172, 68), ["Background Main Color"] = Color3.fromRGB(20, 20, 20), ["Background 1 Color"] = Color3.fromRGB(30, 30, 30), ["Background 1 Transparency"] = 0, ["Background 2 Color"] = Color3.fromRGB(45, 45, 45), ["Background 3 Color"] = Color3.fromRGB(25, 25, 25), ["Background Image"] = "", ["Page Selected Color"] = Color3.fromRGB(140, 172, 68), ["Section Text Color"] = Color3.fromRGB(140, 172, 68), ["Section Underline Color"] = Color3.fromRGB(140, 172, 68), ["Toggle Border Color"] = Color3.fromRGB(140, 172, 68), ["Toggle Checked Color"] = Color3.fromRGB(220, 220, 220), ["Toggle Desc Color"] = Color3.fromRGB(180, 180, 180), ["Button Color"] = Color3.fromRGB(140, 172, 68), ["Label Color"] = Color3.fromRGB(140, 172, 68), ["Dropdown Icon Color"] = Color3.fromRGB(200, 200, 200), ["Dropdown Selected Color"] = Color3.fromRGB(140, 172, 68), ["Textbox Highlight Color"] = Color3.fromRGB(140, 172, 68), ["Box Highlight Color"] = Color3.fromRGB(140, 172, 68), ["Slider Line Color"] = Color3.fromRGB(60, 60, 60), ["Slider Highlight Color"] = Color3.fromRGB(96, 124, 44), ["Tween Easing Style"] = "Quad", ["Tween Easing Direction"] = "Out", ["Tween Animation 1 Speed"] = 0.25, ["Tween Animation 2 Speed"] = 0.5, ["Tween Animation 3 Speed"] = 0.1 };
-    local ThemeListeners = {};
-    for L_640, L_641 in pairs(ThemeDefaultDark) do
+	function Main_Function:AddTab(PageName)
 
-        ThemeListeners[L_640] = {};
-    end;
+		local Page_Name = tostring(PageName)
+		local Page_Title = Page_Name
 
-    local L_642 = {};
-    for L_643, L_644 in pairs(ThemeDefaultDark) do
-        L_642[L_643] = { Color = L_644, Rainbow = false, Breathing = { Toggle = false, Color1 = Color3.new(), Color2 = Color3.new() } };
-    end;
-    local L_646 = function(L_645)
-        return { math.floor(L_645.r * 255), math.floor(L_645.g * 255), math.floor(L_645.b * 255), "Dit" };
-    end;
-    CorrectTable = function(L_647)
-        local L_648 = {};
-        for L_649, L_650 in pairs(L_647) do
+		LayoutOrder = LayoutOrder + 1
+		LayoutOrderBut = LayoutOrderBut + 1
 
-            if typeof(L_650) == "Color3" then
-                L_648[L_649] = L_646(L_650);
-            elseif type(L_650) == "table" then
-                L_648[L_649] = CorrectTable(L_650);
-            else
-                L_648[L_649] = L_650;
-            end;
-        end;
-        return L_648;
-    end;
-    DCorrectTable = function(L_651)
-        local L_652 = {};
-        for L_653, L_654 in pairs(L_651) do
-            if type(L_654) == "table" and L_654[4] == "Dit" then
-                L_652[L_653] = Color3.fromRGB(unpack(L_654));
-            elseif type(L_654) == "table" then
-                L_652[L_653] = DCorrectTable(L_654);
-            else
-                L_652[L_653] = L_654;
-            end;
-        end;
-        return L_652;
-    end;
-    local L_655 = cloneref(game:GetService("HttpService"));
-    local L_656 = "!CustomUI.json";
-    SaveCustomUISettings = function()
-        local L_657 = cloneref(game:GetService("HttpService"));
-        if not isfolder("Peridot") then
-            makefolder("Peridot");
-        end;
-        writefile("Peridot/" .. L_656, L_657:JSONEncode(CorrectTable(L_642)));
-        return ;
-    end;
-    ReadCustomUISetting = function()
-        local L_662, L_663 = pcall(function()
-            local L_658 = cloneref(game:GetService("HttpService"));
-            if not isfolder("Peridot") then
-                makefolder("Peridot");
-            end;
+		--Control 
+		local PageName = Instance.new("Frame")
+		local Frame = Instance.new("Frame")
+		local TabNameCorner = Instance.new("UICorner")
+		local Line = Instance.new("Frame")
+		local InLine = Instance.new("Frame")
+		local LineCorner = Instance.new("UICorner")
+		local TabTitleContainer = Instance.new("Frame")
+		local TabTitle = Instance.new("TextLabel")
+		local PageButton = Instance.new("TextButton")
 
-            local L_659 = L_658:JSONDecode(readfile("Peridot/" .. L_656));
-            for L_660, L_661 in pairs(L_659) do
-                if not (function()
-                    if L_661.Color == nil then
-                        return ;
-                    end;
-                    if L_661.Rainbow == nil then
-                        return ;
-                    end;
-                    if L_661.Breathing == nil then
-                        return ;
-                    end;
-                    if L_661.Breathing.Color1 == nil then
-                        return ;
-                    end;
-                    if L_661.Breathing.Color2 == nil then
-                        return ;
-                    end;
-                    return true;
-                end)() then
-                    SaveCustomUISettings();
-                    return ReadCustomUISetting();
-                end;
-            end;
-            return L_659;
-        end);
-        if L_662 then
-            return L_663;
-        end;
 
-        SaveCustomUISettings();
-        return ReadCustomUISetting();
-    end;
-    local ConfigSystem = {};
+		PageName.Name = Page_Name .. "_Control"
+		PageName.Parent = ControlList
+		PageName.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		PageName.BackgroundTransparency = 1.000
+		PageName.Size = UDim2.new(1, -10, 0, 25)
+		PageName.LayoutOrder = LayoutOrderBut
 
-    local ConfigFolder = "Peridot/Configs";
-    local function SetConfigFolder(path)
-        ConfigFolder = tostring(path or "Peridot/Configs");
-        return ConfigFolder;
-    end;
-    local function GetConfigFolder()
-        return ConfigFolder;
-    end;
+		Frame.Parent = PageName
+		Frame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		Frame.BackgroundTransparency = 1.000
+		Frame.Position = UDim2.new(0, 5, 0, 0)
+		Frame.Size = UDim2.new(1, -5, 1, 0)
 
-    local L_666 = function()
-        if not isfolder("Peridot") then
-            makefolder("Peridot");
-        end;
-        if HasFileSystem and not isfolder(ConfigFolder) then
-            makefolder(ConfigFolder);
-        end;
-        return ;
-    end;
-    ConfigSystem.List = function()
-        L_666();
-        local L_667 = listfiles(ConfigFolder);
-        local L_668 = {};
-        for L_669, L_670 in ipairs(L_667) do
-            local L_671 = L_670:match(".+[/\\](.+)%.json$");
-            if L_671 then
-                table.insert(L_668, L_671);
-            end;
-        end;
-        return L_668;
-    end;
-    ConfigSystem.Save = function(L_672)
-        if not L_672 or L_672 == "" then
-            return false, "No config name";
-        end;
-        L_666();
-        local L_673 = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {}, UITheme = CorrectTable(L_642) };
-        for L_674, L_675 in pairs(ControlRegistry.Toggles) do
-            local L_676, L_677 = pcall(L_675.Get);
-            if L_676 then
+		TabNameCorner.CornerRadius = UDim.new(0, 4)
+		TabNameCorner.Name = "TabNameCorner"
+		TabNameCorner.Parent = Frame
 
-                L_673.Toggles[L_674] = L_677;
-            end;
-        end;
-        for L_678, L_679 in pairs(ControlRegistry.Sliders) do
-            local L_680, L_681 = pcall(L_679.Get);
-            if L_680 then
-                L_673.Sliders[L_678] = L_681;
-            end;
-        end;
-        for L_682, L_683 in pairs(ControlRegistry.Dropdowns) do
+		Line.Name = "Line"
+		Line.Parent = Frame
+		Line.AnchorPoint = Vector2.new(0, 0.5)
+		Line.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		Line.BackgroundTransparency = 1.000
+		Line.Position = UDim2.new(0, 0, 0.5, 0)
+		Line.Size = UDim2.new(0, 14, 1, 0)
 
-            local L_684, L_685 = pcall(L_683.Get);
-            if L_684 then
-                L_673.Dropdowns[L_682] = L_685;
-            end;
-        end;
-        for L_686, L_687 in pairs(ControlRegistry.Keybinds) do
-            local L_688, L_689 = pcall(L_687.Get);
-            if HasFileSystem and L_688 then
-                L_673.Keybinds[L_686] = L_689;
-            end;
-        end;
-        for L_690, L_691 in pairs(ControlRegistry.Boxes) do
+		InLine.Name = "PageInLine"
+		InLine.Parent = Line
+		InLine.AnchorPoint = Vector2.new(0.5, 0.5)
+		InLine.BorderSizePixel = 0
+		InLine.Position = UDim2.new(0.5, 0, 0.5, 0)
+		InLine.Size = UDim2.new(1, -10, 1, -10)
+		InLine.BackgroundColor3 = getgenv().UIColor["Page Selected Color"]
+		InLine.BackgroundTransparency = 1.000
 
-            local L_692, L_693 = pcall(L_691.Get);
-            if L_692 then
-                L_673.Boxes[L_690] = L_693;
-            end;
-        end;
+		LineCorner.Name = "LineCorner"
+		LineCorner.Parent = InLine
 
-        local L_694, L_695 = pcall(function()
-            writefile(ConfigFolder .. "/" .. L_672 .. ".json", game.HttpService:JSONEncode(L_673));
-            return ;
-        end);
-        return L_694, L_695;
-    end;
-    ConfigSystem.Load = function(L_696)
-        if not L_696 or L_696 == "" then
+		TabTitleContainer.Name = "TabTitleContainer"
+		TabTitleContainer.Parent = Frame
+		TabTitleContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TabTitleContainer.BackgroundTransparency = 1.000
+		TabTitleContainer.Position = UDim2.new(0, 15, 0, 0)
+		TabTitleContainer.Size = UDim2.new(1, -15, 1, 0)
 
-            return false, "No config name";
-        end;
-        L_666();
+		TabTitle.Name = "GUITextColor"
+		TabTitle.Parent = TabTitleContainer
+		TabTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		TabTitle.BackgroundTransparency = 1.000
+		TabTitle.Size = UDim2.new(1, 0, 1, 0)
+		TabTitle.Font = Enum.Font.GothamBold
+		TabTitle.Text = Page_Name
+		TabTitle.TextColor3 = Color3.fromRGB(230, 230, 230)
+		TabTitle.TextSize = 14.000
+		TabTitle.TextXAlignment = Enum.TextXAlignment.Left
+		TabTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
 
-        local L_697 = ConfigFolder .. "/" .. L_696 .. ".json";
-        if HasFileSystem and not isfile(L_697) then
-            return false, "Config not found";
-        end;
-        local L_698 = readfile(L_697);
-        local L_699, L_700 = pcall(function()
-            return game.HttpService:JSONDecode(L_698);
-        end);
-        if (not L_699 or type(L_700) ~= "table") then
-            return false, "Invalid config data";
-        end;
-        local L_709 = function(L_701, L_702, L_703)
-            if not L_703 then
-                return ;
-            end;
-            for L_704, L_705 in pairs(L_703) do
-                local L_706 = L_702 and L_702[L_704];
-                if L_706 and L_706.Set then
+		PageButton.Name = "PageButton"
+		PageButton.Parent = PageName
+		PageButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		PageButton.BackgroundTransparency = 1.000
+		PageButton.Size = UDim2.new(1, 0, 1, 0)
+		PageButton.Font = Enum.Font.SourceSans
+		PageButton.Text = ""
+		PageButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+		PageButton.TextSize = 14.000
 
-                    task.spawn(function()
-                        local L_707, L_708 = pcall(L_706.Set, L_705);
-                        if not L_707 then
-                            warn("[Config]", L_701, "Set failed for id:", L_704, L_708);
-                        end;
-                        return ;
-                    end);
-                end;
-            end;
-            return ;
-        end;
-        if L_700.UITheme then
-            task.spawn(function()
-                local L_715, L_716 = pcall(function()
+		-- Container
 
-                        local L_710 = DCorrectTable(L_700.UITheme);
-                        for L_711, L_712 in pairs(L_710) do
-                            if type(L_712) == "table" and L_712.Color then
-                                task.spawn(function()
+		local PageContainer = Instance.new("Frame")
+		local UICorner = Instance.new("UICorner")
+		local PageTitle = Instance.new("TextLabel")
+		local PageList = Instance.new("ScrollingFrame")
+		local Pagelistlayout = Instance.new("UIListLayout")
 
-                                        local L_713, L_714 = pcall(function()
+		local CurrentPage = PageCounter
+		PageCounter = PageCounter + 1
+		PageContainer.Name = "Page" .. CurrentPage
+		PageContainer.Parent = MainPage
+		PageContainer.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+		PageContainer.Position = UDim2.new(0, 190, 0, 30)
+		PageContainer.Size = UDim2.new(0, 435, 0, 325)
+		PageContainer.LayoutOrder = LayoutOrder
+		PageContainer.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
 
-                                                getgenv().UIColor[L_711] = L_712.Color;
-                                                return ;
-                                        end);
-                                        if not L_713 then
-                                            warn("[Config] UITheme apply failed for key:", L_711, L_714);
-                                        end;
-                                        return ;
-                                end);
-                            end;
-                        end;
-                        return ;
-                end);
-                if not L_715 then
+		UICorner.CornerRadius = UDim.new(0, 4)
+		UICorner.Parent = PageContainer
 
-                    warn("[Config] UITheme decoding failed:", L_716);
-                end;
-                return ;
-            end);
-        end;
-        task.spawn(function()
-            L_709("Toggle", ControlRegistry.Toggles, L_700.Toggles);
-            return ;
-        end);
-        task.spawn(function()
-            L_709("Slider", ControlRegistry.Sliders, L_700.Sliders);
-            return ;
-        end);
-        task.spawn(function()
-            L_709("Dropdown", ControlRegistry.Dropdowns, L_700.Dropdowns);
-            return ;
-        end);
-        task.spawn(function()
-            L_709("Keybind", ControlRegistry.Keybinds, L_700.Keybinds);
-            return ;
-        end);
-        task.spawn(function()
-            L_709("Box", ControlRegistry.Boxes, L_700.Boxes);
-            return ;
-        end);
-        return true;
-    end;
-    ConfigSystem.Delete = function(L_717)
-        if not L_717 or L_717 == "" then
+		PageTitle.Name = "GUITextColor"
+		PageTitle.Parent = PageContainer
+		PageTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		PageTitle.BackgroundTransparency = 1.000
+		PageTitle.Position = UDim2.new(0, 5, 0, 0)
+		PageTitle.Size = UDim2.new(1, 0, 0, 25)
+		PageTitle.Font = Enum.Font.GothamBold
+		PageTitle.Text = Page_Title
+		PageTitle.TextSize = 16.000
+		PageTitle.TextXAlignment = Enum.TextXAlignment.Left
+		PageTitle.TextColor3 = getgenv().UIColor["GUI Text Color"]
 
-                return false, "No config name";
-        end;
-        L_666();
-        local L_718 = ConfigFolder .. "/" .. L_717 .. ".json";
-        if HasFileSystem and not isfile(L_718) then
-            return false, "Config not found";
-        end;
-        local L_719, L_720 = pcall(function()
-            delfile(L_718);
-            return ;
-        end);
-        return L_719, L_720;
-    end;
-    getgenv().PeridotConfig = ConfigSystem;
-    if not getgenv().Chon then
+		PageList.Name = "PageList"
+		PageList.Parent = PageContainer
+		PageList.Active = true
+		PageList.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+		PageList.BackgroundTransparency = 1.000
+		PageList.BorderColor3 = Color3.fromRGB(27, 42, 53)
+		PageList.BorderSizePixel = 0
+		PageList.Position = UDim2.new(0, 5, 0, 30)
+		PageList.Size = UDim2.new(1, -10, 1, -30)
+		PageList.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+		PageList.ScrollBarThickness = 5
+		PageList.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+		PageList.ScrollingEnabled = true
+		PageList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
 
-        L_642 = DCorrectTable(ReadCustomUISetting());
-        for L_721, L_722 in pairs(L_642) do
-            ThemeDefaultDark[L_721] = L_722.Color;
-        end;
-    end;
-    if not getgenv().ractvkretarddumb then
+		Pagelistlayout.Name = "Pagelistlayout"
+		Pagelistlayout.Parent = PageList
+		Pagelistlayout.SortOrder = Enum.SortOrder.LayoutOrder
+		Pagelistlayout.Padding = UDim.new(0, 5)
+		Pagelistlayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			PageList.CanvasSize = UDim2.new(0, 0, 0, Pagelistlayout.AbsoluteContentSize.Y)
+		end)
 
-        spawn(function()
-            while wait(1) do
-                SaveCustomUISettings();
-            end;
-            return ;
-        end);
-        getgenv().ractvkretarddumb = true;
-    end;
-    local L_729 = setmetatable({}, {
-        __newindex = function(L_723, L_724, L_725)
-            if L_724 == nil then
-                warn("[Peridot UI] UIColor __newindex got nil key, ignoring.");
-                return ;
-            end;
-            rawset(ThemeDefaultDark, L_724, L_725);
-            local L_726 = ThemeListeners[L_724];
-            if L_726 then
-                for L_727, L_728 in pairs(L_726) do
-                    pcall(L_728);
-                end;
-            end;
-            if not L_642[L_724] then
+		local PageSearch = Instance.new("Frame")
+		local PageSearchCorner = Instance.new("UICorner")
+		local SearchFrame = Instance.new("Frame")
+		local SearchIcon = Instance.new("ImageLabel")
+		local SearchButton = Instance.new("TextButton")
+		local SearchBox = Instance.new("TextBox")
 
-                L_642[L_724] = { Color = L_725, Rainbow = false, Breathing = { Toggle = false, Color1 = Color3.new(), Color2 = Color3.new() } };
-            else
-                L_642[L_724].Color = L_725;
-            end;
-            return ;
-        end,
-        __index = ThemeDefaultDark
-    });
-    getgenv().UIColor = L_729;
-    local SeaUI = {};
-    local Internal = {};
-    local TweenService = cloneref(game:GetService("TweenService"));
-    local UserInputService = cloneref(game:GetService("UserInputService"));
+		PageSearch.Name = "Page Search"
+		PageSearch.Parent = PageContainer
+		PageSearch.AnchorPoint = Vector2.new(1, 0)
+		PageSearch.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+		PageSearch.Position = UDim2.new(1, -5, 0, 5)
+		PageSearch.Size = UDim2.new(0, 20, 0, 20)
+		PageSearch.ClipsDescendants = true
 
-    -- ------------------------------------------------------------------
-    -- Tween easing (ADDITION)
-    --
-    -- 29 of the 34 tweens in the original called TweenInfo.new(duration)
-    -- with no easing arguments, so they all silently took Roblox's default
-    -- of Quad/Out. Those defaults are preserved exactly -- this only makes
-    -- them overridable. Set "Tween Easing Style" / "Tween Easing Direction"
-    -- to any Enum.EasingStyle / Enum.EasingDirection member NAME (a string,
-    -- so it survives JSON theme persistence). Bad names fall back silently.
-    -- ------------------------------------------------------------------
-    -- ------------------------------------------------------------------
-    -- Key name coercion (FIX)
-    --
-    -- CreateToggle's inline keybind stores and compares keys by
-    -- KeyCode.Name -- a plain string like "F" -- and assigns that value
-    -- straight to TextButton.Text. Passing an EnumItem (the obvious thing
-    -- to pass, and what CreateBind/CreateKeybind DO accept) threw
-    -- "string expected, got EnumItem" and killed the calling script, and
-    -- even if it had not, the keypress comparison would never have
-    -- matched. Both entry points now coerce. Strings still behave
-    -- exactly as before.
-    -- ------------------------------------------------------------------
-    Internal.KeyName = function(key)
-        if key == nil then
-            return nil;
-        end;
-        if typeof(key) == "EnumItem" then
-            return key.Name;
-        end;
-        return (tostring(key):gsub("Enum%.KeyCode%.", ""):gsub("Enum%.UserInputType%.", ""));
-    end;
+		PageSearchCorner.CornerRadius = UDim.new(0, 2)
+		PageSearchCorner.Name = "PageSearchCorner"
+		PageSearchCorner.Parent = PageSearch
 
-    -- ------------------------------------------------------------------
-    -- Fade + intro animation (ADDITION)
-    --
-    -- The original had no show/hide transition -- Gui.Enabled was flipped
-    -- instantly. These fade every visible descendant by interpolating each
-    -- one toward full transparency from ITS OWN original value, so a frame
-    -- that was already 40% transparent fades from 0.4, not from 0.
-    --
-    -- Originals are captured once per instance and never re-captured while
-    -- faded, otherwise hiding twice would record "invisible" as the real
-    -- value and the UI would never come back.
-    -- ------------------------------------------------------------------
-    local RunServiceLocal = cloneref(game:GetService("RunService"));
+		SearchFrame.Name = "SearchFrame"
+		SearchFrame.Parent = PageSearch
+		SearchFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchFrame.BackgroundTransparency = 1.000
+		SearchFrame.Size = UDim2.new(0, 20, 0, 20)
 
-    Internal.FadeCache  = {};
-    Internal.FadeAlpha  = 0;      -- 0 = fully visible, 1 = fully faded
-    Internal.FadeToken  = 0;
+		SearchIcon.Name = "SearchIcon"
+		SearchIcon.Parent = SearchFrame
+		SearchIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		SearchIcon.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchIcon.BackgroundTransparency = 1.000
+		SearchIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+		SearchIcon.Size = UDim2.new(0, 16, 0, 16)
+		SearchIcon.Image = "rbxassetid://8154282545"
+		SearchIcon.ImageColor3 = getgenv().UIColor["Search Icon Color"]
 
-    local function fadeProps(instance)
-        local props = nil;
-        if instance:IsA("GuiObject") then
-            props = { "BackgroundTransparency" };
-            if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
-                table.insert(props, "TextTransparency");
-                table.insert(props, "TextStrokeTransparency");
-            end;
-            if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then
-                table.insert(props, "ImageTransparency");
-            end;
-            if instance:IsA("ScrollingFrame") then
-                table.insert(props, "ScrollBarImageTransparency");
-            end;
-            if instance:IsA("CanvasGroup") then
-                table.insert(props, "GroupTransparency");
-            end;
-        elseif instance:IsA("UIStroke") then
-            props = { "Transparency" };
-        elseif instance:IsA("VideoFrame") then
-            props = { "BackgroundTransparency" };
-        end;
-        return props;
-    end;
+		SearchButton.Name = "Search Button"
+		SearchButton.Parent = SearchFrame
+		SearchButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchButton.BackgroundTransparency = 1.000
+		SearchButton.Size = UDim2.new(1, 0, 1, 0)
+		SearchButton.Font = Enum.Font.SourceSans
+		SearchButton.Text = ""
+		SearchButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+		SearchButton.TextSize = 14.000
 
-    Internal.CaptureFadeState = function()
-        if not Internal.Gui then
-            return;
-        end;
-        for _, instance in ipairs(Internal.Gui:GetDescendants()) do
-            local props = fadeProps(instance);
-            if props then
-                local entry = Internal.FadeCache[instance];
-                if not entry then
-                    entry = {};
-                    Internal.FadeCache[instance] = entry;
-                end;
-                for _, prop in ipairs(props) do
-                    if entry[prop] == nil then
-                        local ok, value = pcall(function() return instance[prop]; end);
-                        if ok and type(value) == "number" then
-                            entry[prop] = value;
-                        end;
-                    end;
-                end;
-            end;
-        end;
-    end;
+		SearchBox.Name = "Search Box"
+		SearchBox.Parent = PageSearch
+		SearchBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		SearchBox.BackgroundTransparency = 1.000
+		SearchBox.Position = UDim2.new(0, 30, 0, 0)
+		SearchBox.Size = UDim2.new(1, -30, 1, 0)
+		SearchBox.Font = Enum.Font.GothamBold
+		SearchBox.Text = ""
+		SearchBox.TextSize = 14.000
+		SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+		SearchBox.PlaceholderText = "Search Section name"
+		SearchBox.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+		SearchBox.TextColor3 = getgenv().UIColor["Text Color"]
+		
+		local Openned = false 
 
-    local function applyFade(alpha)
-        Internal.FadeAlpha = alpha;
-        for instance, props in pairs(Internal.FadeCache) do
-            if instance.Parent then
-                for prop, original in pairs(props) do
-                    pcall(function()
-                        instance[prop] = original + (1 - original) * alpha;
-                    end);
-                end;
-            else
-                Internal.FadeCache[instance] = nil;
-            end;
-        end;
-    end;
+		SearchButton.MouseEnter:Connect(function()
+			TweenService:Create(SearchIcon, TI("Tween Animation 3 Speed"), {
+				ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"]
+			}):Play()
+		end)
 
-    -- alpha: 0 visible, 1 invisible. Interrupts any fade already running.
-    Internal.FadeTo = function(alpha, duration)
-        duration = tonumber(duration) or 0.22;
-        if Internal.FadeAlpha == 0 then
-            Internal.CaptureFadeState();
-        end;
-        Internal.FadeToken = Internal.FadeToken + 1;
-        local token = Internal.FadeToken;
-        local from = Internal.FadeAlpha;
+		SearchButton.MouseLeave:Connect(function()
+			TweenService:Create(SearchIcon, TI("Tween Animation 3 Speed"), {
+				ImageColor3 = getgenv().UIColor["Search Icon Color"]
+			}):Play()
+		end)
 
-        if duration <= 0 then
-            applyFade(alpha);
-            return;
-        end;
+		SearchButton.MouseButton1Click:Connect(function()
+			Openned = not Openned
+			local size = Openned and UDim2.new(0, 175, 0, 20) or  UDim2.new(0, 20, 0, 20)
+			game.TweenService:Create(PageSearch, TI("Tween Animation 2 Speed"), {
+				Size = size
+			}):Play()
+		end)
 
-        task.spawn(function()
-            local started = os.clock();
-            while true do
-                if Internal.FadeToken ~= token then
-                    return;
-                end;
-                local progress = math.clamp((os.clock() - started) / duration, 0, 1);
-                local eased = 1 - (1 - progress) ^ 3;   -- cubic ease-out
-                applyFade(from + (alpha - from) * eased);
-                if progress >= 1 then
-                    return;
-                end;
-                RunServiceLocal.RenderStepped:Wait();
-            end;
-        end);
-    end;
+		local function hideOtherFrame()
+			for i, v in next, PageList:GetChildren() do 
+				if not v:IsA('UIListLayout') then 
+					v.Visible = false
+				end
+			end
+		end
+		
+		local function showFrameName()
+			for i, v in pairs(PageList:GetChildren()) do
+				if not v:IsA('UIListLayout') then 
+					if string.find(string.lower(v.Name), string.lower(SearchBox.Text)) then 
+						v.Visible = true
+					end
+				end
+			end
+		end
+		
+		SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+			hideOtherFrame()
+			showFrameName()
+		end)
 
-    -- Scale pop on the window frame. Centre-anchored, so it grows from
-    -- the middle rather than drifting.
-    Internal.ScalePop = function(fromScale, duration)
-        local window = Internal.Window;
-        if not window then
-            return;
-        end;
-        local target = Internal.WindowSize or window.Size;
-        Internal.WindowSize = target;
-        duration = tonumber(duration) or 0.28;
-        window.Size = UDim2.new(
-            target.X.Scale * fromScale, target.X.Offset * fromScale,
-            target.Y.Scale * fromScale, target.Y.Offset * fromScale
-        );
-        TweenService:Create(window, Internal.EasingInfo(duration), { Size = target }):Play();
-    end;
+		for i, v in pairs(ControlList:GetChildren()) do
+			if not (v:IsA('UIListLayout')) then
+				if i == 2 then 
+					v.Frame.Line.PageInLine.BackgroundTransparency = 0
+				end
+			end
+		end
 
-    Internal.EasingInfo = function(duration)
-        local style, direction = Enum.EasingStyle.Quad, Enum.EasingDirection.Out;
-        pcall(function()
-            local s = getgenv().UIColor["Tween Easing Style"];
-            if type(s) == "string" and Enum.EasingStyle[s] then
-                style = Enum.EasingStyle[s];
-            end;
-        end);
-        pcall(function()
-            local d = getgenv().UIColor["Tween Easing Direction"];
-            if type(d) == "string" and Enum.EasingDirection[d] then
-                direction = Enum.EasingDirection[d];
-            end;
-        end);
-        return TweenInfo.new(tonumber(duration) or 0.25, style, direction);
-    end;
-    Internal.ButtonEffect = function()
-        return ;
-    end;
-    Internal.GetIMG = function(L_735)
-        if not L_735 or L_735 == "" then return "" end
+		PageButton.MouseButton1Click:Connect(function()
+			if tostring(UIPage.CurrentPage) == PageContainer.Name then 
+				return
+			end
 
-        -- rbxassetid:// -> download + getcustomasset (anti-detection)
-        if string.find(L_735, "rbxassetid://") then
-            return CacheAsset(L_735);
-        end;
+			for i, v in pairs(MainPage:GetChildren()) do
+				if not (v:IsA('UIPageLayout')) and not (v:IsA('UICorner')) then
+					v.Visible = false
+				end
+			end
 
-        -- External URL -> download to temp file + getcustomasset (original behaviour)
-        local L_737 = "";
-        pcall(function()
-            if L_735 and type(L_735) == "string" and tostring(game:HttpGet(L_735)):find("PNG") then
-                local L_736 = "SynAsset [";
-                for L_738 = 1, 5, 1 do
-                    L_736 = tostring(L_736 .. string.char(math.random(65, 122)));
-                end;
-                L_736 = L_736 .. "].png";
-                writefile(L_736, game:HttpGet(L_735));
-                spawn(function()
-                    wait(5);
-                    delfile(L_736);
-                    return ;
-                end);
-                L_737 = GetCustomAsset(L_736);
-            end;
-            return ;
-        end);
-        return L_737;
-    end;
-    Internal.Gui = Instance.new("ScreenGui");
-    Internal.Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-    Internal.Gui.Name = "Peridot GUI";
-    getgenv().ReadyForGuiLoaded = false;
-    spawn(function()
-        Internal.Gui.Enabled = false;
-        repeat
-            wait();
-        until getgenv().ReadyForGuiLoaded;
-        -- INTRO: capture originals while everything is still at its real
-        -- transparency, snap to invisible, enable, then fade + pop in.
-        Internal.CaptureFadeState();
-        Internal.FadeTo(1, 0);
-        Internal.Gui.Enabled = true;
-        task.wait();
-        Internal.ScalePop(0.92, 0.30);
-        Internal.FadeTo(0, 0.28);
-        return ;
-    end);
-    Internal.NotiGui = Instance.new("ScreenGui");
-    Internal.NotiGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling;
-    Internal.NotiGui.Name = "Peridot Notification";
-    local L_739 = Instance.new("Frame");
-    local L_740 = Instance.new("UIListLayout");
-    L_739.Name = "NotiContainer";
-    L_739.Parent = Internal.NotiGui;
-    L_739.AnchorPoint = Vector2.new(1, 1);
-    L_739.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-    L_739.BackgroundTransparency = 1;
-    L_739.Position = UDim2.new(1, -5, 1, -5);
-    L_739.Size = UDim2.new(0, 350, 1, -10);
-    L_740.Name = "NotiList";
-    L_740.Parent = L_739;
-    L_740.SortOrder = Enum.SortOrder.LayoutOrder;
-    L_740.VerticalAlignment = Enum.VerticalAlignment.Bottom;
-    L_740.Padding = UDim.new(0, 5);
-    wait();
-    getgenv().GUI = Internal.Gui;
-    Internal.Gui.Parent = gethui();
-    Internal.NotiGui.Parent = gethui();
-    Internal.Getcolor = function(L_803)
-        return { math.floor(L_803.r * 255), math.floor(L_803.g * 255), math.floor(L_803.b * 255) };
-    end;
-    SeaUI.CreateNoti = function(L_804)
-        getgenv().TitleNameNoti = L_804.Title or "";
-        local L_805 = L_804.Desc;
-        local L_806 = L_804.ShowTime or 10;
-        local L_807 = Instance.new("Frame");
-        local L_808 = Instance.new("Frame");
-        local L_809 = Instance.new("UICorner");
-        local L_810 = Instance.new("Frame");
-        local L_811 = Instance.new("ImageLabel");
-        local L_812 = Instance.new("UICorner");
-        local L_813 = Instance.new("TextLabel");
-        local L_814 = Instance.new("Frame");
-        local L_815 = Instance.new("ImageLabel");
-        local L_816 = Instance.new("TextButton");
-        local L_817 = Instance.new("TextLabel");
-        L_807.Name = "NotiFrame";
-        L_807.Parent = L_739;
-        L_807.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_807.BackgroundTransparency = 1;
-        L_807.ClipsDescendants = true;
-        L_807.Position = UDim2.new(0, 0, 0, 0);
-        L_807.Size = UDim2.new(1, 0, 0, 0);
-        L_807.AutomaticSize = Enum.AutomaticSize.Y;
-        L_808.Name = "Noticontainer";
-        L_808.Parent = L_807;
-        L_808.Position = UDim2.new(1, 0, 0, 0);
-        L_808.Size = UDim2.new(1, 0, 1, 6);
-        L_808.AutomaticSize = Enum.AutomaticSize.Y;
-        L_808.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-        table.insert(ThemeListeners["Background 3 Color"], function()
-            L_808.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-            return ;
-        end);
-        L_809.CornerRadius = UDim.new(0, 4);
-        L_809.Parent = L_808;
-        L_810.Name = "Topnoti";
-        L_810.Parent = L_808;
-        L_810.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_810.BackgroundTransparency = 1;
-        L_810.Position = UDim2.new(0, 0, 0, 5);
-        L_810.Size = UDim2.new(1, 0, 0, 25);
-        L_811.Name = "Ruafimg";
-        L_811.Parent = L_810;
-        L_811.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_811.BackgroundTransparency = 1;
-        L_811.Position = UDim2.new(0, 10, 0, 0);
-        L_811.Size = UDim2.new(0, 25, 0, 25);
-        L_811.Image = getgenv().UIColor["Logo Image"];
-        table.insert(ThemeListeners["Logo Image"], function()
-            L_811.Image = Internal.GetIMG(getgenv().UIColor["Logo Image"]);
-            return ;
-        end);
-        L_812.CornerRadius = UDim.new(1, 0);
-        L_812.Name = "RuafimgCorner";
-        L_812.Parent = L_811;
-        L_813.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().TitleNameNoti;
-        table.insert(ThemeListeners["Title Text Color"], function()
-            L_813.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().TitleNameNoti;
-            return ;
-        end);
-        L_813.Name = "TextLabelNoti";
-        L_813.Parent = L_810;
-        L_813.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_813.BackgroundTransparency = 1;
-        L_813.Position = UDim2.new(0, 40, 0, 0);
-        L_813.Size = UDim2.new(1, -40, 1, 0);
-        L_813.Font = Enum.Font.GothamBold;
-        L_813.TextSize = 14;
-        L_813.TextWrapped = true;
-        L_813.TextXAlignment = Enum.TextXAlignment.Left;
-        L_813.RichText = true;
-        L_813.TextColor3 = getgenv().UIColor["GUI Text Color"];
-        table.insert(ThemeListeners["GUI Text Color"], function()
-            L_813.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            return ;
-        end);
-        L_814.Name = "CloseContainer";
-        L_814.Parent = L_810;
-        L_814.AnchorPoint = Vector2.new(1, 0.5);
-        L_814.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_814.BackgroundTransparency = 1;
-        L_814.Position = UDim2.new(1, -4, 0.5, 0);
-        L_814.Size = UDim2.new(0, 22, 0, 22);
-        L_815.Name = "CloseImage";
-        L_815.Parent = L_814;
-        L_815.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_815.BackgroundTransparency = 1;
-        L_815.Size = UDim2.new(1, 0, 1, 0);
-        L_815.Image = CacheAsset("rbxassetid://3926305904");
-        L_815.ImageRectOffset = Vector2.new(284, 4);
-        L_815.ImageRectSize = Vector2.new(24, 24);
-        L_815.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-        table.insert(ThemeListeners["Search Icon Color"], function()
-            L_815.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-            return ;
-        end);
-        L_816.Parent = L_814;
-        L_816.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_816.BackgroundTransparency = 1;
-        L_816.Size = UDim2.new(1, 0, 1, 0);
-        L_816.Font = Enum.Font.SourceSans;
-        L_816.Text = "";
-        L_816.TextColor3 = Color3.fromRGB(0, 0, 0);
-        L_816.TextSize = 14;
-        if L_805 then
-            L_817.Name = "TextColor";
-            L_817.Parent = L_808;
-            L_817.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_817.BackgroundTransparency = 1;
-            L_817.Position = UDim2.new(0, 10, 0, 35);
-            L_817.Size = UDim2.new(1, -15, 0, 0);
-            L_817.Font = Enum.Font.GothamBold;
-            L_817.Text = L_805;
-            L_817.TextSize = 14;
-            L_817.TextXAlignment = Enum.TextXAlignment.Left;
-            L_817.RichText = true;
-            L_817.TextColor3 = getgenv().UIColor["Text Color"];
-            L_817.AutomaticSize = Enum.AutomaticSize.Y;
-            L_817.TextWrapped = true;
-            table.insert(ThemeListeners["Text Color"], function()
-                L_817.TextColor3 = getgenv().UIColor["Text Color"];
-                return ;
-            end);
-        end;
-        local L_818 = function()
-            TweenService:Create(L_808, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Position = UDim2.new(1, 0, 0, 0) }):Play();
-            wait(0.25);
-            L_807:Destroy();
-            return ;
-        end;
-        TweenService:Create(L_808, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Position = UDim2.new(0, 0, 0, 0) }):Play();
-        L_816.MouseEnter:Connect(function()
-            TweenService:Create(L_815, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"] }):Play();
-            return ;
-        end);
-        L_816.MouseLeave:Connect(function()
-            TweenService:Create(L_815, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Color"] }):Play();
-            return ;
-        end);
-        L_816.MouseButton1Click:Connect(function()
-            spawn(function()
-                Internal.ButtonEffect();
-                return ;
-            end);
-            wait(0.25);
-            L_818();
-            return ;
-        end);
-        spawn(function()
-            wait(L_806);
-            L_818();
-            return ;
-        end);
-        return ;
-    end;
-    SeaUI.CreateMain = function(L_819)
-        local L_820 = tostring(L_819.Title) or "Peridot";
-        -- ADDITION: the brand word beside the logo is driven by this field.
-        -- string literal in five places. It is now driven by this field.
-        -- Title = the sidebar header. Name = the brand. Desc = the text
-        -- printed after the brand (version string, sea name, etc).
-        getgenv().HubName = L_819.Name or getgenv().HubName or "Peridot";
-        getgenv().MainDesc = L_819.Desc or "";
-        local L_821 = false;
-        cac = false;
-        local L_832 = function(L_822, L_823)
-            local L_824 = nil;
-            local L_825 = nil;
-            local L_826 = nil;
-            local L_827 = nil;
-            L_822.InputBegan:Connect(function(L_828)
-                if L_828.UserInputType == Enum.UserInputType.MouseButton1 or L_828.UserInputType == Enum.UserInputType.Touch then
-                    L_824 = true;
-                    L_826 = L_828.Position;
-                    L_827 = L_823.Position;
-                    L_828.Changed:Connect(function()
-                        if L_828.UserInputState == Enum.UserInputState.End then
-                            L_824 = false;
-                        end;
-                        return ;
-                    end);
-                end;
-                return ;
-            end);
-            L_822.InputChanged:Connect(function(L_829)
-                if L_829.UserInputType == Enum.UserInputType.MouseMovement or L_829.UserInputType == Enum.UserInputType.Touch then
-                    L_825 = L_829;
-                end;
-                return ;
-            end);
-            UserInputService.InputChanged:Connect(function(L_830)
-                if L_830 == L_825 and L_824 then
-                    local L_831 = L_830.Position - L_826;
-                    if not L_821 and cac then
-                        TweenService:Create(L_823, TweenInfo.new(0.35, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), { Position = UDim2.new(L_827.X.Scale, L_827.X.Offset + L_831.X, L_827.Y.Scale, L_827.Y.Offset + L_831.Y) }):Play();
-                    elseif not L_821 and not cac then
-                        L_823.Position = UDim2.new(L_827.X.Scale, L_827.X.Offset + L_831.X, L_827.Y.Scale, L_827.Y.Offset + L_831.Y);
-                    end;
-                end;
-                return ;
-            end);
-            return ;
-        end;
-        local L_833 = Instance.new("Frame");
-        local L_834 = Instance.new("ImageLabel");
-        local L_835 = Instance.new("UICorner");
-        local L_836 = Instance.new("Frame");
-        local L_837 = Instance.new("ImageLabel");
-        local L_838 = Instance.new("TextLabel");
-        local L_839 = Instance.new("Frame");
-        local L_840 = Instance.new("UICorner");
-        local L_841 = Instance.new("ScrollingFrame");
-        local L_842 = Instance.new("UIListLayout");
-        local L_843 = Instance.new("TextLabel");
-        local L_844 = Instance.new("Frame");
-        local L_845 = Instance.new("UIPageLayout");
-        local L_846 = Instance.new("Frame");
-        local L_847 = Instance.new("TextButton");
-        local L_848 = Instance.new("ImageLabel");
-        local L_849 = Instance.new("Frame");
-        local L_850 = Instance.new("Frame");
-        local L_851 = Instance.new("Frame");
-        local L_852 = Instance.new("UIPageLayout");
-        L_833.Name = "Main";
-        L_833.Parent = Internal.Gui;
-        Internal.Window = L_833;
-        L_833.BackgroundColor3 = Color3.fromRGB(42, 42, 42);
-        L_833.BackgroundTransparency = 1;
-        L_833.Position = UDim2.new(0.5, 0, 0.5, 0);
-        L_833.AnchorPoint = Vector2.new(0.5, 0.5);
-        L_833.Size = UDim2.new(0, 629, 0, 359);
-        L_832(L_833, L_833);
-        L_834.Name = "maingui";
-        L_834.Parent = L_833;
-        L_834.AnchorPoint = Vector2.new(0.5, 0.5);
-        L_834.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_834.BackgroundTransparency = 1;
-        L_834.Position = UDim2.new(0.5, 0, 0.5, 0);
-        L_834.Selectable = true;
-        L_834.Size = UDim2.new(1, 30, 1, 30);
-        L_834.Image = CacheAsset("rbxassetid://8068653048");
-        L_834.ScaleType = Enum.ScaleType.Slice;
-        L_834.SliceCenter = Rect.new(15, 15, 175, 175);
-        L_834.SliceScale = 1.3;
-        L_834.ImageColor3 = getgenv().UIColor["Border Color"];
-        table.insert(ThemeListeners["Border Color"], function()
-            L_834.ImageColor3 = getgenv().UIColor["Border Color"];
-            return ;
-        end);
-        Internal.ReloadMain = function(L_853)
-            L_834.ImageColor3 = getgenv().UIColor["Title Text Color"];
-            L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-            table.insert(ThemeListeners["Title Text Color"], function()
-                L_834.ImageColor3 = getgenv().UIColor["Title Text Color"];
-                L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-                return ;
-            end);
-            local L_854 = nil;
-            if L_853 ~= "" and (type(L_853) == "string" and string.find(L_853:lower(), ".webm") and pcall(function()
-                writefile("seahub.webm", HttpRequest({ Url = L_853 }).Body);
-                return ;
-            end)) then
-                wait(0.25);
-                local L_855 = isfile("seahub.webm");
-                wait(0.25);
-                if L_855 then
-                    L_854 = Instance.new("VideoFrame");
-                    L_854.Name = "MainContainer";
-                    L_854.Parent = L_833;
-                    L_854.BackgroundColor3 = getgenv().UIColor["Background Main Color"];
-                    L_854.Size = UDim2.new(1, 0, 1, 0);
-                    L_854.Video = GetCustomAsset("seahub.webm");
-                    L_854.Looped = true;
-                    L_854:Play();
-                    wait(0.5);
-                    delfile("seahub.webm");
-                end;
-            else
-                L_854 = Instance.new("ImageLabel");
-                L_854.Name = "MainContainer";
-                L_854.Parent = L_833;
-                L_854.BackgroundColor3 = getgenv().UIColor["Background Main Color"];
-                L_854.Size = UDim2.new(1, 0, 1, 0);
-                L_854.Image = Internal.GetIMG(L_853);
-            end;
-            MainCorner_ = Instance.new("UICorner");
-            MainCorner_.CornerRadius = UDim.new(0, 4);
-            MainCorner_.Name = "MainCorner";
-            MainCorner_.Parent = L_854;
-            for L_856, L_857 in next, L_833:GetChildren() do
-                if L_857.Name == "MainContainer" then
-                    for L_858, L_859 in next, L_857:GetChildren() do
-                        L_859.Parent = L_854;
-                    end;
-                    wait();
-                    L_857:Destroy();
-                    break;
-                end;
-            end;
-            table.insert(ThemeListeners["Background 3 Color"], function()
-                L_854.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-                return ;
-            end);
-            return ;
-        end;
-        L_834.ImageColor3 = getgenv().UIColor["Title Text Color"];
-        L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-        table.insert(ThemeListeners["Title Text Color"], function()
-            L_834.ImageColor3 = getgenv().UIColor["Title Text Color"];
-            L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-            return ;
-        end);
-        local L_860 = nil;
-        local L_861 = getgenv().UIColor["Background Image"];
-        if L_861 ~= "" and (type(L_861) == "string" and string.find(L_861:lower(), ".webm") and pcall(function()
-            writefile("seahub.webm", HttpRequest({ Url = L_861 }).Body);
-            return ;
-        end)) then
-            wait(0.25);
-            local L_862 = isfile("seahub.webm");
-            wait(0.25);
-            if L_862 then
-                L_860 = Instance.new("VideoFrame");
-                L_860.Name = "MainContainer";
-                L_860.Parent = L_833;
-                L_860.BackgroundColor3 = getgenv().UIColor["Background Main Color"];
-                L_860.Size = UDim2.new(1, 0, 1, 0);
-                L_860.Video = GetCustomAsset("seahub.webm");
-                L_860.Looped = true;
-                L_860:Play();
-                wait(0.5);
-                delfile("seahub.webm");
-            end;
-        else
-            L_860 = Instance.new("ImageLabel");
-            L_860.Name = "MainContainer";
-            L_860.Parent = L_833;
-            L_860.BackgroundColor3 = getgenv().UIColor["Background Main Color"];
-            L_860.Size = UDim2.new(1, 0, 1, 0);
-            L_860.Image = Internal.GetIMG(L_861);
-        end;
-        table.insert(ThemeListeners["Background 3 Color"], function()
-            L_860.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-            return ;
-        end);
-        getgenv().ReadyForGuiLoaded = true;
-        L_835.CornerRadius = UDim.new(0, 4);
-        L_835.Name = "MainCorner";
-        L_835.Parent = L_860;
-        L_849.Name = "Concacontainer";
-        L_849.Parent = L_860;
-        L_849.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_849.BackgroundTransparency = 1;
-        L_849.ClipsDescendants = true;
-        L_849.Position = UDim2.new(0, 0, 0, 30);
-        L_849.Size = UDim2.new(1, 0, 1, -30);
-        L_850.Name = "Concacmain";
-        L_850.Parent = L_849;
-        L_850.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_850.BackgroundTransparency = 1;
-        L_850.Selectable = true;
-        L_850.Size = UDim2.new(1, 0, 1, 0);
-        L_851.Name = "Background1";
-        L_851.Parent = L_849;
-        L_851.LayoutOrder = 1;
-        L_851.Selectable = true;
-        L_851.Size = UDim2.new(1, 0, 1, 0);
-        L_851.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-        table.insert(ThemeListeners["Background 1 Transparency"], function()
-            L_851.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-            return ;
-        end);
-        L_851.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-        table.insert(ThemeListeners["Background 1 Color"], function()
-            L_851.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-            return ;
-        end);
-        L_852.Name = "Concacpage";
-        L_852.Parent = L_849;
-        L_852.SortOrder = Enum.SortOrder.LayoutOrder;
-        L_852.EasingDirection = Enum.EasingDirection.InOut;
-        L_852.EasingStyle = Enum.EasingStyle.Quad;
-        L_852.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"];
-        table.insert(ThemeListeners["Tween Animation 1 Speed"], function()
-            L_852.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"];
-            return ;
-        end);
-        L_836.Name = "TopMain";
-        L_836.Parent = L_860;
-        L_836.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_836.BackgroundTransparency = 1;
-        L_836.Size = UDim2.new(1, 0, 0, 25);
-        L_837.Name = "Ruafimg";
-        L_837.Parent = L_836;
-        L_837.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_837.BackgroundTransparency = 1;
-        L_837.Position = UDim2.new(0, 5, 0, 0);
-        L_837.Size = UDim2.new(0, 25, 0, 25);
-        L_837.Image = getgenv().UIColor["Logo Image"];
-        table.insert(ThemeListeners["Logo Image"], function()
-            L_837.Image = getgenv().UIColor["Logo Image"];
-            return ;
-        end);
-        L_838.Name = "TextLabelMain";
-        L_838.Parent = L_836;
-        L_838.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_838.BackgroundTransparency = 1;
-        L_838.Position = UDim2.new(0, 35, 0, 0);
-        L_838.Size = UDim2.new(1, -35, 1, 0);
-        L_838.Font = Enum.Font.GothamBold;
-        L_838.RichText = true;
-        L_838.TextSize = 16;
-        L_838.TextWrapped = true;
-        L_838.TextXAlignment = Enum.TextXAlignment.Left;
-        L_838.TextColor3 = getgenv().UIColor["GUI Text Color"];
-        table.insert(ThemeListeners["GUI Text Color"], function()
-            L_838.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            return ;
-        end);
-        L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-        table.insert(ThemeListeners["Title Text Color"], function()
-            L_838.Text = "<font color=\"rgb(" .. (tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[1]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[2]) .. "," .. tostring(Internal.Getcolor(getgenv().UIColor["Title Text Color"])[3])) .. ")\">" .. (getgenv().HubName or "Peridot") .. "</font> " .. getgenv().MainDesc;
-            return ;
-        end);
-        L_846.Name = "SettionMain";
-        L_846.Parent = L_836;
-        L_846.AnchorPoint = Vector2.new(1, 0);
-        L_846.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_846.BackgroundTransparency = 1;
-        L_846.Position = UDim2.new(1, 0, 0, 0);
-        L_846.Size = UDim2.new(0, 30, 0, 30);
-        L_847.Name = "SettionButton";
-        L_847.Parent = L_846;
-        L_847.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_847.BackgroundTransparency = 1;
-        L_847.BorderColor3 = Color3.fromRGB(27, 42, 53);
-        L_847.Size = UDim2.new(1, 0, 1, 0);
-        L_847.Font = Enum.Font.SourceSans;
-        L_847.Text = "";
-        L_847.TextColor3 = Color3.fromRGB(0, 0, 0);
-        L_847.TextSize = 14;
-        L_847.Visible = true;
-        L_848.Name = "SettingIcon";
-        L_848.Parent = L_846;
-        L_848.AnchorPoint = Vector2.new(0.5, 0.5);
-        L_848.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_848.BackgroundTransparency = 1;
-        L_848.Position = UDim2.new(0.5, 0, 0.5, 0);
-        L_848.Size = UDim2.new(1, -10, 1, -10);
-        L_848.Image = CacheAsset("rbxassetid://7397332215");
-        L_848.Visible = true;
-        L_848.ImageColor3 = getgenv().UIColor["Setting Icon Color"];
-        table.insert(ThemeListeners["Setting Icon Color"], function()
-            L_848.ImageColor3 = getgenv().UIColor["Setting Icon Color"];
-            return ;
-        end);
-        L_839.Name = "Background1";
-        L_839.Parent = L_850;
-        -- LAYOUT FIX: this panel carries a 1.5px UIStroke (ApplyStrokeMode.Border,
-        -- drawn OUTSIDE the frame) and a Glow that overhangs its bounds. Its
-        -- parent chain has ClipsDescendants = true, and at y = 0 there was no
-        -- room above, so the top border and corners were sliced off. The parent
-        -- is 329px tall and this panel is 325px, so nudging it down 2px leaves
-        -- 2px of clearance top and bottom without changing its size.
-        L_839.Position = UDim2.new(0, 5, 0, 2);
-        L_839.Size = UDim2.new(0, 180, 0, 325);
-        L_839.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-        table.insert(ThemeListeners["Background 1 Transparency"], function()
-            L_839.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-            return ;
-        end);
-        L_839.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-        table.insert(ThemeListeners["Background 1 Color"], function()
-            L_839.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-            return ;
-        end);
-        local L_863 = Instance.new("UIStroke");
-        L_863.Color = getgenv().UIColor["Border Color"];
-        L_863.Thickness = 1.5;
-        L_863.Transparency = 0.5;
-        L_863.ApplyStrokeMode = Enum.ApplyStrokeMode.Border;
-        L_863.Parent = L_839;
-        table.insert(ThemeListeners["Border Color"], function()
-            L_863.Color = getgenv().UIColor["Border Color"];
-            return ;
-        end);
-        local L_864 = Instance.new("ImageLabel");
-        L_864.Name = "Glow";
-        L_864.Parent = L_839;
-        L_864.AnchorPoint = Vector2.new(0.5, 0.5);
-        L_864.BackgroundTransparency = 1;
-        L_864.Position = UDim2.new(0.5, 0, 0.5, 0);
-        -- 10px of overhang per edge cannot fit in 2px of clearance; trimmed to
-        -- 2px per edge so the glow renders complete instead of cropped.
-        L_864.Size = UDim2.new(1, 4, 1, 4);
-        L_864.ZIndex = -1;
-        L_864.Image = CacheAsset("rbxassetid://8068653048");
-        L_864.ImageColor3 = getgenv().UIColor["Border Color"];
-        L_864.ImageTransparency = 0.8;
-        L_864.ScaleType = Enum.ScaleType.Slice;
-        L_864.SliceCenter = Rect.new(15, 15, 175, 175);
-        table.insert(ThemeListeners["Border Color"], function()
-            L_864.ImageColor3 = getgenv().UIColor["Border Color"];
-            return ;
-        end);
-        L_840.CornerRadius = UDim.new(0, 4);
-        L_840.Parent = L_839;
-        L_841.Name = "ControlList";
-        L_841.Parent = L_839;
-        L_841.Active = true;
-        L_841.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_841.BackgroundTransparency = 1;
-        L_841.BorderColor3 = Color3.fromRGB(27, 42, 53);
-        L_841.BorderSizePixel = 0;
-        L_841.Position = UDim2.new(0, 0, 0, 30);
-        L_841.Size = UDim2.new(1, -5, 1, -30);
-        L_841.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-        L_841.CanvasSize = UDim2.new(0, 0, 0, 0);
-        L_841.ScrollBarThickness = 5;
-        L_841.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-        L_842.Parent = L_841;
-        L_842.SortOrder = Enum.SortOrder.LayoutOrder;
-        L_842.Padding = UDim.new(0, 5);
-        L_842.SortOrder = Enum.SortOrder.LayoutOrder;
-        L_842.Padding = UDim.new(0, 5);
-        L_843.Name = "GUITextColor";
-        L_843.Parent = L_839;
-        L_843.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_843.BackgroundTransparency = 1;
-        L_843.Position = UDim2.new(0, 5, 0, 0);
-        L_843.Size = UDim2.new(1, 0, 0, 25);
-        L_843.Font = Enum.Font.GothamBold;
-        L_843.Text = L_820;
-        L_843.TextSize = 14;
-        L_843.TextXAlignment = Enum.TextXAlignment.Left;
-        L_843.TextColor3 = getgenv().UIColor["GUI Text Color"];
-        table.insert(ThemeListeners["GUI Text Color"], function()
-            L_843.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            return ;
-        end);
-        L_844.Name = "MainPage";
-        L_844.Parent = L_850;
-        L_844.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-        L_844.BackgroundTransparency = 1;
-        L_844.ClipsDescendants = true;
-        L_844.Position = UDim2.new(0, 190, 0, 0);
-        L_844.Size = UDim2.new(0, 435, 0, 325);
-        L_845.Name = "UIPage";
-        L_845.Parent = L_844;
-        L_845.FillDirection = Enum.FillDirection.Vertical;
-        L_845.SortOrder = Enum.SortOrder.LayoutOrder;
-        L_845.EasingDirection = Enum.EasingDirection.InOut;
-        L_845.EasingStyle = Enum.EasingStyle.Quart;
-        L_845.Padding = UDim.new(0, 10);
-        L_845.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"];
-        L_845.ScrollWheelInputEnabled = false;
-        table.insert(ThemeListeners["Tween Animation 1 Speed"], function()
-            L_845.TweenTime = getgenv().UIColor["Tween Animation 1 Speed"];
-            return ;
-        end);
-        L_842:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            L_841.CanvasSize = UDim2.new(0, 0, 0, L_842.AbsoluteContentSize.Y + 5);
-            return ;
-        end);
-        local L_865 = false;
-        L_847.MouseButton1Click:Connect(function()
-            Internal.ButtonEffect();
-            return ;
-        end);
-        L_847.MouseButton1Click:Connect(function()
-            L_865 = not L_865;
-            local L_866 = L_865 and L_851 or L_850;
-            local L_867 = L_865 and 180 or 0;
-            L_852:JumpTo(L_866);
-            game.TweenService:Create(L_848, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Rotation = L_867 }):Play();
-            return ;
-        end);
-        local L_868 = Instance.new("ScrollingFrame");
-        local L_869 = Instance.new("UIListLayout");
-        L_868.Name = "CustomList";
-        L_868.Parent = L_851;
-        L_868.Active = true;
-        L_868.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_868.BackgroundTransparency = 1;
-        L_868.BorderColor3 = Color3.fromRGB(27, 42, 53);
-        L_868.BorderSizePixel = 0;
-        L_868.Position = UDim2.new(0, 5, 0, 30);
-        L_868.Size = UDim2.new(1, -10, 1, -30);
-        L_868.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-        L_868.ScrollBarThickness = 5;
-        L_868.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-        L_869.Name = "CustomListLayout";
-        L_869.Parent = L_868;
-        L_869.SortOrder = Enum.SortOrder.LayoutOrder;
-        L_869.Padding = UDim.new(0, 5);
-        L_869:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            L_868.CanvasSize = UDim2.new(0, 0, 0, L_869.AbsoluteContentSize.Y + 5);
-            return ;
-        end);
-        local L_870 = Instance.new("TextLabel");
-        L_870.Name = "GUITextColor";
-        L_870.Parent = L_851;
-        L_870.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_870.BackgroundTransparency = 1;
-        L_870.Position = UDim2.new(0, 15, 0, 0);
-        L_870.Size = UDim2.new(1, -15, 0, 25);
-        L_870.Font = Enum.Font.GothamBold;
-        L_870.Text = "";
-        L_870.TextSize = 16;
-        L_870.TextXAlignment = Enum.TextXAlignment.Left;
-        L_870.TextColor3 = getgenv().UIColor["GUI Text Color"];
-        table.insert(ThemeListeners["GUI Text Color"], function()
-            L_870.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            return ;
-        end);
-        local L_871 = Instance.new("Frame");
-        local L_872 = Instance.new("UICorner");
-        local L_873 = Instance.new("Frame");
-        local L_874 = Instance.new("ImageLabel");
-        local L_875 = Instance.new("TextButton");
-        local L_876 = Instance.new("TextBox");
-        L_871.Name = "Background2";
-        L_871.Parent = L_851;
-        L_871.AnchorPoint = Vector2.new(1, 0);
-        L_871.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-        L_871.ClipsDescendants = true;
-        L_871.Position = UDim2.new(1, -5, 0, 5);
-        L_871.Size = UDim2.new(0, 20, 0, 20);
-        L_871.ClipsDescendants = true;
-        table.insert(ThemeListeners["Background 2 Color"], function()
-            L_871.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-            return ;
-        end);
-        L_872.CornerRadius = UDim.new(0, 2);
-        L_872.Name = "PageSearchCorner";
-        L_872.Parent = L_871;
-        L_873.Name = "SearchFrame";
-        L_873.Parent = L_871;
-        L_873.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_873.BackgroundTransparency = 1;
-        L_873.Size = UDim2.new(0, 20, 0, 20);
-        L_874.Name = "SearchIcon";
-        L_874.Parent = L_873;
-        L_874.AnchorPoint = Vector2.new(0.5, 0.5);
-        L_874.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_874.BackgroundTransparency = 1;
-        L_874.Position = UDim2.new(0.5, 0, 0.5, 0);
-        L_874.Size = UDim2.new(0, 16, 0, 16);
-        L_874.Image = CacheAsset("rbxassetid://8154282545");
-        L_874.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-        table.insert(ThemeListeners["Search Icon Color"], function()
-            L_874.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-            return ;
-        end);
-        L_875.Name = "active";
-        L_875.Parent = L_873;
-        L_875.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_875.BackgroundTransparency = 1;
-        L_875.Size = UDim2.new(1, 0, 1, 0);
-        L_875.Font = Enum.Font.SourceSans;
-        L_875.Text = "";
-        L_875.TextColor3 = Color3.fromRGB(0, 0, 0);
-        L_875.TextSize = 14;
-        L_876.Name = "TextColorPlaceholder";
-        L_876.Parent = L_871;
-        L_876.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-        L_876.BackgroundTransparency = 1;
-        L_876.Position = UDim2.new(0, 30, 0, 0);
-        L_876.Size = UDim2.new(1, -30, 1, 0);
-        L_876.Font = Enum.Font.GothamBold;
-        L_876.Text = "";
-        L_876.TextSize = 14;
-        L_876.TextXAlignment = Enum.TextXAlignment.Left;
-        L_876.PlaceholderText = "Search Section name";
-        L_876.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-        L_876.TextColor3 = getgenv().UIColor["Text Color"];
-        table.insert(ThemeListeners["Placeholder Text Color"], function()
-            L_876.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-            return ;
-        end);
-        table.insert(ThemeListeners["Text Color"], function()
-            L_876.TextColor3 = getgenv().UIColor["Text Color"];
-            return ;
-        end);
-        local L_877 = false;
-        L_875.MouseEnter:Connect(function()
-            TweenService:Create(L_874, Internal.EasingInfo(getgenv().UIColor["Tween Animation 3 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"] }):Play();
-            return ;
-        end);
-        L_875.MouseLeave:Connect(function()
-            TweenService:Create(L_874, Internal.EasingInfo(getgenv().UIColor["Tween Animation 3 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Color"] }):Play();
-            return ;
-        end);
-        L_875.MouseButton1Click:Connect(function()
-            Internal.ButtonEffect();
-            return ;
-        end);
-        L_876.Focused:Connect(function()
-            Internal.ButtonEffect();
-            return ;
-        end);
-        L_875.MouseButton1Click:Connect(function()
-            L_877 = not L_877;
-            local L_878 = L_877 and UDim2.new(0, 175, 0, 20) or UDim2.new(0, 20, 0, 20);
-            game.TweenService:Create(L_871, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = L_878 }):Play();
-            return ;
-        end);
-        local L_881 = function()
-            for L_879, L_880 in next, L_868:GetChildren() do
-                if not L_880:IsA("UIListLayout") then
-                    L_880.Visible = false;
-                end;
-            end;
-            return ;
-        end;
-        local L_884 = function()
-            for L_882, L_883 in pairs(L_868:GetChildren()) do
-                if not L_883:IsA("UIListLayout") and string.find(string.lower(L_883.Name), string.lower(L_876.Text)) then
-                    L_883.Visible = true;
-                end;
-            end;
-            return ;
-        end;
-        L_876:GetPropertyChangedSignal("Text"):Connect(function()
-            L_881();
-            L_884();
-            return ;
-        end);
-        SeaUI.CreateCustomColor = function(L_885)
-            L_870.Text = L_885 or "Custom GUI";
-            return {
-                CreateSection = function(L_886)
-                    local L_887 = Instance.new("Frame");
-                    local L_888 = Instance.new("UICorner");
-                    local L_889 = Instance.new("Frame");
-                    local L_890 = Instance.new("TextLabel");
-                    local L_891 = Instance.new("Frame");
-                    local L_892 = Instance.new("UIGradient");
-                    local L_893 = Instance.new("UIListLayout");
-                    if L_886 then
-                    end;
-                    L_887.Name = L_886 .. "Section";
-                    L_887.Parent = L_868;
-                    L_887.Size = UDim2.new(1, 0, 0, 285);
-                    L_887.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-                    table.insert(ThemeListeners["Background 3 Color"], function()
-                        L_887.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-                        return ;
-                    end);
-                    L_887.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                    table.insert(ThemeListeners["Background 1 Transparency"], function()
-                        L_887.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                        return ;
-                    end);
-                    L_888.CornerRadius = UDim.new(0, 4);
-                    L_888.Parent = L_887;
-                    L_889.Name = "Topsec";
-                    L_889.Parent = L_887;
-                    L_889.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                    L_889.BackgroundTransparency = 1;
-                    L_889.Size = UDim2.new(1, 0, 0, 27);
-                    L_890.Name = "Sectiontitle";
-                    L_890.Parent = L_889;
-                    L_890.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                    L_890.BackgroundTransparency = 1;
-                    L_890.Size = UDim2.new(1, 0, 1, 0);
-                    L_890.Font = Enum.Font.GothamBold;
-                    L_890.Text = L_886;
-                    L_890.TextSize = 14;
-                    L_890.TextColor3 = getgenv().UIColor["Section Text Color"];
-                    table.insert(ThemeListeners["Section Text Color"], function()
-                        L_890.TextColor3 = getgenv().UIColor["Section Text Color"];
-                        return ;
-                    end);
-                    L_891.Name = "Linesec";
-                    L_891.Parent = L_889;
-                    L_891.AnchorPoint = Vector2.new(0.5, 1);
-                    L_891.BorderSizePixel = 0;
-                    L_891.Position = UDim2.new(0.5, 0, 1, -2);
-                    L_891.Size = UDim2.new(1, -10, 0, 2);
-                    L_891.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                    table.insert(ThemeListeners["Section Underline Color"], function()
-                        L_891.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                        return ;
-                    end);
-                    L_892.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(0.51, 0.02), NumberSequenceKeypoint.new(1, 1) });
-                    L_892.Parent = L_891;
-                    L_893.Name = "SectionList";
-                    L_893.Parent = L_887;
-                    L_893.SortOrder = Enum.SortOrder.LayoutOrder;
-                    L_893.Padding = UDim.new(0, 5);
-                    L_893:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                        L_887.Size = UDim2.new(1, 0, 0, L_893.AbsoluteContentSize.Y + 5);
-                        return ;
-                    end);
-                    return {
-                        CreateColorPicker = function(L_894)
-                            local L_900 = setmetatable({}, {
-                                __index = function(L_895, L_896)
-                                    if L_896 == "Cungroi" then
-                                        return L_642[L_894.Type].Rainbow;
-                                    end;
-                                    return ;
-                                end,
-                                __newindex = function(L_897, L_898, L_899)
-                                    if L_898 == "Cungroi" then
-                                        L_642[L_894.Type].Rainbow = L_899;
-                                    end;
-                                    return ;
-                                end
-                            });
-                            local L_901 = L_894.Title or "Color Picker";
-                            if not L_642[L_894.Type].Color then
-                                local L_902 = Color3.fromRGB(255, 255, 255);
-                            end;
-                            local L_903 = L_894.Type;
-                            local L_904 = Instance.new("Frame");
-                            local L_905 = Instance.new("UICorner");
-                            local L_906 = Instance.new("Frame");
-                            local L_907 = Instance.new("UICorner");
-                            local L_908 = Instance.new("TextLabel");
-                            local L_909 = Instance.new("Frame");
-                            local L_910 = Instance.new("UICorner");
-                            local L_911 = Instance.new("TextButton");
-                            local L_912 = Instance.new("Frame");
-                            local L_913 = Instance.new("UIGradient");
-                            local L_914 = Instance.new("Frame");
-                            local L_915 = Instance.new("UICorner");
-                            local L_916 = Instance.new("Frame");
-                            local L_917 = Instance.new("Frame");
-                            local L_918 = Instance.new("TextLabel");
-                            local L_919 = Instance.new("TextBox");
-                            local L_920 = Instance.new("Frame");
-                            local L_921 = Instance.new("TextLabel");
-                            local L_922 = Instance.new("TextBox");
-                            local L_923 = Instance.new("Frame");
-                            local L_924 = Instance.new("TextLabel");
-                            local L_925 = Instance.new("TextBox");
-                            local L_926 = Instance.new("UIListLayout");
-                            local L_927 = Instance.new("Frame");
-                            local L_928 = Instance.new("TextLabel");
-                            local L_929 = Instance.new("TextBox");
-                            local L_930 = Instance.new("Frame");
-                            local L_931 = Instance.new("UIGradient");
-                            local L_932 = Instance.new("Frame");
-                            local L_933 = Instance.new("Frame");
-                            local L_934 = Instance.new("TextLabel");
-                            local L_935 = Instance.new("ImageLabel");
-                            local L_936 = Instance.new("ImageLabel");
-                            local L_937 = Instance.new("TextButton");
-                            local L_938 = Instance.new("ImageLabel");
-                            local L_939 = Instance.new("Frame");
-                            local L_940 = Instance.new("UICorner");
-                            local L_941 = Instance.new("Frame");
-                            local L_942 = Instance.new("Frame");
-                            local L_943 = Instance.new("TextLabel");
-                            local L_944 = Instance.new("ImageLabel");
-                            local L_945 = Instance.new("ImageLabel");
-                            local L_946 = Instance.new("TextButton");
-                            local L_947 = Instance.new("Frame");
-                            local L_948 = Instance.new("UIListLayout");
-                            local L_949 = Instance.new("Frame");
-                            local L_950 = Instance.new("UICorner");
-                            local L_951 = Instance.new("TextButton");
-                            local L_952 = Instance.new("Frame");
-                            local L_953 = Instance.new("UICorner");
-                            local L_954 = Instance.new("TextButton");
-                            L_904.Name = "ColorPick";
-                            L_904.Parent = L_887;
-                            L_904.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_904.BackgroundTransparency = 1;
-                            L_904.ClipsDescendants = true;
-                            L_904.Position = UDim2.new(0, 0, 0.112280704, 0);
-                            L_904.Size = UDim2.new(1, 0, 0, 35);
-                            L_905.CornerRadius = UDim.new(0, 4);
-                            L_905.Name = "ColorPickCorner";
-                            L_905.Parent = L_904;
-                            L_906.Name = "Background1";
-                            L_906.Parent = L_904;
-                            L_906.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_906.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            L_906.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_906.Size = UDim2.new(1, -10, 1, 0);
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_906.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_906.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_906.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_907.CornerRadius = UDim.new(0, 4);
-                            L_907.Name = "ColorpickBGCorner";
-                            L_907.Parent = L_906;
-                            L_908.Name = "TextColor";
-                            L_908.Parent = L_906;
-                            L_908.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_908.BackgroundTransparency = 1;
-                            L_908.Position = UDim2.new(0, 10, 0, 0);
-                            L_908.Size = UDim2.new(1, -10, 0, 35);
-                            L_908.Font = Enum.Font.GothamBlack;
-                            L_908.Text = L_901;
-                            L_908.TextSize = 14;
-                            L_908.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_908.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_908.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_909.Name = "ColorVal";
-                            L_909.Parent = L_904;
-                            L_909.AnchorPoint = Vector2.new(1, 0);
-                            L_909.BackgroundColor3 = L_642[L_903].Color;
-                            L_909.Position = UDim2.new(1, -10, 0, 5);
-                            L_909.Size = UDim2.new(0, 150, 0, 25);
-                            L_910.CornerRadius = UDim.new(0, 4);
-                            L_910.Name = "ColorValCorner";
-                            L_910.Parent = L_909;
-                            L_911.Name = "ColorValButton";
-                            L_911.Parent = L_909;
-                            L_911.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_911.BackgroundTransparency = 1;
-                            L_911.Size = UDim2.new(1, 0, 1, 0);
-                            L_911.Font = Enum.Font.SourceSans;
-                            L_911.Text = "";
-                            L_911.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_911.TextSize = 14;
-                            L_912.Name = "Hue";
-                            L_912.Parent = L_904;
-                            L_912.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_912.BorderSizePixel = 0;
-                            L_912.Position = UDim2.new(0, 460, 0, 40);
-                            L_912.Size = UDim2.new(0, 25, 0, 200);
-                            L_913.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 4)), ColorSequenceKeypoint.new(0.17, Color3.fromRGB(235, 7, 255)), ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 9, 189)), ColorSequenceKeypoint.new(0.49, Color3.fromRGB(0, 193, 196)), ColorSequenceKeypoint.new(0.66, Color3.fromRGB(0, 255, 0)), ColorSequenceKeypoint.new(0.84, Color3.fromRGB(255, 247, 0)), ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)) });
-                            L_913.Rotation = 90;
-                            L_913.Name = "HueGra";
-                            L_913.Parent = L_912;
-                            L_914.Parent = L_912;
-                            L_914.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_914.Position = UDim2.new(0, 0, 1, 0);
-                            L_914.Size = UDim2.new(1, 0, 0, 2);
-                            L_915.CornerRadius = UDim.new(0, 4);
-                            L_915.Parent = L_912;
-                            L_916.Name = "Concac";
-                            L_916.Parent = L_904;
-                            L_916.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_916.BackgroundTransparency = 1;
-                            L_916.Position = UDim2.new(0, 495, 0, 40);
-                            L_916.Size = UDim2.new(0, 115, 0, 100);
-                            L_917.Name = "RFrame";
-                            L_917.Parent = L_916;
-                            L_917.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_917.BackgroundTransparency = 1;
-                            L_917.Size = UDim2.new(1, 0, 0, 25);
-                            L_917.LayoutOrder = 0;
-                            L_918.Name = "RText";
-                            L_918.Parent = L_917;
-                            L_918.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_918.BackgroundTransparency = 1;
-                            L_918.Size = UDim2.new(0, 25, 0, 25);
-                            L_918.Font = Enum.Font.GothamBold;
-                            L_918.Text = "R:";
-                            L_918.TextColor3 = Color3.fromRGB(115, 115, 115);
-                            L_918.TextSize = 14;
-                            L_918.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_919.Name = "RBox";
-                            L_919.Parent = L_917;
-                            L_919.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_919.BackgroundTransparency = 1;
-                            L_919.Position = UDim2.new(0, 25, 0, 0);
-                            L_919.Size = UDim2.new(1, -25, 1, 0);
-                            L_919.ClearTextOnFocus = false;
-                            L_919.Font = Enum.Font.GothamBold;
-                            L_919.Text = "255";
-                            L_919.TextColor3 = Color3.fromRGB(255, 255, 255);
-                            L_919.TextSize = 14;
-                            L_919.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_920.Name = "GFrame";
-                            L_920.Parent = L_916;
-                            L_920.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_920.BackgroundTransparency = 1;
-                            L_920.Size = UDim2.new(1, 0, 0, 25);
-                            L_920.LayoutOrder = 1;
-                            L_921.Name = "GText";
-                            L_921.Parent = L_920;
-                            L_921.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_921.BackgroundTransparency = 1;
-                            L_921.Size = UDim2.new(0, 25, 0, 25);
-                            L_921.Font = Enum.Font.GothamBold;
-                            L_921.Text = "G:";
-                            L_921.TextColor3 = Color3.fromRGB(115, 115, 115);
-                            L_921.TextSize = 14;
-                            L_921.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_922.Name = "GBox";
-                            L_922.Parent = L_920;
-                            L_922.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_922.BackgroundTransparency = 1;
-                            L_922.Position = UDim2.new(0, 25, 0, 0);
-                            L_922.Size = UDim2.new(1, -25, 1, 0);
-                            L_922.ClearTextOnFocus = false;
-                            L_922.Font = Enum.Font.GothamBold;
-                            L_922.Text = "255";
-                            L_922.TextColor3 = Color3.fromRGB(255, 255, 255);
-                            L_922.TextSize = 14;
-                            L_922.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_923.Name = "BFrame";
-                            L_923.Parent = L_916;
-                            L_923.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_923.BackgroundTransparency = 1;
-                            L_923.Size = UDim2.new(1, 0, 0, 25);
-                            L_923.LayoutOrder = 2;
-                            L_924.Name = "BText";
-                            L_924.Parent = L_923;
-                            L_924.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_924.BackgroundTransparency = 1;
-                            L_924.Size = UDim2.new(0, 25, 0, 25);
-                            L_924.Font = Enum.Font.GothamBold;
-                            L_924.Text = "B:";
-                            L_924.TextColor3 = Color3.fromRGB(115, 115, 115);
-                            L_924.TextSize = 14;
-                            L_924.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_925.Name = "BBox";
-                            L_925.Parent = L_923;
-                            L_925.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_925.BackgroundTransparency = 1;
-                            L_925.Position = UDim2.new(0, 25, 0, 0);
-                            L_925.Size = UDim2.new(1, -25, 1, 0);
-                            L_925.ClearTextOnFocus = false;
-                            L_925.Font = Enum.Font.GothamBold;
-                            L_925.Text = "255";
-                            L_925.TextColor3 = Color3.fromRGB(255, 255, 255);
-                            L_925.TextSize = 14;
-                            L_925.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_926.Parent = L_916;
-                            L_926.SortOrder = Enum.SortOrder.LayoutOrder;
-                            L_927.Name = "HexFrame";
-                            L_927.Parent = L_916;
-                            L_927.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_927.BackgroundTransparency = 1;
-                            L_927.Size = UDim2.new(1, 0, 0, 25);
-                            L_927.LayoutOrder = 3;
-                            L_928.Name = "HexText";
-                            L_928.Parent = L_927;
-                            L_928.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_928.BackgroundTransparency = 1;
-                            L_928.Size = UDim2.new(0, 25, 0, 25);
-                            L_928.Font = Enum.Font.GothamBold;
-                            L_928.Text = "#";
-                            L_928.TextColor3 = Color3.fromRGB(115, 115, 115);
-                            L_928.TextSize = 14;
-                            L_928.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_929.Name = "HexBox";
-                            L_929.Parent = L_927;
-                            L_929.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_929.BackgroundTransparency = 1;
-                            L_929.Position = UDim2.new(0, 25, 0, 0);
-                            L_929.Size = UDim2.new(1, -25, 1, 0);
-                            L_929.ClearTextOnFocus = false;
-                            L_929.Font = Enum.Font.GothamBold;
-                            L_929.Text = "FFFFFF";
-                            L_929.TextColor3 = Color3.fromRGB(255, 255, 255);
-                            L_929.TextSize = 14;
-                            L_929.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_930.Name = "Linesec";
-                            L_930.Parent = L_916;
-                            L_930.AnchorPoint = Vector2.new(0.5, 1);
-                            L_930.BorderSizePixel = 0;
-                            L_930.Position = UDim2.new(0.5, 0, 1, -2);
-                            L_930.Size = UDim2.new(1, -10, 0, 2);
-                            L_930.LayoutOrder = 4;
-                            L_930.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                            table.insert(ThemeListeners["Section Underline Color"], function()
-                                L_930.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                                return ;
-                            end);
-                            L_931.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.25), NumberSequenceKeypoint.new(0.7, 0.25), NumberSequenceKeypoint.new(1, 1) });
-                            L_931.Parent = L_930;
-                            L_932.Name = "CungroiF";
-                            L_932.Parent = L_904;
-                            L_932.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_932.BackgroundTransparency = 1;
-                            L_932.Position = UDim2.new(0, 495, 0, 145);
-                            L_932.Size = UDim2.new(0, 115, 0, 25);
-                            L_933.Name = "CungroiFF";
-                            L_933.Parent = L_932;
-                            L_933.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_933.BackgroundTransparency = 1;
-                            L_933.Size = UDim2.new(1, 0, 0, 25);
-                            L_933.LayoutOrder = 4;
-                            L_934.Name = "TextColor";
-                            L_934.Parent = L_933;
-                            L_934.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_934.BackgroundTransparency = 1;
-                            L_934.Size = UDim2.new(0, 85, 0, 25);
-                            L_934.Font = Enum.Font.GothamBold;
-                            L_934.Text = "Rainbow";
-                            L_934.TextSize = 14;
-                            L_934.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_934.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_934.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_935.Name = "Setting_checkbox";
-                            L_935.Parent = L_933;
-                            L_935.AnchorPoint = Vector2.new(1, 0.5);
-                            L_935.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_935.BackgroundTransparency = 1;
-                            L_935.Position = UDim2.new(1, -5, 0.5, 0);
-                            L_935.Size = UDim2.new(0, 25, 0, 25);
-                            L_935.Image = CacheAsset("rbxassetid://4552505888");
-                            L_935.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                            table.insert(ThemeListeners["Toggle Border Color"], function()
-                                L_935.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                                return ;
-                            end);
-                            L_936.Name = "Setting_check";
-                            L_936.Parent = L_935;
-                            L_936.AnchorPoint = Vector2.new(0, 1);
-                            L_936.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_936.BackgroundTransparency = 1;
-                            L_936.Position = UDim2.new(0, 0, 1, 0);
-                            L_936.Image = CacheAsset("rbxassetid://4555411759");
-                            L_936.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                            table.insert(ThemeListeners["Toggle Checked Color"], function()
-                                L_936.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                                return ;
-                            end);
-                            L_937.Name = "Cungroitog";
-                            L_937.Parent = L_933;
-                            L_937.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_937.BackgroundTransparency = 1;
-                            L_937.Size = UDim2.new(1, 0, 1, 0);
-                            L_937.Font = Enum.Font.SourceSans;
-                            L_937.Text = "";
-                            L_937.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_937.TextSize = 14;
-                            L_938.Name = "Color";
-                            L_938.Parent = L_904;
-                            L_938.BackgroundColor3 = Color3.fromRGB(255, 0, 0);
-                            L_938.BorderSizePixel = 0;
-                            L_938.Position = UDim2.new(0, 10, 0, 40);
-                            L_938.Size = UDim2.new(0, 440, 0, 200);
-                            L_938.Image = CacheAsset("rbxassetid://4155801252");
-                            L_939.Name = "SelectorColor";
-                            L_939.Parent = L_938;
-                            L_939.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_939.BackgroundColor3 = Color3.fromRGB(203, 203, 203);
-                            L_939.BorderColor3 = Color3.fromRGB(70, 70, 70);
-                            L_939.Position = UDim2.new(1, 0, 0, 0);
-                            L_939.Size = UDim2.new(0, 4, 0, 4);
-                            L_940.CornerRadius = UDim.new(0, 4);
-                            L_940.Parent = L_938;
-                            L_941.Name = "HoithoF";
-                            L_941.Parent = L_904;
-                            L_941.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_941.BackgroundTransparency = 1;
-                            L_941.Position = UDim2.new(0, 495, 0, 175);
-                            L_941.Size = UDim2.new(0, 115, 0, 25);
-                            L_941.LayoutOrder = 5;
-                            L_942.Name = "HoithoF";
-                            L_942.Parent = L_941;
-                            L_942.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_942.BackgroundTransparency = 1;
-                            L_942.Size = UDim2.new(1, 0, 1, 25);
-                            L_943.Name = "TextColor";
-                            L_943.Parent = L_942;
-                            L_943.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_943.BackgroundTransparency = 1;
-                            L_943.Size = UDim2.new(0, 85, 0, 25);
-                            L_943.Font = Enum.Font.GothamBold;
-                            L_943.Text = "Breathing";
-                            L_943.TextSize = 14;
-                            L_943.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_943.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_943.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_944.Name = "setting_checkbox";
-                            L_944.Parent = L_942;
-                            L_944.AnchorPoint = Vector2.new(1, 0);
-                            L_944.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_944.BackgroundTransparency = 1;
-                            L_944.Position = UDim2.new(1, -5, 0, 0);
-                            L_944.Size = UDim2.new(0, 25, 0, 25);
-                            L_944.Image = CacheAsset("rbxassetid://4552505888");
-                            L_944.ImageColor3 = Color3.fromRGB(156, 190, 84);
-                            L_944.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                            table.insert(ThemeListeners["Toggle Border Color"], function()
-                                L_944.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                                return ;
-                            end);
-                            L_945.Name = "setting_check";
-                            L_945.Parent = L_944;
-                            L_945.AnchorPoint = Vector2.new(0, 1);
-                            L_945.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_945.BackgroundTransparency = 1;
-                            L_945.Position = UDim2.new(0, 0, 1, 0);
-                            L_945.Image = CacheAsset("rbxassetid://4555411759");
-                            L_945.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                            table.insert(ThemeListeners["Toggle Checked Color"], function()
-                                L_945.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                                return ;
-                            end);
-                            L_946.Name = "Hoithoitog";
-                            L_946.Parent = L_942;
-                            L_946.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_946.BackgroundTransparency = 1;
-                            L_946.Size = UDim2.new(1, 0, 0, 25);
-                            L_946.Font = Enum.Font.SourceSans;
-                            L_946.Text = "";
-                            L_946.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_946.TextSize = 14;
-                            L_947.Parent = L_942;
-                            L_947.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_947.BackgroundTransparency = 1;
-                            L_947.Position = UDim2.new(0, 0, 0, 30);
-                            L_947.Size = UDim2.new(1, 0, 0, 25);
-                            L_948.Parent = L_947;
-                            L_948.FillDirection = Enum.FillDirection.Horizontal;
-                            L_948.SortOrder = Enum.SortOrder.LayoutOrder;
-                            L_948.Padding = UDim.new(0, 5);
-                            L_949.Name = "Cor1";
-                            L_949.Parent = L_947;
-                            L_949.BackgroundColor3 = L_642[L_903].Breathing.Color1;
-                            L_949.Selectable = true;
-                            L_949.Size = UDim2.new(0, 25, 0, 25);
-                            L_950.CornerRadius = UDim.new(1, 0);
-                            L_950.Parent = L_949;
-                            L_951.Name = "BCor1";
-                            L_951.Parent = L_949;
-                            L_951.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_951.BackgroundTransparency = 1;
-                            L_951.Size = UDim2.new(1, 0, 1, 0);
-                            L_951.Font = Enum.Font.SourceSans;
-                            L_951.Text = "";
-                            L_951.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_951.TextSize = 14;
-                            L_952.Name = "Cor2";
-                            L_952.Parent = L_947;
-                            L_952.BackgroundColor3 = L_642[L_903].Breathing.Color2;
-                            L_952.Selectable = true;
-                            L_952.Size = UDim2.new(0, 25, 0, 25);
-                            L_953.CornerRadius = UDim.new(1, 0);
-                            L_953.Parent = L_952;
-                            L_954.Name = "BCor2";
-                            L_954.Parent = L_952;
-                            L_954.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_954.BackgroundTransparency = 1;
-                            L_954.Size = UDim2.new(1, 0, 1, 0);
-                            L_954.Font = Enum.Font.SourceSans;
-                            L_954.Text = "";
-                            L_954.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_954.TextSize = 14;
-                            local L_955 = false;
-                            L_911.MouseButton1Click:Connect(function()
-                                L_955 = not L_955;
-                                local L_956 = L_955 and UDim2.new(1, 0, 0, 255) or UDim2.new(1, 0, 0, 35);
-                                TweenService:Create(L_904, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Size = L_956 }):Play();
-                                return ;
-                            end);
-                            L_911.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            local L_957 = cloneref(game:GetService("UserInputService"));
-                            local L_958 = cloneref(game:GetService("RunService"));
-                            local L_959 = cloneref(game:GetService("Players")).LocalPlayer:GetMouse();
-                            local L_960 = nil;
-                            local L_961 = nil;
-                            local L_962 = true;
-                            local L_963 = 0;
-                            local L_964 = function(...)
-                                if L_962 then
-                                    return wait(...);
-                                end;
-                                wait();
-                                return false;
-                            end;
-                            local L_966 = function(L_965)
-                                return { math.floor(L_965.r * 255), math.floor(L_965.g * 255), math.floor(L_965.b * 255) };
-                            end;
-                            local L_969 = function(L_967)
-                                local L_968 = L_967:gsub("#", ""):upper():gsub("0X", "");
-                                return Color3.fromRGB(tonumber(L_968:sub(1, 2), 16), tonumber(L_968:sub(3, 4), 16), tonumber(L_968:sub(5, 6), 16));
-                            end;
-                            local L_974 = function(L_970)
-                                local L_971 = string.format("%X", math.floor(L_970.R * 255));
-                                local L_972 = string.format("%X", math.floor(L_970.G * 255));
-                                local L_973 = string.format("%X", math.floor(L_970.B * 255));
-                                if #L_971 < 2 then
-                                    L_971 = "0" .. L_971;
-                                end;
-                                if #L_972 < 2 then
-                                    L_972 = "0" .. L_972;
-                                end;
-                                if #L_973 < 2 then
-                                    L_973 = "0" .. L_973;
-                                end;
-                                return string.format("%s%s%s", L_971, L_972, L_973);
-                            end;
-                            local L_975 = 1;
-                            local L_976 = 1;
-                            local L_977 = 1;
-                            local L_980 = function(L_978, L_979)
-                                if L_979 < L_978 then
-                                    return L_978, L_979;
-                                end;
-                                return L_979, L_978;
-                            end;
-                            local L_988 = function(L_981, L_982)
-                                if L_981 + L_982 > 255 then
-                                    local L_983, L_984 = L_980(L_981, L_982);
-                                    local L_985 = 255 - L_983;
-                                    local L_986, L_987 = L_980(L_985, L_984);
-                                    return L_986 - L_987;
-                                end;
-                                return L_981 + L_982;
-                            end;
-                            CongColor = function(L_989, L_990)
-                                local L_991 = math.sqrt;
-                                local L_992 = { R = 255 - L_991(((255 - L_989.R) ^ 2 + (255 - L_990.R) ^ 2) / 2), G = 255 - L_991(((255 - L_989.G) ^ 2 + (255 - L_990.G) ^ 2) / 2), B = 255 - L_991(((255 - L_989.B) ^ 2 + (255 - L_990.B) ^ 2) / 2) };
-                                return Color3.new(L_992.R, L_992.G, L_992.B);
-                            end;
-                            local L_1005 = function(L_993)
-                                local L_994 = L_993 or Color3.fromHSV(L_975, L_976, L_977);
-                                if L_993 then
-                                    local L_995, L_996, L_997 = Color3.toHSV(L_993);
-                                    L_975 = L_995;
-                                    L_976 = L_996;
-                                    L_977 = L_997;
-                                end;
-                                L_929.Text = L_974(L_994);
-                                L_938.BackgroundColor3 = Color3.fromHSV(L_975, 1, 1);
-                                local L_998, L_999, L_1000 = Color3.toHSV(L_994);
-                                L_939.Position = UDim2.fromScale(L_999, 1 - L_1000);
-                                local L_1001 = 1 - select(1, Color3.toHSV(L_994));
-                                if math.abs(L_914.Position.Y.Scale - L_1001) > 0.0001 then
-                                    L_914.Position = UDim2.fromScale(0, L_1001);
-                                end;
-                                local L_1002, L_1003, L_1004 = table.unpack(L_966(L_994));
-                                L_919.Text = L_1002;
-                                L_922.Text = L_1003;
-                                L_925.Text = L_1004;
-                                L_909.BackgroundColor3 = L_994;
-                                getgenv().UIColor[L_903] = L_994;
-                                return ;
-                            end;
-                            L_1005(L_642[L_903].Color);
-                            local L_1008 = function(L_1006)
-                                if L_960 then
-                                    L_960 = L_960:Disconnect() and nil or nil;
-                                end;
-                                if L_961 then
-                                    L_961 = L_961:Disconnect() and nil or nil;
-                                end;
-                                if L_1006 then
-                                    pcall(function()
-                                        local L_1007 = 0.00392156862745098;
-                                        while L_964() and L_900.Cungroi do
-                                            L_963 = L_1007 + L_963;
-                                            if L_963 > 1 then
-                                                L_963 = 0;
-                                            end;
-                                            L_975 = L_963;
-                                            L_1005(Color3.fromHSV(L_963, 1, 1));
-                                        end;
-                                        return ;
-                                    end);
-                                end;
-                                return ;
-                            end;
-                            local L_1009 = L_900.Cungroi and UDim2.new(1, -4, 1, -4) or UDim2.new(0, 0, 0, 0);
-                            local L_1010 = L_900.Cungroi and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 0, 1, 0);
-                            local L_1011 = L_900.Cungroi and Vector2.new(0.5, 0.5) or Vector2.new(0, 1);
-                            L_936.Size = L_1009;
-                            L_936.Position = L_1010;
-                            L_936.AnchorPoint = L_1011;
-                            spawn(function()
-                                L_1008(L_900.Cungroi);
-                                return ;
-                            end);
-                            L_937.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_937.MouseButton1Click:Connect(function()
-                                L_900.Cungroi = not L_900.Cungroi;
-                                L_1009 = L_900.Cungroi and UDim2.new(1, -4, 1, -4) or UDim2.new(0, 0, 0, 0);
-                                L_1010 = L_900.Cungroi and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 0, 1, 0);
-                                L_1011 = L_900.Cungroi and Vector2.new(0.5, 0.5) or Vector2.new(0, 1);
-                                game.TweenService:Create(L_936, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Size = L_1009, Position = L_1010, AnchorPoint = L_1011 }):Play();
-                                L_1008(L_900.Cungroi);
-                                return ;
-                            end);
-                            L_929.FocusLost:Connect(function()
-                                if #L_929.Text > 5 then
-                                    local L_1012, L_1013 = pcall(L_969, L_929.Text);
-                                    L_1005(L_1012 and L_1013);
-                                end;
-                                return ;
-                            end);
-                            L_919.FocusLost:Connect(function()
-                                if tonumber(L_919.Text) > 255 then
-                                    L_919.Text = 255;
-                                elseif tonumber(L_919.Text) < 0 then
-                                    L_919.Text = 0;
-                                end;
-                                local L_1014, L_1015 = pcall(Color3.fromRGB, tonumber(L_919.Text), tonumber(L_925.Text), tonumber(L_922.Text));
-                                L_1005(L_1014 and L_1015);
-                                return ;
-                            end);
-                            L_922.FocusLost:Connect(function()
-                                if tonumber(L_922.Text) > 255 then
-                                    L_922.Text = 255;
-                                elseif tonumber(L_922.Text) < 0 then
-                                    L_922.Text = 0;
-                                end;
-                                local L_1016, L_1017 = pcall(Color3.fromRGB, tonumber(L_919.Text), tonumber(L_925.Text), tonumber(L_922.Text));
-                                L_1005(L_1016 and L_1017);
-                                return ;
-                            end);
-                            L_925.FocusLost:Connect(function()
-                                if tonumber(L_925.Text) > 255 then
-                                    L_925.Text = 255;
-                                elseif tonumber(L_925.Text) < 0 then
-                                    L_925.Text = 0;
-                                end;
-                                local L_1018, L_1019 = pcall(Color3.fromRGB, tonumber(L_919.Text), tonumber(L_925.Text), tonumber(L_922.Text));
-                                L_1005(L_1018 and L_1019);
-                                return ;
-                            end);
-                            L_975 = 1 - math.clamp(L_912.Frame.AbsolutePosition.Y - L_912.AbsolutePosition.Y, 0, L_912.AbsoluteSize.Y) / L_912.AbsoluteSize.Y;
-                            L_976 = math.clamp(L_938.SelectorColor.AbsolutePosition.X - L_938.AbsolutePosition.X, 0, L_938.AbsoluteSize.X) / L_938.AbsoluteSize.X;
-                            L_977 = 1 - math.clamp(L_938.SelectorColor.AbsolutePosition.Y - L_938.AbsolutePosition.Y, 0, L_938.AbsoluteSize.Y) / L_938.AbsoluteSize.Y;
-                            L_938.InputBegan:Connect(function(L_1020)
-                                if L_1020.UserInputType == Enum.UserInputType.MouseButton1 then
-                                    if L_960 then
-                                        L_960:Disconnect();
-                                    end;
-                                    L_821 = true;
-                                    L_960 = L_958.RenderStepped:Connect(function()
-                                        local L_1021 = math.clamp(L_959.X - L_938.AbsolutePosition.X, 0, L_938.AbsoluteSize.X) / L_938.AbsoluteSize.X;
-                                        local L_1022 = math.clamp(L_959.Y - L_938.AbsolutePosition.Y, 0, L_938.AbsoluteSize.Y) / L_938.AbsoluteSize.Y;
-                                        L_939.Position = UDim2.fromScale(L_1021, L_1022);
-                                        L_976 = L_1021;
-                                        L_977 = 1 - L_1022;
-                                        L_1005();
-                                        return ;
-                                    end);
-                                end;
-                                return ;
-                            end);
-                            L_938.InputEnded:Connect(function(L_1023)
-                                if L_1023.UserInputType == Enum.UserInputType.MouseButton1 and L_960 then
-                                    L_821 = false;
-                                    L_960:Disconnect();
-                                end;
-                                return ;
-                            end);
-                            L_912.InputBegan:Connect(function(L_1024)
-                                if L_1024.UserInputType == Enum.UserInputType.MouseButton1 then
-                                    if L_961 then
-                                        L_961:Disconnect();
-                                    end;
-                                    L_821 = true;
-                                    L_961 = L_958.RenderStepped:Connect(function()
-                                        local L_1025 = math.clamp(L_959.Y - L_912.AbsolutePosition.Y, 0, L_912.AbsoluteSize.Y) / L_912.AbsoluteSize.Y;
-                                        L_912.Frame.Position = UDim2.fromScale(0, L_1025);
-                                        L_975 = 1 - L_1025;
-                                        L_1005();
-                                        return ;
-                                    end);
-                                end;
-                                return ;
-                            end);
-                            L_912.InputEnded:Connect(function(L_1026)
-                                if L_1026.UserInputType == Enum.UserInputType.MouseButton1 and L_961 then
-                                    L_821 = false;
-                                    L_961:Disconnect();
-                                end;
-                                return ;
-                            end);
-                            L_951.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_954.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_951.MouseButton1Click:Connect(function()
-                                L_949.BackgroundColor3 = L_909.BackgroundColor3;
-                                L_642[L_903].Breathing.Color1 = L_909.BackgroundColor3;
-                                return ;
-                            end);
-                            L_954.MouseButton1Click:Connect(function()
-                                L_952.BackgroundColor3 = L_909.BackgroundColor3;
-                                L_642[L_903].Breathing.Color2 = L_909.BackgroundColor3;
-                                return ;
-                            end);
-                            L_946.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            spawn(function()
-                                while wait() do
-                                    if L_642[L_903].Breathing.Toggle then
-                                        L_1005(L_909.BackgroundColor3);
-                                    end;
-                                end;
-                                return ;
-                            end);
-                            local L_1036 = function()
-                                local L_1027 = L_952.BackgroundColor3;
-                                local L_1028 = L_949.BackgroundColor3;
-                                local L_1029 = L_642[L_903].Breathing.Toggle and UDim2.new(1, -4, 1, -4) or UDim2.new(0, 0, 0, 0);
-                                local L_1030 = L_642[L_903].Breathing.Toggle and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 0, 1, 0);
-                                local L_1031 = L_642[L_903].Breathing.Toggle and Vector2.new(0.5, 0.5) or Vector2.new(0, 1);
-                                game.TweenService:Create(L_945, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Size = L_1029, Position = L_1030, AnchorPoint = L_1031 }):Play();
-                                if L_642[L_903].Breathing.Toggle then
-                                    local L_1032 = game.TweenService:Create(L_909, TweenInfo.new(2), { BackgroundColor3 = L_1028 });
-                                    local L_1033 = game.TweenService:Create(L_938, TweenInfo.new(2), { BackgroundColor3 = L_1028 });
-                                    L_1032:Play();
-                                    L_1033:Play();
-                                    L_1032.Completed:Connect(function()
-                                        if L_642[L_903].Breathing.Toggle then
-                                            local L_1034 = game.TweenService:Create(L_909, TweenInfo.new(2), { BackgroundColor3 = L_1027 });
-                                            local L_1035 = game.TweenService:Create(L_938, TweenInfo.new(2), { BackgroundColor3 = L_1027 });
-                                            L_1034:Play();
-                                            L_1035:Play();
-                                            if L_642[L_903].Breathing.Toggle then
-                                                L_1034.Completed:Connect(function()
-                                                    L_1032:Play();
-                                                    L_1033:Play();
-                                                    return ;
-                                                end);
-                                            end;
-                                        end;
-                                        return ;
-                                    end);
-                                end;
-                                return ;
-                            end;
-                            spawn(function()
-                                L_1036();
-                                return ;
-                            end);
-                            L_946.MouseButton1Click:Connect(function()
-                                L_642[L_903].Breathing.Toggle = not L_642[L_903].Breathing.Toggle;
-                                L_1036();
-                                return ;
-                            end);
-                            return ;
-                        end,
-                        CreateBox = function(L_1037)
-                            local L_1038 = tostring(L_1037.Title) or "";
-                            local L_1039 = tostring(L_1037.Placeholder) or "";
-                            local L_1040 = L_1037.Type;
-                            local L_1041 = L_1040 and getgenv().UIColor[L_1040] or "";
-                            local L_1042 = Instance.new("Frame");
-                            local L_1043 = Instance.new("UICorner");
-                            local L_1044 = Instance.new("Frame");
-                            local L_1045 = Instance.new("UICorner");
-                            local L_1046 = Instance.new("TextLabel");
-                            local L_1047 = Instance.new("Frame");
-                            local L_1048 = Instance.new("UICorner");
-                            local L_1049 = Instance.new("TextBox");
-                            local L_1050 = Instance.new("Frame");
-                            L_1042.Name = "BoxFrame";
-                            L_1042.Parent = L_887;
-                            L_1042.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1042.BackgroundTransparency = 1;
-                            L_1042.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1042.Size = UDim2.new(1, 0, 0, 60);
-                            L_1043.CornerRadius = UDim.new(0, 4);
-                            L_1043.Name = "BoxCorner";
-                            L_1043.Parent = L_1042;
-                            L_1044.Name = "Background1";
-                            L_1044.Parent = L_1042;
-                            L_1044.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1044.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1044.Size = UDim2.new(1, -10, 1, 0);
-                            L_1044.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1044.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1044.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1044.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1045.CornerRadius = UDim.new(0, 4);
-                            L_1045.Name = "ButtonCorner";
-                            L_1045.Parent = L_1044;
-                            L_1046.Name = "TextColor";
-                            L_1046.Parent = L_1044;
-                            L_1046.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_1046.BackgroundTransparency = 1;
-                            L_1046.Position = UDim2.new(0, 10, 0, 0);
-                            L_1046.Size = UDim2.new(1, -10, 0.5, 0);
-                            L_1046.Font = Enum.Font.GothamBlack;
-                            L_1046.Text = L_1038;
-                            L_1046.TextSize = 14;
-                            L_1046.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1046.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1046.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1047.Name = "Background2";
-                            L_1047.Parent = L_1044;
-                            L_1047.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1047.ClipsDescendants = true;
-                            L_1047.Position = UDim2.new(1, -5, 0, 40);
-                            L_1047.Size = UDim2.new(1, -10, 0, 25);
-                            L_1047.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1047.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1048.CornerRadius = UDim.new(0, 4);
-                            L_1048.Name = "ButtonCorner";
-                            L_1048.Parent = L_1047;
-                            L_1049.Name = "TextColorPlaceholder";
-                            L_1049.Parent = L_1047;
-                            L_1049.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-                            L_1049.BackgroundTransparency = 1;
-                            L_1049.Position = UDim2.new(0, 5, 0, 0);
-                            L_1049.Size = UDim2.new(1, -5, 1, 0);
-                            L_1049.Font = Enum.Font.GothamBold;
-                            L_1049.PlaceholderText = L_1039;
-                            L_1049.Text = "";
-                            L_1049.TextSize = 14;
-                            L_1049.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1049.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                            L_1049.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Placeholder Text Color"], function()
-                                L_1049.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                                return ;
-                            end);
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1049.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1050.Name = "Setting_Lineeeee";
-                            L_1050.Parent = L_1047;
-                            L_1050.BackgroundTransparency = 1;
-                            L_1050.Position = UDim2.new(0, 0, 1, -2);
-                            L_1050.Size = UDim2.new(1, 0, 0, 6);
-                            L_1050.BackgroundColor3 = getgenv().UIColor["Textbox Highlight Color"];
-                            table.insert(ThemeListeners["Textbox Highlight Color"], function()
-                                L_1050.BackgroundColor3 = getgenv().UIColor["Textbox Highlight Color"];
-                                return ;
-                            end);
-                            L_1049.Focused:Connect(function()
-                                TweenService:Create(L_1050, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundTransparency = 0 }):Play();
-                                return ;
-                            end);
-                            L_1049.Focused:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_1049.FocusLost:Connect(function()
-                                TweenService:Create(L_1050, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundTransparency = 1 }):Play();
-                                local L_1051 = L_1049.Text;
-                                if L_1051 ~= "" and L_1040 then
-                                    getgenv().UIColor[L_1040] = L_1051;
-                                    if L_1040 == "Background Image" then
-                                        Internal.ReloadMain(L_1051);
-                                    end;
-                                end;
-                                return ;
-                            end);
-                            local L_1052 = {};
-                            if L_1040 and L_1041 ~= "" then
-                                L_1049.Text = tostring(L_1041);
-                            end;
-                            L_1052.SetValue = function(L_1053)
-                                local L_1054 = tostring(L_1053 or "");
-                                L_1049.Text = L_1054;
-                                if L_1040 then
-                                    getgenv().UIColor[L_1040] = L_1054;
-                                    if L_1040 == "Background Image" then
-                                        Internal.ReloadMain(L_1054);
-                                    end;
-                                end;
-                                return ;
-                            end;
-                            return L_1052;
-                        end,
-                        CreateSlider = function(L_1055)
-                            local L_1056 = tostring(L_1055.Title) or "";
-                            local L_1057 = tonumber(L_1055.Min) or 0;
-                            local L_1058 = tonumber(L_1055.Max) or 100;
-                            local L_1059 = L_1055.Precise or false;
-                            local L_1060 = getgenv().UIColor[L_1055.Type] or 0;
-                            local L_1062 = function(L_1061)
-                                getgenv().UIColor[L_1055.Type] = L_1061;
-                                return ;
-                            end;
-                            local L_1063 = 600;
-                            local L_1064 = Instance.new("Frame");
-                            local L_1065 = Instance.new("UICorner");
-                            local L_1066 = Instance.new("Frame");
-                            local L_1067 = Instance.new("UICorner");
-                            local L_1068 = Instance.new("TextLabel");
-                            local L_1069 = Instance.new("Frame");
-                            local L_1070 = Instance.new("TextButton");
-                            local L_1071 = Instance.new("UICorner");
-                            local L_1072 = Instance.new("Frame");
-                            local L_1073 = Instance.new("UICorner");
-                            local L_1074 = Instance.new("Frame");
-                            local L_1075 = Instance.new("UICorner");
-                            local L_1076 = Instance.new("TextBox");
-                            L_1064.Name = L_1056 .. "buda";
-                            L_1064.Parent = L_887;
-                            L_1064.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1064.BackgroundTransparency = 1;
-                            L_1064.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1064.Size = UDim2.new(1, 0, 0, 50);
-                            L_1065.CornerRadius = UDim.new(0, 4);
-                            L_1065.Name = "SliderCorner";
-                            L_1065.Parent = L_1064;
-                            L_1066.Name = "Background1";
-                            L_1066.Parent = L_1064;
-                            L_1066.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1066.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1066.Size = UDim2.new(1, -10, 1, 0);
-                            L_1066.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1066.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1066.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1066.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1067.CornerRadius = UDim.new(0, 4);
-                            L_1067.Name = "SliderBGCorner";
-                            L_1067.Parent = L_1066;
-                            L_1068.Name = "TextColor";
-                            L_1068.Parent = L_1066;
-                            L_1068.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1068.BackgroundTransparency = 1;
-                            L_1068.Position = UDim2.new(0, 10, 0, 0);
-                            L_1068.Size = UDim2.new(1, -10, 0, 25);
-                            L_1068.Font = Enum.Font.GothamBlack;
-                            L_1068.Text = L_1056;
-                            L_1068.TextSize = 14;
-                            L_1068.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1068.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1068.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1069.Name = "SliderBar";
-                            L_1069.Parent = L_1064;
-                            L_1069.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1069.Position = UDim2.new(0.5, 0, 0.5, 14);
-                            L_1069.Size = UDim2.new(0, 600, 0, 6);
-                            L_1069.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1069.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1070.Name = "SliderButton ";
-                            L_1070.Parent = L_1069;
-                            L_1070.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1070.BackgroundTransparency = 1;
-                            L_1070.Size = UDim2.new(1, 0, 1, 0);
-                            L_1070.Font = Enum.Font.GothamBold;
-                            L_1070.Text = "";
-                            L_1070.TextColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1070.TextSize = 14;
-                            L_1071.CornerRadius = UDim.new(1, 0);
-                            L_1071.Name = "SliderBarCorner";
-                            L_1071.Parent = L_1069;
-                            L_1072.Name = "Bar";
-                            L_1072.BorderSizePixel = 0;
-                            L_1072.Parent = L_1069;
-                            L_1072.Size = UDim2.new(0, 0, 1, 0);
-                            L_1072.BackgroundColor3 = getgenv().UIColor["Slider Line Color"];
-                            table.insert(ThemeListeners["Slider Line Color"], function()
-                                L_1072.BackgroundColor3 = getgenv().UIColor["Slider Line Color"];
-                                return ;
-                            end);
-                            L_1073.CornerRadius = UDim.new(1, 0);
-                            L_1073.Name = "BarCorner";
-                            L_1073.Parent = L_1072;
-                            L_1074.Name = "Background2";
-                            L_1074.Parent = L_1064;
-                            L_1074.AnchorPoint = Vector2.new(1, 0);
-                            L_1074.Position = UDim2.new(1, -10, 0, 5);
-                            L_1074.Size = UDim2.new(0, 150, 0, 25);
-                            L_1074.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1074.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1075.CornerRadius = UDim.new(0, 4);
-                            L_1075.Name = "Sliderbox";
-                            L_1075.Parent = L_1074;
-                            L_1076.Name = "TextColor";
-                            L_1076.Parent = L_1074;
-                            L_1076.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1076.BackgroundTransparency = 1;
-                            L_1076.Size = UDim2.new(1, 0, 1, 0);
-                            L_1076.Font = Enum.Font.GothamBold;
-                            L_1076.Text = "";
-                            L_1076.TextSize = 14;
-                            L_1076.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1076.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1070.MouseEnter:Connect(function()
-                                TweenService:Create(L_1072, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"] }):Play();
-                                return ;
-                            end);
-                            L_1070.MouseLeave:Connect(function()
-                                TweenService:Create(L_1072, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundColor3 = getgenv().UIColor["Slider Line Color"] }):Play();
-                                return ;
-                            end);
-                            local L_1077 = cloneref(game:GetService("Players")).LocalPlayer:GetMouse();
-                            if L_1060 then
-                                if L_1060 <= L_1057 then
-                                    L_1060 = L_1057;
-                                elseif L_1058 <= L_1060 then
-                                    L_1060 = L_1058;
-                                end;
-                                L_1072.Size = UDim2.new(1 - (L_1058 - L_1060) / (L_1058 - L_1057), 0, 0, 6);
-                                L_1076.Text = L_1060;
-                                L_1062(L_1060);
-                            end;
-                            L_1070.MouseButton1Down:Connect(function()
-                                local L_1078 = L_1059 and tonumber(string.format("%.1f", (tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057))) or math.floor((tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057));
-                                pcall(function()
-                                    L_1062(L_1078);
-                                    L_1076.Text = L_1078;
-                                    return ;
-                                end);
-                                L_1072.Size = UDim2.new(0, math.clamp(L_1077.X - L_1072.AbsolutePosition.X, 0, L_1063), 0, 6);
-                                moveconnection = L_1077.Move:Connect(function()
-                                    local L_1079 = L_1059 and tonumber(string.format("%.1f", (tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057))) or math.floor((tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057));
-                                    pcall(function()
-                                        L_1062(L_1079);
-                                        L_1076.Text = L_1079;
-                                        return ;
-                                    end);
-                                    L_1072.Size = UDim2.new(0, math.clamp(L_1077.X - L_1072.AbsolutePosition.X, 0, L_1063), 0, 6);
-                                    return ;
-                                end);
-                                releaseconnection = UserInputService.InputEnded:Connect(function(L_1080)
-                                    if L_1080.UserInputType == Enum.UserInputType.MouseButton1 then
-                                        local L_1081 = L_1059 and tonumber(string.format("%.1f", (tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057))) or math.floor((tonumber(L_1058) - tonumber(L_1057)) / L_1063 * L_1072.AbsoluteSize.X + tonumber(L_1057));
-                                        pcall(function()
-                                            L_1062(L_1081);
-                                            L_1076.Text = L_1081;
-                                            return ;
-                                        end);
-                                        L_1072.Size = UDim2.new(0, math.clamp(L_1077.X - L_1072.AbsolutePosition.X, 0, L_1063), 0, 6);
-                                        moveconnection:Disconnect();
-                                        releaseconnection:Disconnect();
-                                    end;
-                                    return ;
-                                end);
-                                return ;
-                            end);
-                            local L_1083 = function(L_1082)
-                                if tonumber(L_1082) <= L_1057 then
-                                    L_1072.Size = UDim2.new(0, 0 * L_1063, 0, 6);
-                                    L_1076.Text = L_1057;
-                                    L_1062(tonumber(L_1057));
-                                elseif tonumber(L_1082) <= L_1058 then
-                                    L_1072.Size = UDim2.new(0, L_1058 / L_1058 * L_1063, 0, 6);
-                                    L_1076.Text = L_1058;
-                                    L_1062(tonumber(L_1058));
-                                else
-                                    L_1072.Size = UDim2.new(1 - (L_1058 - L_1082) / (L_1058 - L_1057), 0, 0, 6);
-                                    L_1062(tonumber(L_1082));
-                                end;
-                                return ;
-                            end;
-                            L_1076.FocusLost:Connect(function()
-                                L_1083(L_1076.Text);
-                                return ;
-                            end);
-                            return {
-                                SetValue = function(L_1084)
-                                    L_1083(L_1084);
-                                    return ;
-                                end
-                            };
-                        end
-                    };
+			PageContainer.Visible = true 
+			UIPage:JumpTo(PageContainer)
+
+			for i, v in next, ControlList:GetChildren() do
+				if not (v:IsA('UIListLayout')) then
+					if v.Name == Page_Name .. "_Control" then 
+						TweenService:Create(v.Frame.Line.PageInLine, TI("Tween Animation 1 Speed"), {
+							BackgroundTransparency = 0
+						}):Play()
+					else
+						TweenService:Create(v.Frame.Line.PageInLine, TI("Tween Animation 1 Speed"), {
+							BackgroundTransparency = 1
+						}):Play()
+					end
+				end
+			end
+		end)
+
+		local pageFunction = {}
+
+		function pageFunction:AddSection(Section_Name, Toggleable, SectionGap, SectionColor)
+			local Toggleable = Toggleable or false
+			local Section = Instance.new("Frame")
+			local UICorner = Instance.new("UICorner")
+			local Topsec = Instance.new("Frame")
+			local Sectiontitle = Instance.new("TextLabel")
+			local Linesec = Instance.new("Frame")
+			local UIGradient = Instance.new("UIGradient")
+			local SectionList = Instance.new("UIListLayout")
+			
+			Section.Name = Section_Name .. "_Dot"
+			Section.Parent = PageList
+			Section.Size = UDim2.new(1, -5, 0, 30)
+			Section.BackgroundColor3 = Color3.fromRGB(48, 48, 56)
+			Section.BackgroundTransparency = 0.25
+			Section.ClipsDescendants = true
+
+			local sectionStroke = Instance.new("UIStroke", Section)
+			sectionStroke.Color = Color3.fromRGB(90, 90, 70)
+			sectionStroke.Thickness = 1
+
+			local sectionGradient = Instance.new("UIGradient", Section)
+			sectionGradient.Color = ColorSequence.new{
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 38, 46)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 48, 56))
+			}
+			sectionGradient.Rotation = 90
+			sectionGradient.Transparency = NumberSequence.new{
+				NumberSequenceKeypoint.new(0, 0.05),
+				NumberSequenceKeypoint.new(1, 0.15)
+			}
+
+			UICorner.CornerRadius = UDim.new(0, 4)
+			UICorner.Parent = Section
+
+			Topsec.Name = "Topsec"
+			Topsec.Parent = Section
+			Topsec.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			Topsec.BackgroundTransparency = 1.000
+			Topsec.Size = UDim2.new(0, 415, 0, 30)
+
+			Sectiontitle.Name = "Sectiontitle"
+			Sectiontitle.Parent = Topsec
+			Sectiontitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+			Sectiontitle.BackgroundTransparency = 1.000
+			Sectiontitle.Size = UDim2.new(1, 0, 1, 0)
+			Sectiontitle.Font = Enum.Font.GothamBold
+			Sectiontitle.Text = Section_Name
+			Sectiontitle.TextSize = 14.000
+			Sectiontitle.TextColor3 = getgenv().UIColor["Section Text Color"]
+
+			Linesec.Name = "Linesec"
+			Linesec.Parent = Topsec
+			Linesec.AnchorPoint = Vector2.new(0.5, 1)
+			Linesec.BorderSizePixel = 0
+			Linesec.Position = UDim2.new(0.5, 0, 1, -2)
+			Linesec.Size = UDim2.new(1, -10, 0, 2)
+			Linesec.BackgroundColor3 = getgenv().UIColor["Section Underline Color"]
+
+			local LineShadow = Instance.new("ImageLabel", Linesec)
+			LineShadow.Name = "LineShadow"
+			LineShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+			LineShadow.BackgroundColor3 = Color3.fromRGB(163,162,165)
+			LineShadow.BackgroundTransparency = 1
+			LineShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+			LineShadow.Size = UDim2.new(1, 8, 1, 8)
+			LineShadow.ZIndex = 0
+			LineShadow.Image = "rbxassetid://5028857084"
+			LineShadow.ImageTransparency = 0.6
+			LineShadow.ScaleType = Enum.ScaleType.Slice
+			LineShadow.SliceCenter = Rect.new(24, 24, 276, 276)
+
+			UIGradient.Transparency = NumberSequence.new{
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(0.5, 0),
+				NumberSequenceKeypoint.new(0.51, 0.02),
+				NumberSequenceKeypoint.new(1, 1)
+			}
+			UIGradient.Parent = Linesec
+
+			SectionList.Name = "SectionList"
+			SectionList.Parent = Section
+			SectionList.SortOrder = Enum.SortOrder.LayoutOrder
+			SectionList.Padding = UDim.new(0, 5)
+
+			local SizeSectionY
+			local sectionIsVisible = false
+			if Toggleable then
+				local VisibilitySectionFrame = Instance.new("Frame")
+				local VisibilitySectionFrameCorner = Instance.new("UICorner")
+				local visibility = Instance.new("ImageButton")
+				local visibility_off = Instance.new("ImageButton")
+				local VisibilityButton = Instance.new("TextButton")
+				VisibilityButton.Name = "VisibilityButton"
+				VisibilityButton.Parent = Topsec
+				VisibilityButton.AnchorPoint = Vector2.new(1, 0.5)
+				VisibilityButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				VisibilityButton.BackgroundTransparency = 1.000
+				VisibilityButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+				VisibilityButton.BorderSizePixel = 0
+				VisibilityButton.Font = Enum.Font.SourceSans
+				VisibilityButton.Text = ""
+				VisibilityButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+				VisibilityButton.TextSize = 14.000
+				VisibilityButton.ZIndex = 2
+				VisibilityButton.Position = UDim2.new(1, -5, 0.5, 0)
+				VisibilityButton.Size = UDim2.new(0, 20, 0, 20)
+				VisibilitySectionFrame.Name = "VisibilitySectionFrame"
+				VisibilitySectionFrame.Parent = Topsec
+				VisibilitySectionFrame.AnchorPoint = Vector2.new(1, 0.5)
+				VisibilitySectionFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+				VisibilitySectionFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
+				VisibilitySectionFrame.BorderSizePixel = 0
+				VisibilitySectionFrame.Position = UDim2.new(1, -5, 0.5, 0)
+				VisibilitySectionFrame.Size = UDim2.new(0, 20, 0, 20)
+				VisibilitySectionFrameCorner.CornerRadius = UDim.new(0, 4)
+				VisibilitySectionFrameCorner.Name = "VisibilitySectionFrameCorner"
+				VisibilitySectionFrameCorner.Parent = VisibilitySectionFrame
+				visibility.Name = "visibility"
+				visibility.Parent = VisibilitySectionFrame
+				visibility.AnchorPoint = Vector2.new(0.5, 0.5)
+				visibility.BackgroundTransparency = 1.000
+				visibility.LayoutOrder = 4
+				visibility.Position = UDim2.new(0.5, 0, 0.5, 0)
+				visibility.Size = UDim2.new(1, -4, 1, -4)
+				visibility.ZIndex = 2
+				visibility.Image = "rbxassetid://3926307971"
+				visibility.ImageRectOffset = Vector2.new(84, 44)
+				visibility.ImageRectSize = Vector2.new(36, 36)
+				visibility.ImageTransparency = 1
+				visibility_off.Name = "visibility_off"
+				visibility_off.Parent = VisibilitySectionFrame
+				visibility_off.AnchorPoint = Vector2.new(0.5, 0.5)
+				visibility_off.BackgroundTransparency = 1.000
+				visibility_off.LayoutOrder = 4
+				visibility_off.Position = UDim2.new(0.5, 0, 0.5, 0)
+				visibility_off.Size = UDim2.new(1, -4, 1, -4)
+				visibility_off.ZIndex = 2
+				visibility_off.Image = "rbxassetid://3926307971"
+				visibility_off.ImageRectOffset = Vector2.new(564, 44)
+				visibility_off.ImageRectSize = Vector2.new(36, 36)
+				visibility_off.ImageTransparency = 0
+				VisibilityButton.MouseButton1Down:Connect(function()
+					sectionIsVisible = not sectionIsVisible
+					TweenService:Create(visibility, TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"] / 2), {
+						ImageTransparency = sectionIsVisible and 0 or 1
+					}):Play()
+					wait(getgenv().UIColor["Tween Animation 1 Speed"] / 4)
+					TweenService:Create(visibility_off, TweenInfo.new(getgenv().UIColor["Tween Animation 1 Speed"] / 2), {
+						ImageTransparency = sectionIsVisible and 1 or 0
+					}):Play()
+					TweenService:Create(Section, TI("Tween Animation 1 Speed"), {
+						Size =  UDim2.new(1, -5, 0, (sectionIsVisible and SizeSectionY or 30))
+					}):Play()
+				end)
+			end
+			if SectionGap then
+				local SectionGap = Instance.new("Frame")
+				SectionGap.Name = "SectionGap"
+				SectionGap.Parent = PageList
+				SectionGap.Size = UDim2.new(1, -5, 0, 30)
+				SectionGap.ClipsDescendants = true
+				SectionGap.Transparency = 1
+			end
+
+			SectionList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+				if (not Toggleable) then
+					Section.Size = UDim2.new(1, -5, 0, SectionList.AbsoluteContentSize.Y + 5)
+				end
+				SizeSectionY = SectionList.AbsoluteContentSize.Y + 5
+				if sectionIsVisible then
+					TweenService:Create(Section, TI("Tween Animation 1 Speed"), {
+						Size =  UDim2.new(1, -5, 0, SizeSectionY)
+					}):Play()
+				end
+			end)
+			local sectionFunction = {}
+			function sectionFunction:AddToggle(idk,Setting)
+				local Title = tostring(Setting.Text or Setting.Title) or ""
+				local Desc = Setting.Desc or Setting.Description
+				local Default = Setting.Default
+				if Default == nil then
+					Default = false
+				end
+				local Callback = Setting.Callback
+				local ToggleFrame = Instance.new("Frame")
+				local TogFrame1 = Instance.new("Frame")
+				local checkbox = Instance.new("ImageLabel")
+				local check = Instance.new("Frame")
+				local ToggleDesc = Instance.new("TextLabel")
+				local ToggleTitle = Instance.new("TextLabel")
+				local ToggleBg = Instance.new("Frame")
+				local ToggleCorner = Instance.new("UICorner")
+				local ToggleButton = Instance.new("TextButton")
+				local ToggleList = Instance.new("UIListLayout")
+				ToggleFrame.Name = "ToggleFrame"
+				ToggleFrame.Parent = Section
+				ToggleFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				ToggleFrame.BackgroundTransparency = 1.000
+				ToggleFrame.Position = UDim2.new(0, 0, 0.300000012, 0)
+				ToggleFrame.Size = UDim2.new(1, 0 , 0, 0)
+				ToggleFrame.AutomaticSize = Enum.AutomaticSize.Y
+				TogFrame1.Name = "TogFrame1"
+				TogFrame1.Parent = ToggleFrame
+				TogFrame1.AnchorPoint = Vector2.new(0.5, 0.5)
+				TogFrame1.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				TogFrame1.BackgroundTransparency = 1.000
+				TogFrame1.Position = UDim2.new(0.5, 0, 0.5, 0)
+				TogFrame1.Size = UDim2.new(1, -10, 0, 0)
+				TogFrame1.AutomaticSize = Enum.AutomaticSize.Y
+				checkbox.Name = "checkbox"
+				checkbox.Parent = TogFrame1
+				checkbox.AnchorPoint = Vector2.new(1, 0.5)
+				checkbox.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				checkbox.BackgroundTransparency = 1.000
+				checkbox.Position = UDim2.new(1, -5, 0.5, 3)
+				checkbox.Size = UDim2.new(0, 25, 0, 25)
+				checkbox.Image = "rbxassetid://4552505888"
+				checkbox.ImageColor3 = getgenv().UIColor["Toggle Border Color"]
+				check.Name = "check"
+				check.Parent = checkbox
+				check.AnchorPoint = Vector2.new(0.5, 0.5)
+				check.BackgroundColor3 = Color3.fromRGB(140, 172, 68)
+				check.Position = UDim2.new(0.5, 0, 0.5, 0)
+				local cac = 5
+				if Desc then
+					cac = 0
+					ToggleDesc.Name = "ToggleDesc"
+					ToggleDesc.Parent = TogFrame1
+					ToggleDesc.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+					ToggleDesc.BackgroundTransparency = 1.000
+					ToggleDesc.Position = UDim2.new(0, 15, 0, 20)
+					ToggleDesc.Size = UDim2.new(1, -50, 0, 0)
+					ToggleDesc.Font = Enum.Font.GothamBlack
+					ToggleDesc.Text = Desc
+					ToggleDesc.TextSize = 13.000
+					ToggleDesc.TextWrapped = true
+					ToggleDesc.TextXAlignment = Enum.TextXAlignment.Left
+					ToggleDesc.RichText = true
+					ToggleDesc.AutomaticSize = Enum.AutomaticSize.Y
+					ToggleDesc.TextColor3 = getgenv().UIColor["Toggle Desc Color"]
+				else
+					ToggleDesc.Text = ''
+				end
+				ToggleTitle.Name = "TextColor"
+				ToggleTitle.Parent = TogFrame1
+				ToggleTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				ToggleTitle.BackgroundTransparency = 1.000
+				ToggleTitle.Position = UDim2.new(0, 10, 0, cac)
+				ToggleTitle.Size = UDim2.new(1, -10, 0, 20)
+				ToggleTitle.Font = Enum.Font.GothamBlack
+				ToggleTitle.Text = Title
+				ToggleTitle.TextSize = 14.000
+				ToggleTitle.TextXAlignment = Enum.TextXAlignment.Left
+				ToggleTitle.TextYAlignment = Enum.TextYAlignment.Center
+				ToggleTitle.RichText = true
+				ToggleTitle.AutomaticSize = Enum.AutomaticSize.Y
+				ToggleTitle.TextColor3 = getgenv().UIColor["Text Color"]
+				ToggleBg.Name = "Background1"
+				ToggleBg.Parent = TogFrame1
+				ToggleBg.Size = UDim2.new(1, 0, 1, 6)
+				ToggleBg.ZIndex = 0
+				ToggleBg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+				ToggleBg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				ToggleCorner.CornerRadius = UDim.new(0, 4)
+				ToggleCorner.Name = "ToggleCorner"
+				ToggleCorner.Parent = ToggleBg
+				ToggleButton.Name = "ToggleButton"
+				ToggleButton.Parent = TogFrame1
+				ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				ToggleButton.BackgroundTransparency = 1.000
+				ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
+				ToggleButton.Size = UDim2.new(0, 25, 0, 25)
+				ToggleButton.Position = UDim2.new(1, -5, 0.5, 3)
+				ToggleButton.Font = Enum.Font.SourceSans
+				ToggleButton.Text = ""
+				ToggleButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+				ToggleButton.TextSize = 14.000
+				ToggleList.Name = "ToggleList"
+				ToggleList.Parent = ToggleFrame
+				ToggleList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+				ToggleList.SortOrder = Enum.SortOrder.LayoutOrder
+				ToggleList.VerticalAlignment = Enum.VerticalAlignment.Center
+				ToggleList.Padding = UDim.new(0, 5)
+				local function ChangeStage(val)
+					local csize = val and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 0, 0, 0)
+					local pos = val and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0)
+					local apos = val and Vector2.new(0.5, 0.5) or Vector2.new(0.5, 0.5)
+					game.TweenService:Create(check, TI("Tween Animation 1 Speed"), {
+						Size = csize,
+						Position = pos,
+						AnchorPoint = apos
+					}):Play()
+				end
+				ChangeStage(Default)
+				local function ButtonClick()
+					Default = not Default
+				    ChangeStage(Default)
+				    if Callback then
+				        pcall(Callback, Default)
+				    end
+				end
+				ToggleButton.MouseButton1Down:Connect(function()
+					ButtonClick()
+				end)
+				local toggleFunction = {}
+				function toggleFunction.SetStage(value)
+					if value ~= Default then
+						ButtonClick()
+					end
+				end
+				local controlData = {
+                    Name = Title,
+                    Section = Section,
+                    Element = ToggleFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+				return toggleFunction
+			end
+        function sectionFunction:AddButton(Setting, Callback)
+        	local Title = Setting.Title or Setting.Text or ""
+        	local Callback = Setting.Callback or Setting.Func or Callback or function() end -- also accept AddButton(Setting, Callback)
+            local Button = Instance.new("Frame")
+            local RowBG_1 = Instance.new("Frame")
+            local UICorner_1 = Instance.new("UICorner")
+            local RowHover_1 = Instance.new("Frame")
+            local UICorner_2 = Instance.new("UICorner")
+            local TextColor_1 = Instance.new("TextLabel")
+            local ClickArea_1 = Instance.new("Frame")
+            local UICorner_3 = Instance.new("UICorner")
+            local UIGradient_1 = Instance.new("UIGradient")
+            local ImageLabel_1 = Instance.new("ImageLabel")
+            local Frame_1 = Instance.new("Frame")
+            local UICorner_4 = Instance.new("UICorner")
+            local UIScale_1 = Instance.new("UIScale")
+            local Button_1 = Instance.new("TextButton")
+            
+            Button.Name = "Button"
+            Button.Parent = Section
+            Button.BackgroundColor3 = Color3.fromRGB(163,162,165)
+            Button.BackgroundTransparency = 1
+            Button.Size = UDim2.new(1, 0,0, 40)
+             
+            RowBG_1.Name = "RowBG"
+            RowBG_1.Parent = Button
+            RowBG_1.AnchorPoint = Vector2.new(0.5, 0.5)
+            RowBG_1.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+            RowBG_1.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+            RowBG_1.Position = UDim2.new(0.5, 0,0.5, 0)
+            RowBG_1.Size = UDim2.new(1, -10,1, 0)
+             
+            UICorner_1.Parent = RowBG_1
+            UICorner_1.CornerRadius = UDim.new(0,10)
+             
+            RowHover_1.Name = "RowHover"
+            RowHover_1.Parent = RowBG_1
+            RowHover_1.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+            RowHover_1.BackgroundTransparency = 1
+            RowHover_1.Size = UDim2.new(1, 0,1, 0)
+            RowHover_1.ZIndex = 2
+             
+            UICorner_2.Parent = RowHover_1
+            UICorner_2.CornerRadius = UDim.new(0,10)
+             
+            TextColor_1.Name = "TextColor"
+            TextColor_1.Parent = RowBG_1
+             TextColor_1.BackgroundColor3 = Color3.fromRGB(163,162,165)
+             TextColor_1.BackgroundTransparency = 1
+             TextColor_1.Position = UDim2.new(0, 12,0, 0)
+             TextColor_1.Size = UDim2.new(1, -110,1, 0)
+             TextColor_1.Font = Enum.Font.GothamBold
+             TextColor_1.Text = Title
+             TextColor_1.TextColor3 = getgenv().UIColor["GUI Text Color"]
+             TextColor_1.TextSize = 14
+             TextColor_1.TextStrokeTransparency = 0.8500000238418579
+             TextColor_1.TextXAlignment = Enum.TextXAlignment.Left
+             
+             ClickArea_1.Name = "ClickArea"
+             ClickArea_1.Parent = RowBG_1
+             ClickArea_1.AnchorPoint = Vector2.new(1, 0.5)
+             ClickArea_1.BackgroundColor3 = Color3.fromRGB(140, 172, 68)
+             ClickArea_1.Position = UDim2.new(1, -8,0.5, 0)
+             ClickArea_1.Size = UDim2.new(0, 94,0, 30)
+             ClickArea_1.ClipsDescendants = true  -- THÊM DÒNG NÀY: Ngăn ripple tràn ra
+             
+             UICorner_3.Parent = ClickArea_1
+             UICorner_3.CornerRadius = UDim.new(0,12)
+             
+             UIGradient_1.Parent = ClickArea_1
+             UIGradient_1.Color = ColorSequence.new{
+                 ColorSequenceKeypoint.new(0, Color3.fromRGB(166, 198, 92)), 
+                 ColorSequenceKeypoint.new(0.4, Color3.fromRGB(140, 172, 68)), 
+                 ColorSequenceKeypoint.new(0.6, Color3.fromRGB(122, 154, 52)), 
+                 ColorSequenceKeypoint.new(1, Color3.fromRGB(104, 136, 40))
+             }
+             UIGradient_1.Rotation = 90
+             
+             ImageLabel_1.Parent = ClickArea_1
+             ImageLabel_1.AnchorPoint = Vector2.new(0.5, 0.5)
+             ImageLabel_1.BackgroundColor3 = Color3.fromRGB(163,162,165)
+             ImageLabel_1.BackgroundTransparency = 1
+             ImageLabel_1.Position = UDim2.new(0.5, 0,0.5, 0)
+             ImageLabel_1.Size = UDim2.new(1, 14,1, 14)
+             ImageLabel_1.ZIndex = 0
+             ImageLabel_1.Image = "rbxassetid://5028857084"
+             ImageLabel_1.ImageTransparency = 0.7
+             ImageLabel_1.ScaleType = Enum.ScaleType.Slice
+             ImageLabel_1.SliceCenter = Rect.new(24, 24, 276, 276)
+             
+             Frame_1.Parent = ClickArea_1
+             Frame_1.AnchorPoint = Vector2.new(0.5, 0)
+             Frame_1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+             Frame_1.BackgroundTransparency = 0.8
+             Frame_1.Position = UDim2.new(0.5, 0,0, 2)
+             Frame_1.Size = UDim2.new(1, -6,0, 10)
+             Frame_1.ZIndex = 2
+             
+             UICorner_4.Parent = Frame_1
+             UICorner_4.CornerRadius = UDim.new(0,10)
+             
+             UIScale_1.Parent = ClickArea_1
+             
+             Button_1.Name = "Button"
+             Button_1.Parent = ClickArea_1
+             Button_1.Active = true
+             Button_1.AutoButtonColor = false
+             Button_1.BackgroundColor3 = Color3.fromRGB(163,162,165)
+             Button_1.BackgroundTransparency = 1
+             Button_1.Size = UDim2.new(1, 0,1, 0)
+             Button_1.Font = Enum.Font.GothamBold
+             Button_1.Text = "Click"
+             Button_1.TextColor3 = Color3.fromRGB(240, 240, 240)
+             Button_1.TextSize = 13
+
+             -- UIScale mặc định
+             UIScale_1.Scale = 1
+             
+             -- HOVER (chỉ phóng to)
+             local scaleHover = TweenService:Create(UIScale_1, TweenInfo.new(0.12, Enum.EasingStyle.Sine), { Scale = 1.05 })
+             local scaleNormal = TweenService:Create(UIScale_1, TweenInfo.new(0.12, Enum.EasingStyle.Sine), { Scale = 1 })
+             
+             Button_1.MouseEnter:Connect(function()
+             	scaleHover:Play()
+             end)
+             
+             Button_1.MouseLeave:Connect(function()
+             	scaleNormal:Play()
+             end)
+             
+                Button_1.MouseButton1Down:Connect(function()
+                    
+                    -- Lấy kích thước thực tế của ClickArea
+                    local w = ClickArea_1.AbsoluteSize.X
+                    local h = ClickArea_1.AbsoluteSize.Y
+                    
+                    -- Tạo ripple với hình dạng bo góc giống button (chữ nhật bo góc)
+                    local ripple = Instance.new("Frame")
+                    ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+                    ripple.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    ripple.Size = UDim2.new(0, 0, 0, 0)
+                    ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                    ripple.BackgroundTransparency = 0.6
+                    ripple.ZIndex = 20
+                    ripple.Parent = ClickArea_1
+                    
+                    -- Tạo UICorner cho ripple với bo góc y hệt button
+                    local rippleCorner = Instance.new("UICorner")
+                    rippleCorner.CornerRadius = UICorner_3.CornerRadius -- Lấy góc bo từ button
+                    rippleCorner.Parent = ripple
+                    
+                    -- Animation ripple mở rộng từ tâm ra đầy đủ button
+                    local rippleTween = TweenService:Create(
+                        ripple,
+                        TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                        {
+                            Size = UDim2.new(1, 0, 1, 0),
+                            BackgroundTransparency = 1,
+                            Position = UDim2.new(0.5, 0, 0.5, 0)
+                        }
+                    )
+                    
+                    rippleTween:Play()
+                    rippleTween.Completed:Connect(function()
+                        ripple:Destroy()
+                    end)
+                    
+                    Callback()
+                end)
+                local f = {}
+                function f:SetTitle(vl)
+                    TextColor_1.Text = vl
                 end
-            };
-        end;
-        local L_1085 = SeaUI.CreateCustomColor();
-        local L_1086 = L_1085.CreateSection("Main");
-        L_1086.CreateColorPicker({ Title = "Border Color", Type = "Border Color" });
-        L_1086.CreateColorPicker({ Title = "Click Effect Color", Type = "Click Effect Color" });
-        L_1086.CreateColorPicker({ Title = "Setting Icon Color", Type = "Setting Icon Color" });
-        L_1086.CreateBox({ Title = "Logo Image", Placeholder = "URL Here (PNG only), Recommended 128x128", Type = "Logo Image" });
-        local L_1087 = L_1085.CreateSection("Search");
-        L_1087.CreateColorPicker({ Title = "Search Icon Color", Type = "Search Icon Color" });
-        L_1087.CreateColorPicker({ Title = "Search Icon Highlight Color", Type = "Search Icon Highlight Color" });
-        local L_1088 = L_1085.CreateSection("Text");
-        L_1088.CreateColorPicker({ Title = "GUI Text Color", Type = "GUI Text Color" });
-        L_1088.CreateColorPicker({ Title = "Text Color", Type = "Text Color" });
-        L_1088.CreateColorPicker({ Title = "Placeholder Text Color", Type = "Placeholder Text Color" });
-        L_1088.CreateColorPicker({ Title = "Title Text Color", Type = "Title Text Color" });
-        local L_1089 = L_1085.CreateSection("Background");
-        L_1089.CreateColorPicker({ Title = "Background 1 Color", Type = "Background 1 Color" });
-        L_1089.CreateSlider({ Title = "Background 1 Transparency", Type = "Background 1 Transparency", Min = 0, Max = 1, Default = 0, Precise = true });
-        L_1089.CreateColorPicker({ Title = "Background 2 Color", Type = "Background 2 Color" });
-        L_1089.CreateColorPicker({ Title = "Background 3 Color", Type = "Background 3 Color" });
-        L_1089.CreateBox({ Title = "Background Image", Placeholder = "URL Here (WEBM / PNG only), Recommended 1280x720", Type = "Background Image" });
-        L_1085.CreateSection("Page").CreateColorPicker({ Title = "Page Selected Color", Type = "Page Selected Color" });
-        local L_1090 = L_1085.CreateSection("Section");
-        L_1090.CreateColorPicker({ Title = "Section Text Color", Type = "Section Text Color" });
-        L_1090.CreateColorPicker({ Title = "Section Underline Color", Type = "Section Underline Color" });
-        local L_1091 = L_1085.CreateSection("Toggle");
-        L_1091.CreateColorPicker({ Title = "Toggle Border Color", Type = "Toggle Border Color" });
-        L_1091.CreateColorPicker({ Title = "Toggle Checked Color", Type = "Toggle Checked Color" });
-        L_1091.CreateColorPicker({ Title = "Toggle Desc Color", Type = "Toggle Desc Color" });
-        L_1085.CreateSection("Button").CreateColorPicker({ Title = "Button Color", Type = "Button Color" });
-        L_1085.CreateSection("Label").CreateColorPicker({ Title = "Label Color", Type = "Label Color" });
-        local L_1092 = L_1085.CreateSection("Dropdown");
-        L_1092.CreateColorPicker({ Title = "Dropdown Icon Color", Type = "Dropdown Icon Color" });
-        L_1092.CreateColorPicker({ Title = "Dropdown Selected Color", Type = "Dropdown Selected Color" });
-        L_1085.CreateSection("Textbox").CreateColorPicker({ Title = "Textbox Highlight Color", Type = "Textbox Highlight Color" });
-        L_1085.CreateSection("Box").CreateColorPicker({ Title = "Box Highlight Color", Type = "Box Highlight Color" });
-        local L_1093 = L_1085.CreateSection("Slider");
-        L_1093.CreateColorPicker({ Title = "Slider Line Color", Type = "Slider Line Color" });
-        L_1093.CreateColorPicker({ Title = "Slider Highlight Color", Type = "Slider Highlight Color" });
-        local L_1094 = L_1085.CreateSection("Animation");
-        L_1094.CreateSlider({ Title = "Tween Animation 1 Speed", Type = "Tween Animation 1 Speed", Min = 0, Max = 0.75, Default = 0.25, Precise = true });
-        L_1094.CreateSlider({ Title = "Tween Animation 2 Speed", Type = "Tween Animation 2 Speed", Min = 0, Max = 1, Default = 0.5, Precise = true });
-        L_1094.CreateSlider({ Title = "Tween Animation 3 Speed", Type = "Tween Animation 3 Speed", Min = 0, Max = 0.5, Default = 0.1, Precise = true });
-        local L_1095 = {};
-        local L_1096 = -1;
-        local L_1097 = -1;
-        local L_1098 = 1;
-        L_1095.CreatePage = function(L_1099)
-            local L_1100 = tostring(L_1099.Page_Name);
-            local L_1101 = L_1100;
-            local L_1102 = tostring(L_1099.Page_Title);
-            L_1097 = L_1097 + 1;
-            L_1096 = L_1096 + 1;
-            local L_1103 = Instance.new("Frame");
-            local L_1104 = Instance.new("Frame");
-            local L_1105 = Instance.new("UICorner");
-            local L_1106 = Instance.new("Frame");
-            local L_1107 = Instance.new("Frame");
-            local L_1108 = Instance.new("UICorner");
-            local L_1109 = Instance.new("Frame");
-            local L_1110 = Instance.new("TextLabel");
-            local L_1111 = Instance.new("TextButton");
-            L_1103.Name = L_1100 .. "_Control";
-            L_1103.Parent = L_841;
-            L_1103.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1103.BackgroundTransparency = 1;
-            L_1103.Size = UDim2.new(1, -10, 0, 25);
-            L_1103.LayoutOrder = L_1096;
-            L_1104.Parent = L_1103;
-            L_1104.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1104.BackgroundTransparency = 1;
-            L_1104.Position = UDim2.new(0, 5, 0, 0);
-            L_1104.Size = UDim2.new(1, -5, 1, 0);
-            L_1105.CornerRadius = UDim.new(0, 4);
-            L_1105.Name = "TabNameCorner";
-            L_1105.Parent = L_1104;
-            L_1106.Name = "Line";
-            L_1106.Parent = L_1104;
-            L_1106.AnchorPoint = Vector2.new(0, 0.5);
-            L_1106.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1106.BackgroundTransparency = 1;
-            L_1106.Position = UDim2.new(0, 0, 0.5, 0);
-            L_1106.Size = UDim2.new(0, 14, 1, 0);
-            L_1107.Name = "PageInLine";
-            L_1107.Parent = L_1106;
-            L_1107.AnchorPoint = Vector2.new(0.5, 0.5);
-            L_1107.BorderSizePixel = 0;
-            L_1107.Position = UDim2.new(0.5, 0, 0.5, 0);
-            L_1107.Size = UDim2.new(1, -10, 0, 0);
-            L_1107.BackgroundColor3 = getgenv().UIColor["Page Selected Color"];
-            table.insert(ThemeListeners["Page Selected Color"], function()
-                L_1107.BackgroundColor3 = getgenv().UIColor["Page Selected Color"];
-                return ;
-            end);
-            L_1108.Name = "LineCorner";
-            L_1108.Parent = L_1107;
-            L_1109.Name = "TabTitleContainer";
-            L_1109.Parent = L_1104;
-            L_1109.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1109.BackgroundTransparency = 1;
-            L_1109.Position = UDim2.new(0, 15, 0, 0);
-            L_1109.Size = UDim2.new(1, -15, 1, 0);
-            L_1110.Name = "GUITextColor";
-            L_1110.Parent = L_1109;
-            L_1110.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1110.BackgroundTransparency = 1;
-            L_1110.Size = UDim2.new(1, 0, 1, 0);
-            L_1110.Font = Enum.Font.GothamBold;
-            L_1110.Text = L_1100;
-            L_1110.TextColor3 = Color3.fromRGB(230, 230, 230);
-            L_1110.TextSize = 14;
-            L_1110.TextXAlignment = Enum.TextXAlignment.Left;
-            L_1110.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            table.insert(ThemeListeners["GUI Text Color"], function()
-                L_1110.TextColor3 = getgenv().UIColor["GUI Text Color"];
-                return ;
-            end);
-            L_1111.Name = "PageButton";
-            L_1111.Parent = L_1103;
-            L_1111.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1111.BackgroundTransparency = 1;
-            L_1111.Size = UDim2.new(1, 0, 1, 0);
-            L_1111.Font = Enum.Font.SourceSans;
-            L_1111.Text = "";
-            L_1111.TextColor3 = Color3.fromRGB(0, 0, 0);
-            L_1111.TextSize = 14;
-            local L_1112 = Instance.new("Frame");
-            local L_1113 = Instance.new("UICorner");
-            local L_1114 = Instance.new("TextLabel");
-            local L_1115 = Instance.new("ScrollingFrame");
-            local L_1116 = Instance.new("UIListLayout");
-            local L_1117 = L_1098;
-            L_1098 = L_1098 + 1;
-            L_1112.Name = "Page" .. L_1117;
-            L_1112.Parent = L_844;
-            L_1112.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-            L_1112.Position = UDim2.new(0, 190, 0, 30);
-            L_1112.Size = UDim2.new(0, 435, 0, 325);
-            L_1112.LayoutOrder = L_1097;
-            table.insert(ThemeListeners["Background 1 Color"], function()
-                L_1112.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                return ;
-            end);
-            L_1112.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                L_1112.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                return ;
-            end);
-            L_1113.CornerRadius = UDim.new(0, 4);
-            L_1113.Parent = L_1112;
-            L_1114.Name = "GUITextColor";
-            L_1114.Parent = L_1112;
-            L_1114.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1114.BackgroundTransparency = 1;
-            L_1114.Position = UDim2.new(0, 5, 0, 0);
-            L_1114.Size = UDim2.new(1, 0, 0, 25);
-            L_1114.Font = Enum.Font.GothamBold;
-            L_1114.Text = L_1102;
-            L_1114.TextSize = 16;
-            L_1114.TextXAlignment = Enum.TextXAlignment.Left;
-            L_1114.TextColor3 = getgenv().UIColor["GUI Text Color"];
-            table.insert(ThemeListeners["GUI Text Color"], function()
-                L_1114.TextColor3 = getgenv().UIColor["GUI Text Color"];
-                return ;
-            end);
-            L_1115.Name = "PageList";
-            L_1115.Parent = L_1112;
-            L_1115.Active = true;
-            L_1115.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-            L_1115.BackgroundTransparency = 1;
-            L_1115.BorderColor3 = Color3.fromRGB(27, 42, 53);
-            L_1115.BorderSizePixel = 0;
-            L_1115.Position = UDim2.new(0, 5, 0, 30);
-            L_1115.Size = UDim2.new(1, -10, 1, -30);
-            L_1115.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-            L_1115.ScrollBarThickness = 5;
-            L_1115.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png";
-            L_1116.Name = "Pagelistlayout";
-            L_1116.Parent = L_1115;
-            L_1116.SortOrder = Enum.SortOrder.LayoutOrder;
-            L_1116.Padding = UDim.new(0, 5);
-            L_1116:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                L_1115.CanvasSize = UDim2.new(0, 0, 0, L_1116.AbsoluteContentSize.Y + 5);
-                return ;
-            end);
-            local L_1118 = Instance.new("Frame");
-            local L_1119 = Instance.new("UICorner");
-            local L_1120 = Instance.new("Frame");
-            local L_1121 = Instance.new("ImageLabel");
-            local L_1122 = Instance.new("TextButton");
-            local L_1123 = Instance.new("TextBox");
-            L_1118.Name = "Background2";
-            L_1118.Parent = L_1112;
-            L_1118.AnchorPoint = Vector2.new(1, 0);
-            L_1118.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-            L_1118.Position = UDim2.new(1, -5, 0, 5);
-            L_1118.Size = UDim2.new(0, 20, 0, 20);
-            L_1118.ClipsDescendants = true;
-            table.insert(ThemeListeners["Background 2 Color"], function()
-                L_1118.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                return ;
-            end);
-            L_1119.CornerRadius = UDim.new(0, 2);
-            L_1119.Name = "PageSearchCorner";
-            L_1119.Parent = L_1118;
-            L_1120.Name = "SearchFrame";
-            L_1120.Parent = L_1118;
-            L_1120.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-            L_1120.BackgroundTransparency = 1;
-            L_1120.Size = UDim2.new(0, 20, 0, 20);
-            L_1121.Name = "SearchIcon";
-            L_1121.Parent = L_1120;
-            L_1121.AnchorPoint = Vector2.new(0.5, 0.5);
-            L_1121.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-            L_1121.BackgroundTransparency = 1;
-            L_1121.Position = UDim2.new(0.5, 0, 0.5, 0);
-            L_1121.Size = UDim2.new(0, 16, 0, 16);
-            L_1121.Image = CacheAsset("rbxassetid://8154282545");
-            L_1121.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-            table.insert(ThemeListeners["Search Icon Color"], function()
-                L_1121.ImageColor3 = getgenv().UIColor["Search Icon Color"];
-                return ;
-            end);
-            L_1122.Name = "active";
-            L_1122.Parent = L_1120;
-            L_1122.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-            L_1122.BackgroundTransparency = 1;
-            L_1122.Size = UDim2.new(1, 0, 1, 0);
-            L_1122.Font = Enum.Font.SourceSans;
-            L_1122.Text = "";
-            L_1122.TextColor3 = Color3.fromRGB(0, 0, 0);
-            L_1122.TextSize = 14;
-            L_1123.Name = "TextColorPlaceholder";
-            L_1123.Parent = L_1118;
-            L_1123.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
-            L_1123.BackgroundTransparency = 1;
-            L_1123.Position = UDim2.new(0, 30, 0, 0);
-            L_1123.Size = UDim2.new(1, -30, 1, 0);
-            L_1123.Font = Enum.Font.GothamBold;
-            L_1123.Text = "";
-            L_1123.TextSize = 14;
-            L_1123.TextXAlignment = Enum.TextXAlignment.Left;
-            L_1123.PlaceholderText = "Search Section name";
-            L_1123.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-            L_1123.TextColor3 = getgenv().UIColor["Text Color"];
-            table.insert(ThemeListeners["Placeholder Text Color"], function()
-                L_1123.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                return ;
-            end);
-            table.insert(ThemeListeners["Text Color"], function()
-                L_1123.TextColor3 = getgenv().UIColor["Text Color"];
-                return ;
-            end);
-            local L_1124 = false;
-            L_1122.MouseEnter:Connect(function()
-                TweenService:Create(L_1121, Internal.EasingInfo(getgenv().UIColor["Tween Animation 3 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Highlight Color"] }):Play();
-                return ;
-            end);
-            L_1122.MouseLeave:Connect(function()
-                TweenService:Create(L_1121, Internal.EasingInfo(getgenv().UIColor["Tween Animation 3 Speed"]), { ImageColor3 = getgenv().UIColor["Search Icon Color"] }):Play();
-                return ;
-            end);
-            L_1122.MouseButton1Click:Connect(function()
-                Internal.ButtonEffect();
-                return ;
-            end);
-            L_1123.Focused:Connect(function()
-                Internal.ButtonEffect();
-                return ;
-            end);
-            L_1122.MouseButton1Click:Connect(function()
-                L_1124 = not L_1124;
-                local L_1125 = L_1124 and UDim2.new(0, 175, 0, 20) or UDim2.new(0, 20, 0, 20);
-                game.TweenService:Create(L_1118, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = L_1125 }):Play();
-                return ;
-            end);
-            local L_1128 = function()
-                for L_1126, L_1127 in next, L_1115:GetChildren() do
-                    if not L_1127:IsA("UIListLayout") then
-                        L_1127.Visible = false;
-                    end;
-                end;
-                return ;
-            end;
-            local L_1131 = function()
-                for L_1129, L_1130 in pairs(L_1115:GetChildren()) do
-                    if not L_1130:IsA("UIListLayout") and string.find(string.lower(L_1130.Name), string.lower(L_1123.Text)) then
-                        L_1130.Visible = true;
-                    end;
-                end;
-                return ;
-            end;
-            L_1123:GetPropertyChangedSignal("Text"):Connect(function()
-                L_1128();
-                L_1131();
-                return ;
-            end);
-            for L_1132, L_1133 in pairs(L_841:GetChildren()) do
-                if not L_1133:IsA("UIListLayout") and L_1132 == 2 then
-                    L_1133.Frame.Line.PageInLine.Size = UDim2.new(1, -10, 1, -10);
-                    oldlay = L_1133.LayoutOrder;
-                    oldobj = L_1133;
-                end;
-            end;
-            L_1111.MouseButton1Click:Connect(function()
-                Internal.ButtonEffect();
-                if tostring(L_845.CurrentPage) == L_1112.Name then
-                    return ;
-                end;
-                local L_1134 = getgenv().UIColor["Tween Animation 1 Speed"] or 0.25;
-                local L_1135 = TweenInfo.new(L_1134, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
-                for L_1136, L_1137 in ipairs(L_841:GetChildren()) do
-                    if L_1137:IsA("Frame") and L_1137:FindFirstChild("Frame") then
-                        local L_1138 = L_1137.Frame:FindFirstChild("Line");
-                        if L_1138 and L_1138:FindFirstChild("PageInLine") then
-                            local L_1139 = L_1138.PageInLine;
-                            TweenService:Create(L_1139, L_1135, { Size = UDim2.new(1, -10, 0, 0), Position = UDim2.new(0.5, 0, 1, 0), AnchorPoint = Vector2.new(0.5, 1) }):Play();
-                        end;
-                    end;
-                end;
-                TweenService:Create(L_1107, L_1135, { Size = UDim2.new(1, -10, 1, -10), Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5) }):Play();
-                for L_1140, L_1141 in ipairs(L_844:GetChildren()) do
-                    if L_1141:IsA("Frame") then
-                        L_1141.Visible = L_1141 == L_1112;
-                    end;
-                end;
-                local L_1142 = L_1112:FindFirstChild("PageList");
-                if L_1142 and L_1142:IsA("ScrollingFrame") then
-                    L_1142.CanvasPosition = Vector2.new(0, 0);
-                end;
-                L_845:JumpTo(L_1112);
-                return ;
-            end);
-            return {
-                CreateSection = function(L_1143, L_1144)
-                    local L_1145 = tostring(L_1143);
-                    -- STANDALONE CHANGE (documented in README):
-                    -- the original read `L_1146 = game.PlaceId == 11424731604`
-                    -- (a hardcoded Grand Piece Online place id). Any other game
-                    -- got a table of no-op stubs. The stub behaviour is kept --
-                    -- it is real UI behaviour -- but it is now driven by the
-                    -- caller's boolean instead of a hardcoded place.
-                    local L_1146 = true;
-                    if L_1144 ~= nil then
-                        L_1146 = (L_1144 and true) or false;
-                    end;
-                    if not L_1146 then
-                        return {
-                            CreateToggle = function()
-                                return {
-                                    SetStage = function()
-                                        return ;
-                                    end,
-                                    SetKeybind = function()
-                                        return ;
-                                    end,
-                                    GetKeybind = function()
-                                        return nil;
-                                    end
-                                };
-                            end,
-                            CreateButton = function()
-                                return ;
-                            end,
-                            CreateLabel = function()
-                                return {
-                                    SetText = function()
-                                        return ;
-                                    end,
-                                    SetColor = function()
-                                        return ;
-                                    end
-                                };
-                            end,
-                            CreateDropdown = function()
-                                return {
-                                    ClearText = function()
-                                        return ;
-                                    end,
-                                    GetNewList = function()
-                                        return ;
-                                    end,
-                                    rf = function()
-                                        return ;
-                                    end
-                                };
-                            end,
-                            CreateBind = function()
-                                return ;
-                            end,
-                            CreateBox = function()
-                                return {
-                                    SetValue = function()
-                                        return ;
-                                    end
-                                };
-                            end,
-                            CreateSlider = function()
-                                return {
-                                    SetValue = function()
-                                        return ;
-                                    end
-                                };
+                local controlData = {
+                    Name = Title,
+                    Section = Section,
+                    Element = Button,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+                return f
+            end
+        
+			function sectionFunction:AddLabel(text)
+				local Title = text
+                local LabelFrame = Instance.new("Frame")
+                local LabelBG = Instance.new("Frame")
+                local UICorner = Instance.new("UICorner")
+                local TextColor = Instance.new("TextLabel")
+                
+                LabelFrame.Name = "LabelFrame"
+                LabelFrame.Parent = Section
+                LabelFrame.AutomaticSize = Enum.AutomaticSize.Y
+                LabelFrame.BackgroundColor3 = Color3.fromRGB(163,162,165)
+                LabelFrame.BackgroundTransparency = 1
+                LabelFrame.Size = UDim2.new(1, 0,0, 0)
+                
+                LabelBG.Name = "LabelBG"
+                LabelBG.Parent = LabelFrame
+                LabelBG.AnchorPoint = Vector2.new(0.5, 0)
+                LabelBG.AutomaticSize = Enum.AutomaticSize.Y
+                LabelBG.BackgroundColor3 = Color3.fromRGB(38,38,46)
+                LabelBG.BackgroundTransparency = 0.25
+                LabelBG.Position = UDim2.new(0.5, 0,0, 0)
+                LabelBG.Size = UDim2.new(1, -10,0, -10)
+                
+                UICorner.Parent = LabelBG
+                UICorner.CornerRadius = UDim.new(0,6)
+                
+                
+                TextColor.Name = "TextColor"
+                TextColor.Parent = LabelBG
+                TextColor.AutomaticSize = Enum.AutomaticSize.Y
+                TextColor.BackgroundColor3 = Color3.fromRGB(163,162,165)
+                TextColor.BackgroundTransparency = 1
+                TextColor.Position = UDim2.new(0, 12,0, 6)
+                TextColor.Size = UDim2.new(1, -24,1, -12)
+                TextColor.Font = Enum.Font.GothamMedium
+                TextColor.Text = Title
+                TextColor.TextColor3 = Color3.fromRGB(240,240,230)
+                TextColor.TextSize = 14
+                TextColor.TextStrokeTransparency = 0.8500000238418579
+                TextColor.TextWrapped = true
+                TextColor.TextXAlignment = Enum.TextXAlignment.Left
+				local labelFunction = {}
+				function labelFunction:SetText(text)
+					TextColor.Text = text
+				end
+				function labelFunction.SetColor(color)
+					TextColor.TextColor3 = color
+				end
+				local controlData = {
+                    Name = Title,
+                    Section = Section,
+                    Element = LabelFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+				return labelFunction
+			end
+            function sectionFunction:AddDropdownSection(Setting)
+                local Title = tostring(Setting.Text or Setting.Title or "")
+                local Search = Setting.Search or false
+              
+                local DropdownFrame = Instance.new("Frame")
+                local Dropdownbg = Instance.new("Frame")
+                local Dropdowncorner = Instance.new("UICorner")
+                local Topdrop = Instance.new("Frame")
+                local UICorner = Instance.new("UICorner")
+                local ImgDrop = Instance.new("ImageLabel")
+                local DropdownButton = Instance.new("TextButton")
+                local Dropdownlisttt = Instance.new("Frame")
+                local DropdownScroll = Instance.new("ScrollingFrame")
+                local ScrollContainer = Instance.new("Frame")
+                local ScrollContainerList = Instance.new("UIListLayout")
+                
+                DropdownFrame.Name = Title .. "DropdownSectionFrame"
+                DropdownFrame.Parent = Section
+                DropdownFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                DropdownFrame.BackgroundTransparency = 1.000
+                DropdownFrame.Position = UDim2.new(0, 0, 0.473684222, 0)
+                DropdownFrame.Size = UDim2.new(1, 0, 0, 25)
+                
+                Dropdownbg.Name = "Background1"
+                Dropdownbg.Parent = DropdownFrame
+                Dropdownbg.AnchorPoint = Vector2.new(0.5, 0.5)
+                Dropdownbg.Position = UDim2.new(0.5, 0, 0.5, 0)
+                Dropdownbg.Size = UDim2.new(1, -10, 1, 0)
+                Dropdownbg.ClipsDescendants = true
+                Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+                Dropdownbg.BackgroundTransparency = 0.25
+                
+                Dropdowncorner.CornerRadius = UDim.new(0, 4)
+                Dropdowncorner.Name = "Dropdowncorner"
+                Dropdowncorner.Parent = Dropdownbg
+                
+                Topdrop.Name = "Background2"
+                Topdrop.Parent = Dropdownbg
+                Topdrop.Size = UDim2.new(1, 0, 0, 25)
+                Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+                Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+                
+                UICorner.CornerRadius = UDim.new(0, 4)
+                UICorner.Parent = Topdrop
+                
+                local Dropdowntitle
+                if Search then
+                    Dropdowntitle = Instance.new("TextBox")
+                    Dropdowntitle.PlaceholderText = Title
+                    Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+                else
+                    Dropdowntitle = Instance.new("TextLabel")
+                    Dropdowntitle.Text = Title
+                end
+                
+                Dropdowntitle.Name = "TextColorPlaceholder"
+                Dropdowntitle.Parent = Topdrop
+                Dropdowntitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                Dropdowntitle.BackgroundTransparency = 1.000
+                Dropdowntitle.Position = UDim2.new(0, 10, 0, 0)
+                Dropdowntitle.Size = UDim2.new(1, -40, 1, 0)
+                Dropdowntitle.Font = Enum.Font.GothamBlack
+                Dropdowntitle.TextSize = 14.000
+                Dropdowntitle.TextXAlignment = Enum.TextXAlignment.Left
+                Dropdowntitle.ClipsDescendants = true
+                Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+                
+                ImgDrop.Name = "ImgDrop"
+                ImgDrop.Parent = Topdrop
+                ImgDrop.AnchorPoint = Vector2.new(1, 0.5)
+                ImgDrop.BackgroundTransparency = 1.000
+                ImgDrop.BorderColor3 = Color3.fromRGB(27, 42, 53)
+                ImgDrop.Position = UDim2.new(1, -6, 0.5, 0)
+                ImgDrop.Size = UDim2.new(0, 15, 0, 15)
+                ImgDrop.Image = "rbxassetid://6954383209"
+                ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+                
+                DropdownButton.Name = "DropdownButton"
+                DropdownButton.Parent = Topdrop
+                DropdownButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                DropdownButton.BackgroundTransparency = 1.000
+                DropdownButton.Size = Search and UDim2.new(0, 30, 0, 30) or UDim2.new(1, 0, 1 , 0)
+                DropdownButton.Position = Search and UDim2.new(1, -35, 0, 0) or UDim2.new(0 , 0 , 0 , 0)
+                DropdownButton.Font = Enum.Font.GothamBold
+                DropdownButton.Text = ""
+                DropdownButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+                DropdownButton.TextSize = 14.000
+                
+                Dropdownlisttt.Name = "Dropdownlisttt"
+                Dropdownlisttt.Parent = Dropdownbg
+                Dropdownlisttt.BackgroundTransparency = 1.000
+                Dropdownlisttt.BorderSizePixel = 0
+                Dropdownlisttt.Position = UDim2.new(0, 0, 0, 25)
+                Dropdownlisttt.Size = UDim2.new(1, 0, 0, 0)
+                Dropdownlisttt.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                
+                DropdownScroll.Name = "DropdownScroll"
+                DropdownScroll.Parent = Dropdownlisttt
+                DropdownScroll.Active = true
+                DropdownScroll.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                DropdownScroll.BackgroundTransparency = 1.000
+                DropdownScroll.BorderSizePixel = 0
+                DropdownScroll.Size = UDim2.new(1, 0, 1, 0)
+                DropdownScroll.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+                DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+                DropdownScroll.ScrollBarThickness = 5
+                DropdownScroll.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+                DropdownScroll.ScrollingEnabled = true
+                DropdownScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+                
+                ScrollContainer.Name = "ScrollContainer"
+                ScrollContainer.Parent = DropdownScroll
+                ScrollContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                ScrollContainer.BackgroundTransparency = 1.000
+                ScrollContainer.Position = UDim2.new(0, 5, 0, 5)
+                ScrollContainer.Size = UDim2.new(1, -15, 1, -5)
+                
+                ScrollContainerList.Name = "ScrollContainerList"
+                ScrollContainerList.Parent = ScrollContainer
+                ScrollContainerList.SortOrder = Enum.SortOrder.LayoutOrder
+                ScrollContainerList.Padding = UDim.new(0, 5)
+                
+                -- Tạo internal section để chứa các control
+                local InternalSection = Instance.new("Frame")
+                InternalSection.Name = "InternalSection"
+                InternalSection.Parent = ScrollContainer
+                InternalSection.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                InternalSection.BackgroundTransparency = 1.000
+                InternalSection.Size = UDim2.new(1, 0, 0, 0)
+                InternalSection.AutomaticSize = Enum.AutomaticSize.Y
+                
+                local InternalList = Instance.new("UIListLayout")
+                InternalList.Name = "InternalList"
+                InternalList.Parent = InternalSection
+                InternalList.SortOrder = Enum.SortOrder.LayoutOrder
+                InternalList.Padding = UDim.new(0, 5)
+                
+                local isOpen = false
+                
+                DropdownButton.MouseButton1Click:Connect(function()
+                    isOpen = not isOpen
+                    
+                    local listsize = isOpen and UDim2.new(1, 0, 0, 200) or UDim2.new(1, 0, 0, 0)
+                    local mainsize = isOpen and UDim2.new(1, 0, 0, 230) or UDim2.new(1, 0, 0, 25)
+                    local DropCRotation = isOpen and 90 or 0
+                    
+                    TweenService:Create(Dropdownlisttt, TI("Tween Animation 2 Speed"), {
+                        Size = listsize
+                    }):Play()
+                    TweenService:Create(DropdownFrame, TI("Tween Animation 2 Speed"), {
+                        Size = mainsize
+                    }):Play()
+                    TweenService:Create(ImgDrop, TI("Tween Animation 2 Speed"), {
+                        Rotation = DropCRotation
+                    }):Play()
+                end)
+                
+                ScrollContainerList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                    DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 10 + ScrollContainerList.AbsoluteContentSize.Y + 5)
+                end)
+                
+                InternalList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                    local contentHeight = math.min(InternalList.AbsoluteContentSize.Y + 10, 300)
+                    local listsize = isOpen and UDim2.new(1, 0, 0, contentHeight) or UDim2.new(1, 0, 0, 0)
+                    local mainsize = isOpen and UDim2.new(1, 0, 0, contentHeight + 25) or UDim2.new(1, 0, 0, 25)
+                    
+                    if isOpen then
+                        TweenService:Create(Dropdownlisttt, TI("Tween Animation 2 Speed"), {
+                            Size = listsize
+                        }):Play()
+                        TweenService:Create(DropdownFrame, TI("Tween Animation 2 Speed"), {
+                            Size = mainsize
+                        }):Play()
+                    end
+                end)
+                
+                -- Tạo dropdown section functions (CHỈ CÓ SLIDER)
+                local dropdownSectionFunction = {}
+                
+                -- HÀM TẠO SLIDER (RỘNG HƠN, SÁT VIỀN)
+                function dropdownSectionFunction:AddSlider(Setting)
+                    local TitleText = tostring(Setting.Text or Setting.Title) or ""
+                    local minValue = tonumber(Setting.Min) or 0
+                    local maxValue = tonumber(Setting.Max) or 100
+                    local Precise = Setting.Precise or false
+                    local DefaultValue = tonumber(Setting.Default) or 0
+                    local Callback = Setting.Callback
+                    local Rounding = Setting.Rouding or Setting.Rounding
+                    
+                    local SliderFrame = Instance.new("Frame")
+                    local SliderCorner = Instance.new("UICorner")
+                    local SliderBG = Instance.new("Frame")
+                    local SliderBGCorner = Instance.new("UICorner")
+                    local SliderTitle = Instance.new("TextLabel")
+                    local SliderBar = Instance.new("Frame")
+                    local SliderButton = Instance.new("TextButton")
+                    local SliderBarCorner = Instance.new("UICorner")
+                    local Bar = Instance.new("Frame")
+                    local BarCorner = Instance.new("UICorner")
+                    local Sliderboxframe = Instance.new("Frame")
+                    local Sliderbox = Instance.new("UICorner")
+                    local Sliderbox_2 = Instance.new("TextBox")
+                    
+                    SliderFrame.Name = TitleText
+                    SliderFrame.Parent = InternalSection
+                    SliderFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+                    SliderFrame.BackgroundTransparency = 1.000
+                    SliderFrame.Size = UDim2.new(1, 0, 0, 50)  -- Chiếm toàn bộ chiều rộng
+                    
+                    SliderCorner.CornerRadius = UDim.new(0, 4)
+                    SliderCorner.Name = "SliderCorner"
+                    SliderCorner.Parent = SliderFrame
+                    
+                    SliderBG.Name = "Background1"
+                    SliderBG.Parent = SliderFrame
+                    SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
+                    SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+                    SliderBG.Size = UDim2.new(1, -5, 1, 0)  -- Chiếm gần toàn bộ (trừ 5 pixel)
+                    SliderBG.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+                    SliderBG.BackgroundTransparency = 0.25
+                    
+                    SliderBGCorner.CornerRadius = UDim.new(0, 4)
+                    SliderBGCorner.Name = "SliderBGCorner"
+                    SliderBGCorner.Parent = SliderBG
+                    
+                    SliderTitle.Name = "TextColor"
+                    SliderTitle.Parent = SliderBG
+                    SliderTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                    SliderTitle.BackgroundTransparency = 1.000
+                    SliderTitle.Position = UDim2.new(0, 10, 0, 0)
+                    SliderTitle.Size = UDim2.new(0.65, -10, 0, 25)  -- Title chiếm 65%
+                    SliderTitle.Font = Enum.Font.GothamBlack
+                    SliderTitle.Text = TitleText
+                    SliderTitle.TextSize = 14.000
+                    SliderTitle.RichText = true
+                    SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+                    SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+                    
+                    SliderBar.Name = "SliderBar"
+                    SliderBar.Parent = SliderFrame
+                    SliderBar.AnchorPoint = Vector2.new(0.5, 0.5)
+                    SliderBar.Position = UDim2.new(0.5, 0, 0.5, 14)
+                    SliderBar.Size = UDim2.new(0.9, 0, 0, 6)  -- Thanh slider rộng 90%
+                    SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+                    
+                    SliderButton.Name = "SliderButton"
+                    SliderButton.Parent = SliderBar
+                    SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                    SliderButton.BackgroundTransparency = 1.000
+                    SliderButton.Size = UDim2.new(1, 0, 1, 0)
+                    SliderButton.Font = Enum.Font.GothamBold
+                    SliderButton.Text = ""
+                    SliderButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+                    SliderButton.TextSize = 14.000
+                    
+                    SliderBarCorner.CornerRadius = UDim.new(1, 0)
+                    SliderBarCorner.Name = "SliderBarCorner"
+                    SliderBarCorner.Parent = SliderBar
+                    
+                    Bar.Name = "Bar"
+                    Bar.BorderSizePixel = 0
+                    Bar.Parent = SliderBar
+                    Bar.Size = UDim2.new(0, 0, 1, 0)
+                    Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+                    
+                    BarCorner.CornerRadius = UDim.new(1, 0)
+                    BarCorner.Name = "BarCorner"
+                    BarCorner.Parent = Bar
+                    
+                    Sliderboxframe.Name = "Background2"
+                    Sliderboxframe.Parent = SliderFrame
+                    Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
+                    Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
+                    Sliderboxframe.Size = UDim2.new(0.25, 0, 0, 25)  -- Textbox chiếm 25%
+                    Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+                    
+                    Sliderbox.CornerRadius = UDim.new(0, 4)
+                    Sliderbox.Name = "Sliderbox"
+                    Sliderbox.Parent = Sliderboxframe
+                    
+                    Sliderbox_2.Name = "TextColor"
+                    Sliderbox_2.Parent = Sliderboxframe
+                    Sliderbox_2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+                    Sliderbox_2.BackgroundTransparency = 1.000
+                    Sliderbox_2.Size = UDim2.new(1, 0, 1, 0)
+                    Sliderbox_2.Font = Enum.Font.GothamBold
+                    Sliderbox_2.Text = ""
+                    Sliderbox_2.TextSize = 14.000
+                    Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+                    
+                    SliderButton.MouseEnter:Connect(function()
+                        TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+                            BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]
+                        }):Play()
+                    end)
+                    
+                    SliderButton.MouseLeave:Connect(function()
+                        TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+                            BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+                        }):Play()
+                    end)
+                    
+                    local callBackAndSetText = function(val)
+                        Sliderbox_2.Text = tostring(val)
+                        Callback(tonumber(val))
+                    end
+                    if DefaultValue then
+                        if DefaultValue <= minValue then
+                            DefaultValue = minValue
+                        elseif DefaultValue >= maxValue then
+                            DefaultValue = maxValue
+                        end
+                        Bar.Size = UDim2.new(1 - ((maxValue - DefaultValue) / (maxValue - minValue)), 0, 0, 6)
+                        Sliderbox_2.Text = tostring(DefaultValue)
+                    end
+                    
+                    
+                    local dragging = false
+                    local dragInput
+                    local holdTime = 0
+                    local holdStarted = 0
+                    
+                    local function onInputBegan(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            holdStarted = tick()
+                            
+                            input.Changed:Connect(function()
+                                if input.UserInputState == Enum.UserInputState.End then
+                                    dragging = false
+                                    holdStarted = 0
+                                end
+                            end)
+                        end
+                    end
+                    
+                    local function onInputEnded(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            dragging = false
+                            holdStarted = 0
+                        end
+                    end
+                    
+                    local function onInputChanged(input)
+                        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                            dragInput = input
+                        end
+                    end
+                    
+                    SliderButton.InputBegan:Connect(onInputBegan)
+                    SliderButton.InputEnded:Connect(onInputEnded)
+                    SliderButton.InputChanged:Connect(onInputChanged)
+                    
+                    RunService.RenderStepped:Connect(function()
+                        if holdStarted > 0 and (tick() - holdStarted >= holdTime) and not dragging then
+                            dragging = true
+                        end
+                        
+                        if dragging and dragInput then
+                            local barWidth = math.clamp(dragInput.Position.X - Bar.AbsolutePosition.X, 0, SliderBar.AbsoluteSize.X)
+                            local percentage = barWidth / SliderBar.AbsoluteSize.X
+                            local value = minValue + (maxValue - minValue) * percentage
+                            
+                            if Rounding then
+                                value = tonumber(string.format("%.".. Rounding .."f", value))
+                            elseif not Precise then
+                                value = math.floor(value)
                             end
-                        };
-                    end;
-                    local L_1147 = Instance.new("Frame");
-                    local L_1148 = Instance.new("UICorner");
-                    local L_1149 = Instance.new("Frame");
-                    local L_1150 = Instance.new("TextLabel");
-                    local L_1151 = Instance.new("Frame");
-                    local L_1152 = Instance.new("UIGradient");
-                    local L_1153 = Instance.new("UIListLayout");
-                    L_1147.Name = L_1143 .. "_Dot";
-                    L_1147.Parent = L_1115;
-                    L_1147.Size = UDim2.new(0, 415, 0, 100);
-                    L_1147.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-                    table.insert(ThemeListeners["Background 3 Color"], function()
-                        L_1147.BackgroundColor3 = getgenv().UIColor["Background 3 Color"];
-                        return ;
-                    end);
-                    L_1147.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                    table.insert(ThemeListeners["Background 1 Transparency"], function()
-                        L_1147.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                        return ;
-                    end);
-                    L_1148.CornerRadius = UDim.new(0, 4);
-                    L_1148.Parent = L_1147;
-                    L_1149.Name = "Topsec";
-                    L_1149.Parent = L_1147;
-                    L_1149.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                    L_1149.BackgroundTransparency = 1;
-                    L_1149.Size = UDim2.new(0, 415, 0, 30);
-                    L_1150.Name = "Sectiontitle";
-                    L_1150.Parent = L_1149;
-                    L_1150.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                    L_1150.BackgroundTransparency = 1;
-                    L_1150.Size = UDim2.new(1, 0, 1, 0);
-                    L_1150.Font = Enum.Font.GothamBold;
-                    L_1150.Text = L_1143;
-                    L_1150.TextSize = 14;
-                    L_1150.TextColor3 = getgenv().UIColor["Section Text Color"];
-                    table.insert(ThemeListeners["Section Text Color"], function()
-                        L_1150.TextColor3 = getgenv().UIColor["Section Text Color"];
-                        return ;
-                    end);
-                    L_1151.Name = "Linesec";
-                    L_1151.Parent = L_1149;
-                    L_1151.AnchorPoint = Vector2.new(0.5, 1);
-                    L_1151.BorderSizePixel = 0;
-                    L_1151.Position = UDim2.new(0.5, 0, 1, -2);
-                    L_1151.Size = UDim2.new(1, -10, 0, 2);
-                    L_1151.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                    table.insert(ThemeListeners["Section Underline Color"], function()
-                        L_1151.BackgroundColor3 = getgenv().UIColor["Section Underline Color"];
-                        return ;
-                    end);
-                    L_1152.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(0.51, 0.02), NumberSequenceKeypoint.new(1, 1) });
-                    L_1152.Parent = L_1151;
-                    L_1153.Name = "SectionList";
-                    L_1153.Parent = L_1147;
-                    L_1153.SortOrder = Enum.SortOrder.LayoutOrder;
-                    L_1153.Padding = UDim.new(0, 5);
-                    L_1153:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                        L_1147.Size = UDim2.new(1, -5, 0, L_1153.AbsoluteContentSize.Y + 5);
-                        return ;
-                    end);
-                    return {
-                        CreateToggle = function(L_1154, L_1155)
-                            local L_1156 = tostring(L_1154.Title);
-                            local L_1157 = L_1154.Desc;
-                            local L_1158 = L_1154.Default;
-                            local L_1159 = L_1154.Keybind or false;
-                            local L_1160 = Internal.KeyName(L_1154.DefaultKey);
-                            local L_1161 = L_1154.Textbox or false;
-                            local L_1162 = L_1154.TextboxPlaceholder or "Enter value...";
-                            local L_1163 = L_1154.TextboxDefault or "";
-                            local L_1164 = L_1154.TextboxCallback or function()
-                                return ;
-                            end;
-                            local L_1165 = L_1154.Requirements ~= nil;
-                            local L_1166 = L_1154.Requirements or {};
-                            local L_1167 = L_1154.RequirementUpdateInterval or 1;
-                            local L_1168 = L_1155 or function()
-                                return ;
-                            end;
-                            local L_1169 = Instance.new("Frame");
-                            local L_1170 = Instance.new("Frame");
-                            local L_1171 = Instance.new("ImageLabel");
-                            local L_1172 = Instance.new("ImageLabel");
-                            local L_1173 = Instance.new("TextLabel");
-                            local L_1174 = Instance.new("TextLabel");
-                            local L_1175 = Instance.new("Frame");
-                            local L_1176 = Instance.new("UICorner");
-                            local L_1177 = Instance.new("TextButton");
-                            local L_1178 = Instance.new("UIListLayout");
-                            local L_1179 = Instance.new("Frame");
-                            local L_1180 = Instance.new("TextButton");
-                            local L_1181 = Instance.new("UICorner");
-                            local L_1182 = Instance.new("UIStroke");
-                            local L_1183 = Instance.new("Frame");
-                            local L_1184 = Instance.new("TextBox");
-                            local L_1185 = Instance.new("UICorner");
-                            local L_1186 = Instance.new("UIStroke");
-                            local L_1187 = Instance.new("Frame");
-                            local L_1188 = Instance.new("Frame");
-                            local L_1189 = Instance.new("UIListLayout");
-                            local L_1190 = {};
-                            L_1169.Name = "ToggleFrame";
-                            L_1169.Parent = L_1147;
-                            L_1169.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1169.BackgroundTransparency = 1;
-                            L_1169.Position = UDim2.new(0, 0, 0.300000012, 0);
-                            L_1169.Size = UDim2.new(1, 0, 0, 0);
-                            L_1169.AutomaticSize = Enum.AutomaticSize.Y;
-                            L_1170.Name = "TogFrame1";
-                            L_1170.Parent = L_1169;
-                            -- LAYOUT FIX (see README "Row height"):
-                            -- the parent row L_1169 uses AutomaticSize.Y, and Roblox
-                            -- excludes descendants that use Scale on the measured axis.
-                            -- L_1170 was AnchorPoint(0.5,0.5) at Position(0.5,0,0.5,0)
-                            -- -- Scale on Y -- so the row measured 0 and the section's
-                            -- UIListLayout stacked every toggle at the same Y.
-                            -- Anchoring Y to the top removes the Scale term. Visually
-                            -- identical, because once the row measures correctly its
-                            -- height equals this frame's height, so centred and
-                            -- top-aligned are the same position.
-                            -- To restore the original values:
-                            --   AnchorPoint = Vector2.new(0.5, 0.5)
-                            --   Position    = UDim2.new(0.5, 0, 0.5, 0)
-                            L_1170.AnchorPoint = Vector2.new(0.5, 0);
-                            L_1170.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1170.BackgroundTransparency = 1;
-                            L_1170.Position = UDim2.new(0.5, 0, 0, 0);
-                            L_1170.Size = UDim2.new(1, -10, 0, 0);
-                            L_1170.AutomaticSize = Enum.AutomaticSize.Y;
-                            L_1171.Name = "checkbox";
-                            L_1171.Parent = L_1170;
-                            L_1171.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1171.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1171.BackgroundTransparency = 1;
-                            L_1171.Position = UDim2.new(1, -5, 0.5, 3);
-                            L_1171.Size = UDim2.new(0, 25, 0, 25);
-                            L_1171.Image = CacheAsset("rbxassetid://4552505888");
-                            L_1171.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                            L_1171.ZIndex = 3;
-                            table.insert(ThemeListeners["Toggle Border Color"], function()
-                                L_1171.ImageColor3 = getgenv().UIColor["Toggle Border Color"];
-                                return ;
-                            end);
-                            L_1172.Name = "check";
-                            L_1172.Parent = L_1171;
-                            L_1172.AnchorPoint = Vector2.new(0, 1);
-                            L_1172.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1172.BackgroundTransparency = 1;
-                            L_1172.Position = UDim2.new(0, 0, 1, 0);
-                            L_1172.Image = CacheAsset("rbxassetid://4555411759");
-                            L_1172.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                            L_1172.ZIndex = 3;
-                            table.insert(ThemeListeners["Toggle Checked Color"], function()
-                                L_1172.ImageColor3 = getgenv().UIColor["Toggle Checked Color"];
-                                return ;
-                            end);
-                            if L_1159 then
-                                L_1179.Name = "KeybindFrame";
-                                L_1179.Parent = L_1170;
-                                L_1179.AnchorPoint = Vector2.new(1, 0.5);
-                                L_1179.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                L_1179.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                L_1179.Position = UDim2.new(1, -35, 0.5, 3);
-                                L_1179.Size = UDim2.new(0, 45, 0, 20);
-                                L_1179.ZIndex = 2;
-                                table.insert(ThemeListeners["Background 1 Color"], function()
-                                    L_1179.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                    return ;
-                                end);
-                                table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                    L_1179.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                    return ;
-                                end);
-                                L_1181.CornerRadius = UDim.new(0, 4);
-                                L_1181.Parent = L_1179;
-                                L_1182.Name = "KeybindBorder";
-                                L_1182.Parent = L_1179;
-                                L_1182.Color = getgenv().UIColor["Toggle Border Color"];
-                                L_1182.Thickness = 1;
-                                L_1182.ApplyStrokeMode = Enum.ApplyStrokeMode.Border;
-                                table.insert(ThemeListeners["Toggle Border Color"], function()
-                                    L_1182.Color = getgenv().UIColor["Toggle Border Color"];
-                                    return ;
-                                end);
-                                L_1180.Name = "KeybindButton";
-                                L_1180.Parent = L_1179;
-                                L_1180.BackgroundTransparency = 1;
-                                L_1180.Size = UDim2.new(1, 0, 1, 0);
-                                L_1180.Font = Enum.Font.GothamBold;
-                                L_1180.Text = L_1160 or "...";
-                                L_1180.TextColor3 = getgenv().UIColor["Text Color"];
-                                L_1180.TextSize = 10;
-                                L_1180.TextWrapped = true;
-                                L_1180.ZIndex = 2;
-                                table.insert(ThemeListeners["Text Color"], function()
-                                    L_1180.TextColor3 = getgenv().UIColor["Text Color"];
-                                    return ;
-                                end);
-                            end;
-                            if L_1161 then
-                                L_1183.Name = "TextboxFrame";
-                                L_1183.Parent = L_1170;
-                                L_1183.AnchorPoint = Vector2.new(1, 0.5);
-                                L_1183.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                L_1183.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                L_1183.Position = UDim2.new(1, L_1159 and -85 or -35, 0.5, 3);
-                                L_1183.Size = UDim2.new(0, 60, 0, 20);
-                                L_1183.ZIndex = 2;
-                                table.insert(ThemeListeners["Background 1 Color"], function()
-                                    L_1183.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                    return ;
-                                end);
-                                table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                    L_1183.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                    return ;
-                                end);
-                                L_1185.CornerRadius = UDim.new(0, 4);
-                                L_1185.Parent = L_1183;
-                                L_1186.Name = "TextboxBorder";
-                                L_1186.Parent = L_1183;
-                                L_1186.Color = getgenv().UIColor["Toggle Border Color"];
-                                L_1186.Thickness = 1;
-                                L_1186.ApplyStrokeMode = Enum.ApplyStrokeMode.Border;
-                                table.insert(ThemeListeners["Toggle Border Color"], function()
-                                    L_1186.Color = getgenv().UIColor["Toggle Border Color"];
-                                    return ;
-                                end);
-                                L_1184.Name = "TextboxInput";
-                                L_1184.Parent = L_1183;
-                                L_1184.BackgroundTransparency = 1;
-                                L_1184.Position = UDim2.new(0, 6, 0, 0);
-                                L_1184.Size = UDim2.new(1, -12, 1, 0);
-                                L_1184.Font = Enum.Font.Gotham;
-                                L_1184.PlaceholderText = L_1162;
-                                L_1184.Text = L_1163;
-                                L_1184.TextColor3 = getgenv().UIColor["Text Color"];
-                                L_1184.PlaceholderColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                L_1184.TextSize = 12;
-                                L_1184.TextXAlignment = Enum.TextXAlignment.Left;
-                                L_1184.ClearTextOnFocus = false;
-                                L_1184.ZIndex = 2;
-                                table.insert(ThemeListeners["Text Color"], function()
-                                    L_1184.TextColor3 = getgenv().UIColor["Text Color"];
-                                    return ;
-                                end);
-                                table.insert(ThemeListeners["Toggle Desc Color"], function()
-                                    L_1184.PlaceholderColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                    return ;
-                                end);
-                                L_1184.FocusLost:Connect(function(L_1191)
-                                    if L_1191 then
-                                        L_1164(L_1184.Text);
-                                    end;
-                                    return ;
-                                end);
-                            end;
-                            local L_1192 = 5;
-                            if L_1157 then
-                                L_1192 = 0;
-                                L_1173.Name = "ToggleDesc";
-                                L_1173.Parent = L_1170;
-                                L_1173.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                                L_1173.BackgroundTransparency = 1;
-                                L_1173.Position = UDim2.new(0, 15, 0, 20);
-                                L_1173.Size = UDim2.new(1, (L_1159 and -90 or -50) - (L_1161 and 70 or 0), 0, 0);
-                                L_1173.Font = Enum.Font.GothamBlack;
-                                L_1173.Text = L_1157;
-                                L_1173.TextSize = 13;
-                                L_1173.TextWrapped = true;
-                                L_1173.TextXAlignment = Enum.TextXAlignment.Left;
-                                L_1173.RichText = true;
-                                L_1173.AutomaticSize = Enum.AutomaticSize.Y;
-                                L_1173.TextColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                table.insert(ThemeListeners["Toggle Desc Color"], function()
-                                    L_1173.TextColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                    return ;
-                                end);
-                            else
-                                L_1173.Text = "";
-                            end;
-                            L_1174.Name = "TextColor";
-                            L_1174.Parent = L_1170;
-                            L_1174.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1174.BackgroundTransparency = 1;
-                            L_1174.Position = UDim2.new(0, 10, 0, L_1192);
-                            L_1174.Size = UDim2.new(1, -10, 0, 20);
-                            L_1174.Font = Enum.Font.GothamBlack;
-                            L_1174.Text = L_1156;
-                            L_1174.TextSize = 14;
-                            L_1174.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1174.TextYAlignment = Enum.TextYAlignment.Center;
-                            L_1174.RichText = true;
-                            L_1174.AutomaticSize = Enum.AutomaticSize.Y;
-                            L_1174.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1174.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1175.Name = "Background1";
-                            L_1175.Parent = L_1170;
-                            L_1175.Size = UDim2.new(1, 0, 1, 6);
-                            L_1175.ZIndex = 0;
-                            L_1175.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1175.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1175.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1175.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1176.CornerRadius = UDim.new(0, 4);
-                            L_1176.Name = "ToggleCorner";
-                            L_1176.Parent = L_1175;
-                            L_1177.Name = "ToggleButton";
-                            L_1177.Parent = L_1170;
-                            L_1177.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1177.BackgroundTransparency = 1;
-                            L_1177.Size = UDim2.new(1, 0, 1, 6);
-                            L_1177.Font = Enum.Font.SourceSans;
-                            L_1177.Text = "";
-                            L_1177.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_1177.TextSize = 14;
-                            L_1178.Name = "ToggleList";
-                            L_1178.Parent = L_1169;
-                            L_1178.HorizontalAlignment = Enum.HorizontalAlignment.Center;
-                            L_1178.SortOrder = Enum.SortOrder.LayoutOrder;
-                            L_1178.VerticalAlignment = Enum.VerticalAlignment.Center;
-                            L_1178.Padding = UDim.new(0, 0);
-                            local L_1193 = true;
-                            local L_1194 = nil;
-                            if L_1165 and #L_1166 > 0 then
-                                L_1176.CornerRadius = UDim.new(0, 4);
-                                L_1187.Name = "RequirementsContainer";
-                                L_1187.Parent = L_1170;
-                                L_1187.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                L_1187.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                L_1187.Size = UDim2.new(1, 0, 0, 0);
-                                L_1187.AutomaticSize = Enum.AutomaticSize.Y;
-                                L_1187.Position = UDim2.new(0, 0, 1, 4);
-                                L_1187.ZIndex = 0;
-                                table.insert(ThemeListeners["Background 1 Color"], function()
-                                    L_1187.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                    return ;
-                                end);
-                                table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                    L_1187.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                    return ;
-                                end);
-                                local L_1195 = Instance.new("UICorner");
-                                L_1195.CornerRadius = UDim.new(0, 4);
-                                L_1195.Parent = L_1187;
-                                L_1188.Name = "RequirementsInner";
-                                L_1188.Parent = L_1187;
-                                L_1188.BackgroundColor3 = Color3.fromRGB(0, 0, 0);
-                                L_1188.BackgroundTransparency = 0.85;
-                                L_1188.Size = UDim2.new(1, -12, 0, 0);
-                                L_1188.AutomaticSize = Enum.AutomaticSize.Y;
-                                L_1188.Position = UDim2.new(0, 6, 0, 6);
-                                L_1188.ZIndex = 1;
-                                local L_1196 = Instance.new("UICorner");
-                                L_1196.CornerRadius = UDim.new(0, 3);
-                                L_1196.Parent = L_1188;
-                                local L_1197 = Instance.new("UIPadding");
-                                L_1197.PaddingTop = UDim.new(0, 6);
-                                L_1197.PaddingBottom = UDim.new(0, 6);
-                                L_1197.PaddingLeft = UDim.new(0, 8);
-                                L_1197.PaddingRight = UDim.new(0, 8);
-                                L_1197.Parent = L_1188;
-                                local L_1198 = Instance.new("UIPadding");
-                                L_1198.PaddingBottom = UDim.new(0, 6);
-                                L_1198.Parent = L_1187;
-                                L_1189.Name = "RequirementsLayout";
-                                L_1189.Parent = L_1188;
-                                L_1189.FillDirection = Enum.FillDirection.Vertical;
-                                L_1189.HorizontalAlignment = Enum.HorizontalAlignment.Left;
-                                L_1189.SortOrder = Enum.SortOrder.LayoutOrder;
-                                L_1189.Padding = UDim.new(0, 4);
-                                for L_1199, L_1200 in ipairs(L_1166) do
-                                    local L_1201 = Instance.new("Frame");
-                                    L_1201.Name = "Req_" .. L_1200;
-                                    L_1201.Parent = L_1188;
-                                    L_1201.BackgroundTransparency = 1;
-                                    L_1201.Size = UDim2.new(1, 0, 0, 16);
-                                    L_1201.LayoutOrder = L_1199;
-                                    local L_1202 = Instance.new("ImageLabel");
-                                    L_1202.Name = "Icon";
-                                    L_1202.Parent = L_1201;
-                                    L_1202.BackgroundTransparency = 1;
-                                    L_1202.Size = UDim2.new(0, 14, 0, 14);
-                                    L_1202.Position = UDim2.new(0, 0, 0.5, 0);
-                                    L_1202.AnchorPoint = Vector2.new(0, 0.5);
-                                    L_1202.Image = CacheAsset("rbxassetid://7072725342");
-                                    L_1202.ImageColor3 = Color3.fromRGB(255, 85, 85);
-                                    L_1202.ZIndex = 2;
-                                    local L_1203 = Instance.new("TextLabel");
-                                    L_1203.Name = "Text";
-                                    L_1203.Parent = L_1201;
-                                    L_1203.BackgroundTransparency = 1;
-                                    L_1203.Size = UDim2.new(1, -22, 1, 0);
-                                    L_1203.Position = UDim2.new(0, 20, 0, 0);
-                                    L_1203.Font = Enum.Font.Gotham;
-                                    L_1203.Text = L_1200;
-                                    L_1203.TextSize = 11;
-                                    L_1203.TextXAlignment = Enum.TextXAlignment.Left;
-                                    L_1203.TextColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                    L_1203.ZIndex = 2;
-                                    table.insert(ThemeListeners["Toggle Desc Color"], function()
-                                        L_1203.TextColor3 = getgenv().UIColor["Toggle Desc Color"];
-                                        return ;
-                                    end);
-                                    L_1190[L_1200] = { Frame = L_1201, Icon = L_1202, Text = L_1203, Met = false };
-                                end;
-                                local L_1208 = function()
-                                    local L_1204 = true;
-                                    for L_1205, L_1206 in pairs(L_1190) do
-                                        local L_1207 = RequirementsTracker:Check(L_1205);
-                                        L_1206.Met = L_1207;
-                                        if L_1207 then
-                                            L_1206.Icon.Image = CacheAsset("rbxassetid://7072706620");
-                                            L_1206.Icon.ImageColor3 = Color3.fromRGB(85, 255, 127);
-                                        else
-                                            L_1206.Icon.Image = CacheAsset("rbxassetid://7072725342");
-                                            L_1206.Icon.ImageColor3 = Color3.fromRGB(255, 85, 85);
-                                            L_1204 = false;
-                                        end;
-                                    end;
-                                    L_1193 = L_1204;
-                                    if not L_1204 then
-                                        L_1171.ImageTransparency = 0.5;
-                                        L_1172.ImageTransparency = 0.5;
-                                    else
-                                        L_1171.ImageTransparency = 0;
-                                        L_1172.ImageTransparency = 0;
-                                    end;
-                                    return ;
-                                end;
-                                L_1208();
-                                L_1194 = task.spawn(function()
-                                    while true do
-                                        task.wait(L_1167);
-                                        if not L_1169 or not L_1169.Parent then
-                                            break;
-                                        end;
-                                        L_1208();
-                                    end;
-                                    return ;
-                                end);
-                            end;
-                            local L_1209 = L_1160;
-                            local L_1210 = false;
-                            local L_1215 = function(L_1211)
-                                if L_1165 and (#L_1166 > 0 and L_1211 and not L_1193) then
-                                    return ;
-                                end;
-                                local L_1212 = L_1211 and UDim2.new(1, -4, 1, -4) or UDim2.new(0, 0, 0, 0);
-                                local L_1213 = L_1211 and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 0, 1, 0);
-                                local L_1214 = L_1211 and Vector2.new(0.5, 0.5) or Vector2.new(0, 1);
-                                game.TweenService:Create(L_1172, Internal.EasingInfo(getgenv().UIColor["Tween Animation 1 Speed"]), { Size = L_1212, Position = L_1213, AnchorPoint = L_1214 }):Play();
-                                L_1168(L_1211);
-                                return ;
-                            end;
-                            if L_1168 then
-                                L_1215(L_1158);
-                            end;
-                            L_1177.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_1177.MouseButton1Down:Connect(function()
-                                if L_1165 and (#L_1166 > 0 and not L_1158 and not L_1193) then
-                                    return ;
-                                end;
-                                L_1158 = not L_1158;
-                                L_1215(L_1158);
-                                return ;
-                            end);
-                            if L_1159 then
-                                local L_1216 = cloneref(game:GetService("UserInputService"));
-                                L_1180.MouseButton1Click:Connect(function()
-                                    if not L_1210 then
-                                        L_1210 = true;
-                                        L_1180.Text = "...";
-                                        local L_1217 = nil;
-                                        L_1217 = L_1216.InputBegan:Connect(function(L_1218, L_1219)
-                                            if not L_1219 and L_1218.UserInputType == Enum.UserInputType.Keyboard then
-                                                local L_1220 = L_1218.KeyCode.Name;
-                                                L_1209 = L_1220;
-                                                L_1180.Text = L_1220;
-                                                L_1210 = false;
-                                                L_1217:Disconnect();
-                                            end;
-                                            return ;
-                                        end);
-                                    end;
-                                    return ;
-                                end);
-                                L_1216.InputBegan:Connect(function(L_1221, L_1222)
-                                    if not L_1222 and (not L_1210 and L_1221.UserInputType == Enum.UserInputType.Keyboard and L_1209 and L_1221.KeyCode.Name == L_1209) then
-                                        if L_1165 and #L_1166 > 0 and not L_1158 and not L_1193 then
-                                            return ;
-                                        end;
-                                        L_1158 = not L_1158;
-                                        L_1215(L_1158);
-                                    end;
-                                    return ;
-                                end);
-                            end;
-                            local L_1229 = {
-                                SetStage = function(L_1223)
-                                    L_1215(L_1223);
-                                    return ;
-                                end,
-                                SetKeybind = function(L_1224)
-                                    if L_1159 then
-                                        L_1209 = Internal.KeyName(L_1224);
-                                        L_1180.Text = L_1209 or "NONE";
-                                    end;
-                                    return ;
-                                end,
-                                GetKeybind = function()
-                                    return L_1209;
-                                end,
-                                SetTextboxValue = function(L_1225)
-                                    if L_1161 then
-                                        L_1184.Text = L_1225;
-                                    end;
-                                    return ;
-                                end,
-                                GetTextboxValue = function()
-                                    if L_1161 then
-                                        return L_1184.Text;
-                                    end;
-                                    return nil;
-                                end,
-                                AreRequirementsMet = function()
-                                    return L_1193;
-                                end,
-                                GetRequirements = function()
-                                    local L_1226 = {};
-                                    for L_1227, L_1228 in pairs(L_1190) do
-                                        L_1226[L_1227] = L_1228.Met;
-                                    end;
-                                    return L_1226;
-                                end,
-                                Destroy = function()
-                                    if L_1194 then
-                                        task.cancel(L_1194);
-                                    end;
-                                    L_1169:Destroy();
-                                    return ;
-                                end
-                            };
-                            local L_1230 = RegistryKey(L_1101, L_1145, L_1156);
-                            ControlRegistry.Toggles[L_1230] = {
-                                Get = function()
-                                    return L_1158;
-                                end,
-                                Set = function(L_1231)
-                                    local L_1232 = not not L_1231;
-                                    if L_1158 == L_1232 then
-                                        return ;
-                                    end;
-                                    if L_1165 and #L_1166 > 0 and L_1232 and not L_1193 then
-                                        return ;
-                                    end;
-                                    L_1158 = L_1232;
-                                    L_1215(L_1158);
-                                    return ;
-                                end
-                            };
-                            -- STANDALONE ADDITION: the original left Get/Set only on
-                            -- ControlRegistry.Toggles, reachable solely by rebuilding the
-                            -- "page||section||title" key. Mirrored onto the handle. The
-                            -- registry entry is untouched, so config save/load is unaffected.
-                            do
-                                local reg = ControlRegistry.Toggles[L_1230];
-                                if reg then
-                                    L_1229.Get = reg.Get;
-                                    L_1229.Set = reg.Set;
-                                end;
-                            end;
-                            return L_1229;
-                        end,
-                        CreateButton = function(L_1331, L_1332)
-                            local L_1333 = L_1331.Title;
-                            local L_1334 = L_1332 or function()
-                                return ;
-                            end;
-                            local L_1335 = Instance.new("Frame");
-                            local L_1336 = Instance.new("Frame");
-                            local L_1337 = Instance.new("UICorner");
-                            local L_1338 = Instance.new("TextLabel");
-                            local L_1339 = Instance.new("TextButton");
-                            L_1335.Name = L_1333 .. "dot";
-                            L_1335.Parent = L_1147;
-                            L_1335.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1335.BackgroundTransparency = 1;
-                            L_1335.Position = UDim2.new(0, 0, 0.300000012, 0);
-                            L_1335.Size = UDim2.new(1, 0, 0, 25);
-                            L_1336.Name = "ButtonBG";
-                            L_1336.Parent = L_1335;
-                            L_1336.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1336.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1336.Size = UDim2.new(1, -10, 1, 0);
-                            L_1336.BackgroundColor3 = getgenv().UIColor["Button Color"];
-                            table.insert(ThemeListeners["Button Color"], function()
-                                L_1336.BackgroundColor3 = getgenv().UIColor["Button Color"];
-                                return ;
-                            end);
-                            L_1336.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1336.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1337.CornerRadius = UDim.new(0, 4);
-                            L_1337.Name = "ButtonCorner";
-                            L_1337.Parent = L_1336;
-                            L_1338.Name = "TextColor";
-                            L_1338.Parent = L_1336;
-                            L_1338.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1338.BackgroundTransparency = 1;
-                            L_1338.Position = UDim2.new(0, 10, 0, 0);
-                            L_1338.Size = UDim2.new(1, -10, 1, 0);
-                            L_1338.Font = Enum.Font.GothamBlack;
-                            L_1338.Text = L_1333;
-                            L_1338.TextSize = 14;
-                            L_1338.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1338.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1338.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1339.Name = "Button";
-                            L_1339.Parent = L_1336;
-                            L_1339.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1339.BackgroundTransparency = 1;
-                            L_1339.Size = UDim2.new(1, 0, 1, 0);
-                            L_1339.Font = Enum.Font.SourceSans;
-                            L_1339.Text = "";
-                            L_1339.TextColor3 = Color3.fromRGB(0, 0, 0);
-                            L_1339.TextSize = 14;
-                            L_1339.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_1339.MouseButton1Down:Connect(function()
-                                L_1334();
-                                return ;
-                            end);
-                            return ;
-                        end,
-                        CreateLabel = function(L_1340)
-                            local L_1341 = tostring(L_1340.Title);
-                            local L_1342 = Instance.new("Frame");
-                            local L_1343 = Instance.new("Frame");
-                            local L_1344 = Instance.new("UICorner");
-                            local L_1345 = Instance.new("TextLabel");
-                            L_1342.Name = "LabelFrame";
-                            L_1342.Parent = L_1147;
-                            L_1342.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1342.BackgroundTransparency = 1;
-                            L_1342.Position = UDim2.new(0, 0, 0, 0);
-                            L_1342.Size = UDim2.new(1, 0, 0, 0);
-                            L_1342.AutomaticSize = Enum.AutomaticSize.Y;
-                            L_1343.Name = "LabelBG";
-                            L_1343.Parent = L_1342;
-                            L_1343.AnchorPoint = Vector2.new(0.5, 0);
-                            L_1343.Position = UDim2.new(0.5, 0, 0, 0);
-                            L_1343.Size = UDim2.new(1, -10, 0, -10);
-                            L_1343.BackgroundColor3 = getgenv().UIColor["Label Color"];
-                            L_1343.AutomaticSize = Enum.AutomaticSize.Y;
-                            table.insert(ThemeListeners["Label Color"], function()
-                                L_1343.BackgroundColor3 = getgenv().UIColor["Label Color"];
-                                return ;
-                            end);
-                            L_1343.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1343.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1344.CornerRadius = UDim.new(0, 4);
-                            L_1344.Name = "LabelCorner";
-                            L_1344.Parent = L_1343;
-                            L_1345.Name = "TextColor";
-                            L_1345.Parent = L_1343;
-                            L_1345.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1345.BackgroundTransparency = 1;
-                            L_1345.Position = UDim2.new(0, 10, 0, 3);
-                            L_1345.Size = UDim2.new(1, -20, 1, 0);
-                            L_1345.Font = Enum.Font.GothamBlack;
-                            L_1345.Text = L_1341;
-                            L_1345.TextSize = 14;
-                            L_1345.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1345.AutomaticSize = Enum.AutomaticSize.Y;
-                            L_1345.TextWrapped = true;
-                            L_1345.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1345.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            return {
-                                SetText = function(L_1346)
-                                    L_1345.Text = L_1346;
-                                    return ;
-                                end,
-                                SetColor = function(L_1347)
-                                    L_1345.TextColor3 = L_1347;
-                                    return ;
-                                end
-                            };
-                        end,
-                        CreateDropdown = function(L_1348, L_1349)
-                            local L_1350 = tostring(L_1348.Title);
-                            local L_1351 = L_1348.List or {};
-                            local L_1352 = L_1348.Search or false;
-                            local L_1353 = L_1348.Selected or false;
-                            local L_1354 = L_1348.Default;
-                            local L_1355 = L_1349 or function()
-                                return ;
-                            end;
-                            local L_1360 = function(L_1356)
-                                if type(L_1356) ~= "table" then
-                                    return false;
-                                end;
-                                local L_1357 = 0;
-                                for L_1358, L_1359 in pairs(L_1356) do
-                                    if type(L_1358) ~= "number" then
-                                        return false;
-                                    end;
-                                    L_1357 = L_1357 + 1;
-                                end;
-                                return L_1357 == #L_1356;
-                            end;
-                            local L_1361 = Instance.new("Frame");
-                            local L_1362 = Instance.new("Frame");
-                            local L_1363 = Instance.new("UICorner");
-                            local L_1364 = Instance.new("Frame");
-                            local L_1365 = Instance.new("UICorner");
-                            local L_1366 = Instance.new("ImageLabel");
-                            local L_1367 = Instance.new("TextButton");
-                            local L_1368 = Instance.new("Frame");
-                            local L_1369 = Instance.new("ScrollingFrame");
-                            local L_1370 = Instance.new("Frame");
-                            local L_1371 = Instance.new("UIListLayout");
-                            local L_1372;
-                            if L_1352 then
-                                L_1372 = Instance.new("TextBox");
-                                L_1367.Visible = false;
-                            else
-                                L_1372 = Instance.new("TextLabel");
-                            end;
-                            L_1361.Name = L_1350 .. "DropdownFrame";
-                            L_1361.Parent = L_1147;
-                            L_1361.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1361.BackgroundTransparency = 1;
-                            L_1361.Position = UDim2.new(0, 0, 0.473684222, 0);
-                            L_1361.Size = UDim2.new(1, 0, 0, 25);
-                            L_1362.Name = "Background1";
-                            L_1362.Parent = L_1361;
-                            L_1362.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1362.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1362.Size = UDim2.new(1, -10, 1, 0);
-                            L_1362.ClipsDescendants = true;
-                            L_1362.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1362.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1362.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1362.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1363.CornerRadius = UDim.new(0, 4);
-                            L_1363.Name = "Dropdowncorner";
-                            L_1363.Parent = L_1362;
-                            L_1364.Name = "Background2";
-                            L_1364.Parent = L_1362;
-                            L_1364.Size = UDim2.new(1, 0, 0, 25);
-                            L_1364.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1364.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1364.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1364.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1365.CornerRadius = UDim.new(0, 4);
-                            L_1365.Parent = L_1364;
-                            L_1372.Name = "TextColorPlaceholder";
-                            L_1372.Parent = L_1364;
-                            L_1372.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1372.BackgroundTransparency = 1;
-                            L_1372.Position = UDim2.new(0, 10, 0, 0);
-                            L_1372.Size = UDim2.new(1, -40, 1, 0);
-                            L_1372.Font = Enum.Font.GothamBlack;
-                            L_1372.Text = "";
-                            L_1372.TextSize = 14;
-                            L_1372.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1372.ClipsDescendants = true;
-                            L_1372.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1372.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            if L_1352 then
-                                L_1372.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                                table.insert(ThemeListeners["Placeholder Text Color"], function()
-                                    L_1372.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                                    return ;
-                                end);
-                            end;
-                            L_1366.Name = "ImgDrop";
-                            L_1366.Parent = L_1364;
-                            L_1366.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1366.BackgroundTransparency = 1;
-                            L_1366.Position = UDim2.new(1, -6, 0.5, 0);
-                            L_1366.Size = UDim2.new(0, 15, 0, 15);
-                            L_1366.Image = CacheAsset("rbxassetid://6954383209");
-                            L_1366.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"];
-                            table.insert(ThemeListeners["Dropdown Icon Color"], function()
-                                L_1366.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"];
-                                return ;
-                            end);
-                            L_1367.Name = "DropdownButton";
-                            L_1367.Parent = L_1364;
-                            L_1367.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1367.BackgroundTransparency = 1;
-                            L_1367.Size = UDim2.new(1, 0, 1, 0);
-                            L_1367.Font = Enum.Font.GothamBold;
-                            L_1367.Text = "";
-                            L_1367.TextColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1367.TextSize = 14;
-                            L_1368.Name = "Dropdownlisttt";
-                            L_1368.Parent = L_1362;
-                            L_1368.BackgroundTransparency = 1;
-                            L_1368.BorderSizePixel = 0;
-                            L_1368.Position = UDim2.new(0, 0, 0, 25);
-                            L_1368.Size = UDim2.new(1, 0, 0, 25);
-                            L_1369.Name = "DropdownScroll";
-                            L_1369.Parent = L_1368;
-                            L_1369.Active = true;
-                            L_1369.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1369.BackgroundTransparency = 1;
-                            L_1369.BorderSizePixel = 0;
-                            L_1369.Size = UDim2.new(1, 0, 1, 0);
-                            L_1369.ScrollBarThickness = 5;
-                            L_1370.Name = "ScrollContainer";
-                            L_1370.Parent = L_1369;
-                            L_1370.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1370.BackgroundTransparency = 1;
-                            L_1370.Position = UDim2.new(0, 5, 0, 5);
-                            L_1370.Size = UDim2.new(1, -15, 1, -5);
-                            L_1371.Name = "ScrollContainerList";
-                            L_1371.Parent = L_1370;
-                            L_1371.SortOrder = Enum.SortOrder.LayoutOrder;
-                            L_1371:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                                L_1369.CanvasSize = UDim2.new(0, 0, 0, 10 + L_1371.AbsoluteContentSize.Y + 5);
-                                return ;
-                            end);
-                            local L_1373 = false;
-                            local L_1374 = {};
-                            local L_1375 = {};
-                            local L_1376 = L_1351;
-                            local L_1377 = nil;
-                            if L_1353 then
-                                if L_1360(L_1376) then
-                                    local L_1378 = {};
-                                    for L_1379, L_1380 in ipairs(L_1376) do
-                                        L_1378[L_1380] = false;
-                                    end;
-                                    L_1376 = L_1378;
-                                else
-                                    for L_1381, L_1382 in pairs(L_1376) do
-                                        L_1376[L_1381] = not not L_1382;
-                                    end;
-                                end;
-                            end;
-                            local L_1383;
-                            L_1383 = function()
-                                for L_1384, L_1385 in ipairs(L_1370:GetChildren()) do
-                                    if L_1385:IsA("Frame") then
-                                        L_1385:Destroy();
-                                    end;
-                                end;
-                                L_1375 = {};
-                                if not L_1353 then
-                                    for L_1386, L_1387 in ipairs(L_1376) do
-                                        local L_1388 = tostring(L_1387);
-                                        local L_1389 = L_1388:lower();
-                                        table.insert(L_1375, L_1389);
-                                        local L_1390 = Instance.new("Frame");
-                                        local L_1391 = Instance.new("UICorner");
-                                        local L_1392 = Instance.new("Frame");
-                                        local L_1393 = Instance.new("Frame");
-                                        local L_1394 = Instance.new("UICorner");
-                                        local L_1395 = Instance.new("Frame");
-                                        local L_1396 = Instance.new("TextButton");
-                                        L_1390.Name = L_1389;
-                                        L_1390.Parent = L_1370;
-                                        L_1390.BackgroundTransparency = 1;
-                                        L_1390.Size = UDim2.new(1, 0, 0, 25);
-                                        L_1391.CornerRadius = UDim.new(0, 4);
-                                        L_1391.Parent = L_1390;
-                                        L_1392.Name = "Line";
-                                        L_1392.Parent = L_1390;
-                                        L_1392.AnchorPoint = Vector2.new(0, 0.5);
-                                        L_1392.BackgroundTransparency = 1;
-                                        L_1392.Position = UDim2.new(0, 0, 0.5, 0);
-                                        L_1392.Size = UDim2.new(0, 14, 1, 0);
-                                        L_1393.Name = "InLine";
-                                        L_1393.Parent = L_1392;
-                                        L_1393.AnchorPoint = Vector2.new(0.5, 0.5);
-                                        L_1393.BorderSizePixel = 0;
-                                        L_1393.Position = UDim2.new(0.5, 0, 0.5, 0);
-                                        L_1393.Size = UDim2.new(1, -10, 1, -10);
-                                        L_1393.BackgroundTransparency = L_1377 == L_1388 and 0 or 1;
-                                        L_1393.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"];
-                                        table.insert(ThemeListeners["Dropdown Selected Color"], function()
-                                            L_1393.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"];
-                                            return ;
-                                        end);
-                                        L_1394.CornerRadius = UDim.new(0, 4);
-                                        L_1394.Parent = L_1393;
-                                        L_1395.Name = "Dropvalcontainer";
-                                        L_1395.Parent = L_1390;
-                                        L_1395.BackgroundTransparency = 1;
-                                        L_1395.Position = UDim2.new(0, 15, 0, 0);
-                                        L_1395.Size = UDim2.new(1, -15, 1, 0);
-                                        L_1396.Name = "TextColor";
-                                        L_1396.Parent = L_1395;
-                                        L_1396.BackgroundTransparency = 1;
-                                        L_1396.Size = UDim2.new(1, 0, 1, 0);
-                                        L_1396.Font = Enum.Font.GothamBold;
-                                        L_1396.Text = L_1388;
-                                        L_1396.TextSize = 14;
-                                        L_1396.TextXAlignment = Enum.TextXAlignment.Left;
-                                        L_1396.TextColor3 = getgenv().UIColor["Text Color"];
-                                        table.insert(ThemeListeners["Text Color"], function()
-                                            L_1396.TextColor3 = getgenv().UIColor["Text Color"];
-                                            return ;
-                                        end);
-                                        L_1396.MouseButton1Click:Connect(function()
-                                            Internal.ButtonEffect();
-                                            L_1377 = L_1388;
-                                            if L_1352 then
-                                                L_1372.PlaceholderText = L_1350 .. ": " .. L_1388;
-                                            else
-                                                L_1372.Text = L_1350 .. ": " .. L_1388;
-                                            end;
-                                            L_1383();
-                                            pcall(L_1355, L_1388);
-                                            return ;
-                                        end);
-                                    end;
-                                else
-                                    for L_1397, L_1398 in pairs(L_1376) do
-                                        local L_1399 = tostring(L_1397);
-                                        local L_1400 = L_1399:lower();
-                                        table.insert(L_1375, L_1400);
-                                        local L_1401 = Instance.new("Frame");
-                                        local L_1402 = Instance.new("UICorner");
-                                        local L_1403 = Instance.new("Frame");
-                                        local L_1404 = Instance.new("Frame");
-                                        local L_1405 = Instance.new("UICorner");
-                                        local L_1406 = Instance.new("Frame");
-                                        local L_1407 = Instance.new("TextButton");
-                                        L_1401.Name = L_1400;
-                                        L_1401.Parent = L_1370;
-                                        L_1401.BackgroundTransparency = 1;
-                                        L_1401.Size = UDim2.new(1, 0, 0, 25);
-                                        L_1402.CornerRadius = UDim.new(0, 4);
-                                        L_1402.Parent = L_1401;
-                                        L_1403.Name = "Line";
-                                        L_1403.Parent = L_1401;
-                                        L_1403.AnchorPoint = Vector2.new(0, 0.5);
-                                        L_1403.BackgroundTransparency = 1;
-                                        L_1403.Position = UDim2.new(0, 0, 0.5, 0);
-                                        L_1403.Size = UDim2.new(0, 14, 1, 0);
-                                        L_1404.Name = "InLine";
-                                        L_1404.Parent = L_1403;
-                                        L_1404.AnchorPoint = Vector2.new(0.5, 0.5);
-                                        L_1404.BorderSizePixel = 0;
-                                        L_1404.Position = UDim2.new(0.5, 0, 0.5, 0);
-                                        L_1404.Size = UDim2.new(1, -10, 1, -10);
-                                        L_1404.BackgroundTransparency = L_1398 and 0 or 1;
-                                        L_1404.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"];
-                                        table.insert(ThemeListeners["Dropdown Selected Color"], function()
-                                            L_1404.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Color"];
-                                            return ;
-                                        end);
-                                        L_1405.CornerRadius = UDim.new(0, 4);
-                                        L_1405.Parent = L_1404;
-                                        L_1406.Name = "Dropvalcontainer";
-                                        L_1406.Parent = L_1401;
-                                        L_1406.BackgroundTransparency = 1;
-                                        L_1406.Position = UDim2.new(0, 15, 0, 0);
-                                        L_1406.Size = UDim2.new(1, -15, 1, 0);
-                                        L_1407.Name = "TextColor";
-                                        L_1407.Parent = L_1406;
-                                        L_1407.BackgroundTransparency = 1;
-                                        L_1407.Size = UDim2.new(1, 0, 1, 0);
-                                        L_1407.Font = Enum.Font.GothamBold;
-                                        L_1407.Text = L_1399;
-                                        L_1407.TextSize = 14;
-                                        L_1407.TextXAlignment = Enum.TextXAlignment.Left;
-                                        L_1407.TextColor3 = getgenv().UIColor["Text Color"];
-                                        table.insert(ThemeListeners["Text Color"], function()
-                                            L_1407.TextColor3 = getgenv().UIColor["Text Color"];
-                                            return ;
-                                        end);
-                                        L_1407.MouseButton1Click:Connect(function()
-                                            Internal.ButtonEffect();
-                                            L_1376[L_1397] = not L_1376[L_1397];
-                                            L_1404.BackgroundTransparency = L_1376[L_1397] and 0 or 1;
-                                            pcall(L_1355, L_1397, L_1376[L_1397]);
-                                            return ;
-                                        end);
-                                    end;
-                                end;
-                                return ;
-                            end;
-                            if not L_1353 then
-                                if L_1354 ~= nil then
-                                    local L_1408 = tostring(L_1354);
-                                    L_1377 = L_1408;
-                                    if L_1352 then
-                                        L_1372.PlaceholderText = L_1350 .. ": " .. L_1408;
-                                    else
-                                        L_1372.Text = L_1350 .. ": " .. L_1408;
-                                    end;
-                                    pcall(L_1355, L_1408);
-                                elseif L_1352 then
-                                    L_1372.PlaceholderText = L_1350 .. ": ";
-                                else
-                                    L_1372.Text = L_1350 .. ": ";
-                                end;
-                            else
-                                if type(L_1354) == "table" then
-                                    if L_1360(L_1354) then
-                                        for L_1409, L_1410 in ipairs(L_1354) do
-                                            if L_1376[L_1410] ~= nil then
-                                                L_1376[L_1410] = true;
-                                                pcall(L_1355, L_1410, true);
-                                            end;
-                                        end;
-                                    else
-                                        for L_1411, L_1412 in pairs(L_1354) do
-                                            if L_1376[L_1411] ~= nil then
-                                                L_1376[L_1411] = not not L_1412;
-                                                pcall(L_1355, L_1411, L_1376[L_1411]);
-                                            end;
-                                        end;
-                                    end;
-                                end;
-                                L_1372.Text = L_1350 .. ": ";
-                            end;
-                            L_1383();
-                            if L_1352 then
-                                L_1372.Changed:Connect(function()
-                                    local L_1413 = L_1372.Text:lower();
-                                    for L_1414, L_1415 in ipairs(L_1370:GetChildren()) do
-                                        if L_1415:IsA("Frame") then
-                                            L_1415.Visible = L_1413 == "" or L_1415.Name:find(L_1413, 1, true);
-                                        end;
-                                    end;
-                                    return ;
-                                end);
-                            end;
-                            local L_1419 = function()
-                                L_1373 = not L_1373;
-                                local L_1416 = L_1373 and UDim2.new(1, 0, 0, 170) or UDim2.new(1, 0, 0, 0);
-                                local L_1417 = L_1373 and UDim2.new(1, 0, 0, 200) or UDim2.new(1, 0, 0, 25);
-                                local L_1418 = L_1373 and 90 or 0;
-                                TweenService:Create(L_1368, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = L_1416 }):Play();
-                                TweenService:Create(L_1361, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = L_1417 }):Play();
-                                TweenService:Create(L_1366, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Rotation = L_1418 }):Play();
-                                return ;
-                            end;
-                            L_1367.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                L_1419();
-                                return ;
-                            end);
-                            if L_1352 then
-                                L_1372.Focused:Connect(function()
-                                    Internal.ButtonEffect();
-                                    L_1419();
-                                    return ;
-                                end);
-                            end;
-                            local L_1430 = {
-                                rf = L_1383,
-                                -- (also carries an unused self slot; harmless either way)
-                                ClearText = function(L_1420)
-                                    if not L_1353 then
-                                        if L_1352 then
-                                            L_1372.PlaceholderText = L_1350 .. ": ";
-                                        else
-                                            L_1372.Text = L_1350 .. ": ";
-                                        end;
-                                        L_1377 = nil;
-                                    else
-                                        L_1372.Text = L_1350 .. ": ";
-                                        for L_1421, L_1422 in pairs(L_1376) do
-                                            L_1376[L_1421] = false;
-                                        end;
-                                        L_1383();
-                                    end;
-                                    return ;
-                                end,
-                                -- FIX: this is the library's only colon-call method -- the
-                                -- original signature is (self, list), so a dot-call
-                                -- dropdown.GetNewList(t) left the list nil and the
-                                -- multi-select branch hit pairs(nil). Both conventions
-                                -- now work, and a missing list degrades to empty.
-                                GetNewList = function(L_1423, L_1424)
-                                    if L_1424 == nil and type(L_1423) == "table" then
-                                        L_1424 = L_1423;
-                                    end;
-                                    if type(L_1424) ~= "table" then
-                                        L_1424 = {};
-                                    end;
-                                    L_1373 = false;
-                                    TweenService:Create(L_1368, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = UDim2.new(1, 0, 0, 0) }):Play();
-                                    TweenService:Create(L_1361, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Size = UDim2.new(1, 0, 0, 25) }):Play();
-                                    TweenService:Create(L_1366, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { Rotation = 0 }):Play();
-                                    if L_1353 then
-                                        if L_1360(L_1424) then
-                                            local L_1425 = {};
-                                            for L_1426, L_1427 in ipairs(L_1424) do
-                                                L_1425[L_1427] = false;
-                                            end;
-                                            L_1376 = L_1425;
-                                        else
-                                            for L_1428, L_1429 in pairs(L_1424) do
-                                                L_1424[L_1428] = false;
-                                            end;
-                                            L_1376 = L_1424;
-                                        end;
-                                    else
-                                        L_1376 = L_1424 or {};
-                                    end;
-                                    L_1377 = nil;
-                                    L_1383();
-                                    return ;
-                                end
-                            };
-                            local L_1431 = RegistryKey(L_1101, L_1145, L_1350);
-                            if not L_1353 then
-                                ControlRegistry.Dropdowns[L_1431] = {
-                                    Get = function()
-                                        return L_1377;
-                                    end,
-                                    Set = function(L_1432)
-                                        if not L_1432 then
-                                            return ;
-                                        end;
-                                        local L_1433 = tostring(L_1432);
-                                        local L_1434 = false;
-                                        for L_1435, L_1436 in ipairs(L_1376) do
-                                            if tostring(L_1436) == L_1433 then
-                                                L_1434 = true;
-                                                break;
-                                            end;
-                                        end;
-                                        if not L_1434 then
-                                            return ;
-                                        end;
-                                        L_1377 = L_1433;
-                                        if L_1352 then
-                                            L_1372.PlaceholderText = L_1350 .. ": " .. L_1433;
-                                        else
-                                            L_1372.Text = L_1350 .. ": " .. L_1433;
-                                        end;
-                                        L_1383();
-                                        pcall(L_1355, L_1433);
-                                        return ;
-                                    end
-                                };
-                            else
-                                ControlRegistry.Dropdowns[L_1431] = {
-                                    Get = function()
-                                        local L_1437 = {};
-                                        for L_1438, L_1439 in pairs(L_1376) do
-                                            L_1437[L_1438] = not not L_1439;
-                                        end;
-                                        return L_1437;
-                                    end,
-                                    Set = function(L_1440)
-                                        if type(L_1440) ~= "table" then
-                                            return ;
-                                        end;
-                                        for L_1441, L_1442 in pairs(L_1440) do
-                                            if L_1376[L_1441] ~= nil then
-                                                L_1376[L_1441] = not not L_1442;
-                                            end;
-                                        end;
-                                        L_1383();
-                                        for L_1443, L_1444 in pairs(L_1376) do
-                                            pcall(L_1355, L_1443, L_1444);
-                                        end;
-                                        return ;
-                                    end
-                                };
-                            end;
-                            -- STANDALONE ADDITION: the original left Get/Set only on
-                            -- ControlRegistry.Dropdowns, reachable solely by rebuilding the
-                            -- "page||section||title" key. Mirrored onto the handle. The
-                            -- registry entry is untouched, so config save/load is unaffected.
-                            do
-                                local reg = ControlRegistry.Dropdowns[L_1431];
-                                if reg then
-                                    L_1430.Get = reg.Get;
-                                    L_1430.Set = reg.Set;
-                                end;
-                            end;
-                            return L_1430;
-                        end,
-                        CreateBind = function(L_1445, L_1446)
-                            local L_1447 = tostring(L_1445.Title) or "";
-                            local L_1448 = L_1445.Key;
-                            local L_1449 = L_1445.Default or L_1445.Key;
-                            local L_1450 = tostring(L_1449):match("UserInputType") and "UserInputType" or "KeyCode";
-                            local L_1451 = L_1446 or function()
-                                return ;
-                            end;
-                            local L_1452 = tostring(L_1448):gsub("Enum.UserInputType.", "");
-                            local L_1453 = tostring(L_1452):gsub("Enum.KeyCode.", "");
-                            local L_1454 = Instance.new("Frame");
-                            local L_1455 = Instance.new("UICorner");
-                            local L_1456 = Instance.new("Frame");
-                            local L_1457 = Instance.new("UICorner");
-                            local L_1458 = Instance.new("TextLabel");
-                            local L_1459 = Instance.new("TextButton");
-                            local L_1460 = Instance.new("Frame");
-                            local L_1461 = Instance.new("UICorner");
-                            local L_1462 = Instance.new("TextButton");
-                            L_1454.Name = L_1447 .. "bguvl";
-                            L_1454.Parent = L_1147;
-                            L_1454.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1454.BackgroundTransparency = 1;
-                            L_1454.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1454.Size = UDim2.new(1, 0, 0, 35);
-                            L_1455.CornerRadius = UDim.new(0, 4);
-                            L_1455.Name = "BindCorner";
-                            L_1455.Parent = L_1454;
-                            L_1456.Name = "Background1";
-                            L_1456.Parent = L_1454;
-                            L_1456.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1456.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1456.Size = UDim2.new(1, -10, 1, 0);
-                            L_1456.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1456.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1456.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1456.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1457.CornerRadius = UDim.new(0, 4);
-                            L_1457.Name = "ButtonCorner";
-                            L_1457.Parent = L_1456;
-                            L_1458.Name = "TextColor";
-                            L_1458.Parent = L_1456;
-                            L_1458.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1458.BackgroundTransparency = 1;
-                            L_1458.Position = UDim2.new(0, 10, 0, 0);
-                            L_1458.Size = UDim2.new(1, -10, 1, 0);
-                            L_1458.Font = Enum.Font.GothamBlack;
-                            L_1458.Text = L_1447;
-                            L_1458.TextSize = 14;
-                            L_1458.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1458.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1458.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1460.Name = "Background2";
-                            L_1460.Parent = L_1456;
-                            L_1460.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1460.Position = UDim2.new(1, -5, 0.5, 0);
-                            L_1460.Size = UDim2.new(0, 150, 0, 25);
-                            L_1460.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1460.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1461.CornerRadius = UDim.new(0, 4);
-                            L_1461.Name = "ButtonCorner";
-                            L_1461.Parent = L_1460;
-                            L_1462.Name = "Bindkey";
-                            L_1462.Parent = L_1460;
-                            L_1462.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1462.BackgroundTransparency = 1;
-                            L_1462.Size = UDim2.new(1, 0, 1, 0);
-                            L_1462.Font = Enum.Font.GothamBold;
-                            L_1462.Text = tostring(L_1449):gsub("Enum.KeyCode.", "");
-                            L_1462.TextSize = 14;
-                            L_1462.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1462.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            local L_1463 = { [Enum.UserInputType.MouseButton1] = "Mouse1", [Enum.UserInputType.MouseButton2] = "Mouse2", [Enum.UserInputType.MouseButton3] = "Mouse3" };
-                            L_1462.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_1462.MouseButton1Click:Connect(function()
-                                local L_1464 = nil;
-                                L_1462.Text = "...";
-                                L_1464 = UserInputService.InputBegan:Connect(function(L_1465)
-                                    if L_1463[L_1465.UserInputType] then
-                                        L_1462.Text = L_1463[L_1465.UserInputType];
-                                        spawn(function()
-                                            wait(0.1);
-                                            L_1449 = L_1465.UserInputType;
-                                            L_1450 = "UserInputType";
-                                            return ;
-                                        end);
-                                    elseif L_1465.KeyCode ~= Enum.KeyCode.Unknown then
-                                        L_1462.Text = tostring(L_1465.KeyCode):gsub("Enum.KeyCode.", "");
-                                        spawn(function()
-                                            wait(0.1);
-                                            L_1449 = L_1465.KeyCode;
-                                            L_1450 = "KeyCode";
-                                            return ;
-                                        end);
-                                    end;
-                                    L_1464:Disconnect();
-                                    return ;
-                                end);
-                                return ;
-                            end);
-                            UserInputService.InputBegan:Connect(function(L_1466)
-                                if L_1449 == L_1466.UserInputType or L_1449 == L_1466.KeyCode then
-                                    L_1451(L_1449);
-                                end;
-                                return ;
-                            end);
-                            return ;
-                        end,
-                        CreateBox = function(L_1467, L_1468)
-                            local L_1469 = tostring(L_1467.Title) or "";
-                            local L_1470 = tostring(L_1467.Placeholder) or "";
-                            local L_1471 = L_1467.Default or false;
-                            local L_1472 = L_1467.Number or false;
-                            local L_1473 = L_1468 or function()
-                                return ;
-                            end;
-                            local L_1474 = Instance.new("Frame");
-                            local L_1475 = Instance.new("UICorner");
-                            local L_1476 = Instance.new("Frame");
-                            local L_1477 = Instance.new("UICorner");
-                            local L_1478 = Instance.new("TextLabel");
-                            local L_1479 = Instance.new("Frame");
-                            local L_1480 = Instance.new("UICorner");
-                            local L_1481 = Instance.new("TextBox");
-                            local L_1482 = Instance.new("Frame");
-                            local L_1483 = Instance.new("UICorner");
-                            L_1474.Name = "BoxFrame";
-                            L_1474.Parent = L_1147;
-                            L_1474.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1474.BackgroundTransparency = 1;
-                            L_1474.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1474.Size = UDim2.new(1, 0, 0, 60);
-                            L_1475.CornerRadius = UDim.new(0, 4);
-                            L_1475.Name = "BoxCorner";
-                            L_1475.Parent = L_1474;
-                            L_1476.Name = "Background1";
-                            L_1476.Parent = L_1474;
-                            L_1476.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1476.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1476.Size = UDim2.new(1, -10, 1, 0);
-                            L_1476.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1476.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1476.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1476.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1477.CornerRadius = UDim.new(0, 4);
-                            L_1477.Name = "ButtonCorner";
-                            L_1477.Parent = L_1476;
-                            L_1478.Name = "TextColor";
-                            L_1478.Parent = L_1476;
-                            L_1478.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1478.BackgroundTransparency = 1;
-                            L_1478.Position = UDim2.new(0, 10, 0, 0);
-                            L_1478.Size = UDim2.new(1, -10, 0.5, 0);
-                            L_1478.Font = Enum.Font.GothamBlack;
-                            L_1478.Text = L_1469;
-                            L_1478.TextSize = 14;
-                            L_1478.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1478.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1478.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1479.Name = "Background2";
-                            L_1479.Parent = L_1476;
-                            L_1479.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1479.ClipsDescendants = true;
-                            L_1479.Position = UDim2.new(1, -5, 0, 40);
-                            L_1479.Size = UDim2.new(1, -10, 0, 25);
-                            L_1479.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1479.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1480.CornerRadius = UDim.new(0, 4);
-                            L_1480.Name = "ButtonCorner";
-                            L_1480.Parent = L_1479;
-                            L_1481.Name = "TextColorPlaceholder";
-                            L_1481.Parent = L_1479;
-                            L_1481.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1481.BackgroundTransparency = 1;
-                            L_1481.Position = UDim2.new(0, 5, 0, 0);
-                            L_1481.Size = UDim2.new(1, -5, 1, 0);
-                            L_1481.Font = Enum.Font.GothamBold;
-                            L_1481.PlaceholderText = L_1470;
-                            L_1481.Text = "";
-                            L_1481.TextSize = 14;
-                            L_1481.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1481.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                            L_1481.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Placeholder Text Color"], function()
-                                L_1481.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"];
-                                return ;
-                            end);
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1481.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1482.Name = "TextNSBoxLineeeee";
-                            L_1482.Parent = L_1479;
-                            L_1482.BackgroundTransparency = 1;
-                            L_1482.Position = UDim2.new(0, 0, 1, -2);
-                            L_1482.Size = UDim2.new(1, 0, 0, 6);
-                            L_1482.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"];
-                            table.insert(ThemeListeners["Box Highlight Color"], function()
-                                L_1482.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"];
-                                return ;
-                            end);
-                            L_1483.CornerRadius = UDim.new(1, 0);
-                            L_1483.Parent = L_1482;
-                            L_1481.Focused:Connect(function()
-                                TweenService:Create(L_1482, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundTransparency = 0 }):Play();
-                                return ;
-                            end);
-                            L_1481.Focused:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            if L_1472 then
-                                L_1481:GetPropertyChangedSignal("Text"):Connect(function()
-                                    if not tonumber(L_1481.Text) then
-                                        L_1481.PlaceholderText = L_1470;
-                                        L_1481.Text = "";
-                                    end;
-                                    return ;
-                                end);
-                            end;
-                            L_1481.FocusLost:Connect(function()
-                                TweenService:Create(L_1482, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundTransparency = 1 }):Play();
-                                if L_1481.Text ~= "" then
-                                    L_1473(L_1481.Text);
-                                end;
-                                return ;
-                            end);
-                            local L_1484 = {};
-                            if L_1471 then
-                                L_1481.Text = L_1471;
-                                L_1473(L_1471);
-                            end;
-                            L_1484.SetValue = function(L_1485)
-                                L_1481.Text = L_1485;
-                                L_1473(L_1485);
-                                return ;
-                            end;
-                            local L_1486 = RegistryKey(L_1101, L_1145, L_1469);
-                            ControlRegistry.Boxes[L_1486] = {
-                                Get = function()
-                                    return L_1481.Text;
-                                end,
-                                Set = function(L_1487)
-                                    L_1481.Text = tostring(L_1487 or "");
-                                    if L_1481.Text ~= "" then
-                                        L_1473(L_1481.Text);
-                                    end;
-                                    return ;
-                                end
-                            };
-                            -- STANDALONE ADDITION: the original left Get/Set only on
-                            -- ControlRegistry.Boxes, reachable solely by rebuilding the
-                            -- "page||section||title" key. Mirrored onto the handle. The
-                            -- registry entry is untouched, so config save/load is unaffected.
-                            do
-                                local reg = ControlRegistry.Boxes[L_1486];
-                                if reg then
-                                    L_1484.Get = reg.Get;
-                                    L_1484.Set = reg.Set;
-                                end;
-                            end;
-                            return L_1484;
-                        end,
-                        CreateSlider = function(L_1488, L_1489)
-                            local L_1490 = tostring(L_1488.Title) or "";
-                            local L_1491 = tonumber(L_1488.Min) or 0;
-                            local L_1492 = tonumber(L_1488.Max) or 100;
-                            local L_1493 = L_1488.Precise or false;
-                            local L_1494 = tonumber(L_1488.Default) or 0;
-                            local L_1495 = 400;
-                            local L_1496 = cloneref(game:GetService("UserInputService"));
-                            local L_1497 = TweenService or cloneref(game:GetService("TweenService"));
-                            local L_1498 = cloneref(game:GetService("Players")).LocalPlayer:GetMouse();
-                            local L_1499 = typeof(L_1489) == "function" and L_1489 or function()
-                                return ;
-                            end;
-                            local L_1501 = function(L_1500)
-                                task.spawn(L_1499, L_1500);
-                                return ;
-                            end;
-                            local L_1502 = Instance.new("Frame");
-                            local L_1503 = Instance.new("UICorner");
-                            local L_1504 = Instance.new("Frame");
-                            local L_1505 = Instance.new("UICorner");
-                            local L_1506 = Instance.new("TextLabel");
-                            local L_1507 = Instance.new("Frame");
-                            local L_1508 = Instance.new("TextButton");
-                            local L_1509 = Instance.new("UICorner");
-                            local L_1510 = Instance.new("Frame");
-                            local L_1511 = Instance.new("UICorner");
-                            local L_1512 = Instance.new("Frame");
-                            local L_1513 = Instance.new("UICorner");
-                            local L_1514 = Instance.new("TextBox");
-                            L_1502.Name = L_1490 .. "buda";
-                            L_1502.Parent = L_1147;
-                            L_1502.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1502.BackgroundTransparency = 1;
-                            L_1502.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1502.Size = UDim2.new(1, 0, 0, 50);
-                            L_1503.CornerRadius = UDim.new(0, 4);
-                            L_1503.Name = "SliderCorner";
-                            L_1503.Parent = L_1502;
-                            L_1504.Name = "Background1";
-                            L_1504.Parent = L_1502;
-                            L_1504.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1504.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1504.Size = UDim2.new(1, -10, 1, 0);
-                            L_1504.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1504.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1504.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1504.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1505.CornerRadius = UDim.new(0, 4);
-                            L_1505.Name = "SliderBGCorner";
-                            L_1505.Parent = L_1504;
-                            L_1506.Name = "TextColor";
-                            L_1506.Parent = L_1504;
-                            L_1506.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1506.BackgroundTransparency = 1;
-                            L_1506.Position = UDim2.new(0, 10, 0, 0);
-                            L_1506.Size = UDim2.new(1, -10, 0, 25);
-                            L_1506.Font = Enum.Font.GothamBlack;
-                            L_1506.Text = L_1490;
-                            L_1506.TextSize = 14;
-                            L_1506.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1506.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1506.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1507.Name = "SliderBar";
-                            L_1507.Parent = L_1502;
-                            L_1507.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1507.Position = UDim2.new(0.5, 0, 0.5, 14);
-                            L_1507.Size = UDim2.new(0, 400, 0, 6);
-                            L_1507.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1507.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1508.Name = "SliderButton";
-                            L_1508.Parent = L_1507;
-                            L_1508.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1508.BackgroundTransparency = 1;
-                            L_1508.Size = UDim2.new(1, 0, 1, 0);
-                            L_1508.Font = Enum.Font.GothamBold;
-                            L_1508.Text = "";
-                            L_1508.TextColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1508.TextSize = 14;
-                            L_1509.CornerRadius = UDim.new(1, 0);
-                            L_1509.Name = "SliderBarCorner";
-                            L_1509.Parent = L_1507;
-                            L_1510.Name = "Bar";
-                            L_1510.BorderSizePixel = 0;
-                            L_1510.Parent = L_1507;
-                            L_1510.Size = UDim2.new(0, 0, 1, 0);
-                            L_1510.BackgroundColor3 = getgenv().UIColor["Slider Line Color"];
-                            table.insert(ThemeListeners["Slider Line Color"], function()
-                                L_1510.BackgroundColor3 = getgenv().UIColor["Slider Line Color"];
-                                return ;
-                            end);
-                            L_1511.CornerRadius = UDim.new(1, 0);
-                            L_1511.Name = "BarCorner";
-                            L_1511.Parent = L_1510;
-                            L_1512.Name = "Background2";
-                            L_1512.Parent = L_1502;
-                            L_1512.AnchorPoint = Vector2.new(1, 0);
-                            L_1512.Position = UDim2.new(1, -10, 0, 5);
-                            L_1512.Size = UDim2.new(0, 150, 0, 25);
-                            L_1512.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1512.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1513.CornerRadius = UDim.new(0, 4);
-                            L_1513.Name = "Sliderbox";
-                            L_1513.Parent = L_1512;
-                            L_1514.Name = "TextColor";
-                            L_1514.Parent = L_1512;
-                            L_1514.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1514.BackgroundTransparency = 1;
-                            L_1514.Size = UDim2.new(1, 0, 1, 0);
-                            L_1514.Font = Enum.Font.GothamBold;
-                            L_1514.Text = "";
-                            L_1514.TextSize = 14;
-                            L_1514.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1514.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1508.MouseEnter:Connect(function()
-                                L_1497:Create(L_1510, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"] }):Play();
-                                return ;
-                            end);
-                            L_1508.MouseLeave:Connect(function()
-                                L_1497:Create(L_1510, Internal.EasingInfo(getgenv().UIColor["Tween Animation 2 Speed"]), { BackgroundColor3 = getgenv().UIColor["Slider Line Color"] }):Play();
-                                return ;
-                            end);
-                            if L_1494 then
-                                if L_1494 <= L_1491 then
-                                    L_1494 = L_1491;
-                                elseif L_1492 <= L_1494 then
-                                    L_1494 = L_1492;
-                                end;
-                                L_1510.Size = UDim2.new(1 - (L_1492 - L_1494) / (L_1492 - L_1491), 0, 0, 6);
-                                L_1514.Text = L_1494;
-                                L_1501(L_1494);
-                            end;
-                            local L_1515 = nil;
-                            local L_1516 = nil;
-                            L_1508.MouseButton1Down:Connect(function()
-                                local L_1517 = L_1493 and tonumber(string.format("%.1f", (L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491)) or math.floor((L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491);
-                                L_1514.Text = L_1517;
-                                L_1501(L_1517);
-                                L_1510.Size = UDim2.new(0, math.clamp(L_1498.X - L_1510.AbsolutePosition.X, 0, L_1495), 0, 6);
-                                L_1515 = L_1498.Move:Connect(function()
-                                    local L_1518 = L_1493 and tonumber(string.format("%.1f", (L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491)) or math.floor((L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491);
-                                    L_1514.Text = L_1518;
-                                    L_1501(L_1518);
-                                    L_1510.Size = UDim2.new(0, math.clamp(L_1498.X - L_1510.AbsolutePosition.X, 0, L_1495), 0, 6);
-                                    return ;
-                                end);
-                                L_1516 = L_1496.InputEnded:Connect(function(L_1519)
-                                    if L_1519.UserInputType == Enum.UserInputType.MouseButton1 then
-                                        local L_1520 = L_1493 and tonumber(string.format("%.1f", (L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491)) or math.floor((L_1492 - L_1491) / L_1495 * L_1510.AbsoluteSize.X + L_1491);
-                                        L_1514.Text = L_1520;
-                                        L_1501(L_1520);
-                                        L_1510.Size = UDim2.new(0, math.clamp(L_1498.X - L_1510.AbsolutePosition.X, 0, L_1495), 0, 6);
-                                        if L_1515 then
-                                            L_1515:Disconnect();
-                                        end;
-                                        if L_1516 then
-                                            L_1516:Disconnect();
-                                        end;
-                                    end;
-                                    return ;
-                                end);
-                                return ;
-                            end);
-                            local L_1523 = function(L_1521)
-                                local L_1522 = tonumber(L_1521);
-                                if not L_1522 then
-                                    return ;
-                                end;
-                                if L_1522 <= L_1491 then
-                                    L_1510.Size = UDim2.new(0, 0 * L_1495, 0, 6);
-                                    L_1514.Text = L_1491;
-                                    L_1501(L_1491);
-                                elseif L_1492 <= L_1522 then
-                                    L_1510.Size = UDim2.new(0, L_1492 / L_1492 * L_1495, 0, 6);
-                                    L_1514.Text = L_1492;
-                                    L_1501(L_1492);
-                                else
-                                    L_1510.Size = UDim2.new(1 - (L_1492 - L_1522) / (L_1492 - L_1491), 0, 0, 6);
-                                    L_1514.Text = L_1522;
-                                    L_1501(L_1522);
-                                end;
-                                return ;
-                            end;
-                            L_1514.FocusLost:Connect(function()
-                                L_1523(L_1514.Text);
-                                return ;
-                            end);
-                            local L_1525 = {
-                                SetValue = function(L_1524)
-                                    L_1523(L_1524);
-                                    return ;
-                                end
-                            };
-                            local L_1526 = RegistryKey(L_1101, L_1145, L_1490);
-                            ControlRegistry.Sliders[L_1526] = {
-                                Get = function()
-                                    return tonumber(L_1514.Text) or L_1491;
-                                end,
-                                Set = function(L_1527)
-                                    L_1523(tonumber(L_1527) or L_1491);
-                                    return ;
-                                end
-                            };
-                            -- STANDALONE ADDITION: the original left Get/Set only on
-                            -- ControlRegistry.Sliders, reachable solely by rebuilding the
-                            -- "page||section||title" key. Mirrored onto the handle. The
-                            -- registry entry is untouched, so config save/load is unaffected.
-                            do
-                                local reg = ControlRegistry.Sliders[L_1526];
-                                if reg then
-                                    L_1525.Get = reg.Get;
-                                    L_1525.Set = reg.Set;
-                                end;
-                            end;
-                            return L_1525;
-                        end,
-                        CreateKeybind = function(L_1528, L_1529)
-                            local L_1530 = tostring(L_1528.Title) or "Keybind";
-                            local L_1531 = L_1528.Default or Enum.KeyCode.E;
-                            local L_1532 = tostring(L_1531):match("UserInputType") and "UserInputType" or "KeyCode";
-                            local L_1533 = L_1529 or function()
-                                return ;
-                            end;
-                            local L_1534 = Instance.new("Frame");
-                            local L_1535 = Instance.new("UICorner");
-                            local L_1536 = Instance.new("Frame");
-                            local L_1537 = Instance.new("UICorner");
-                            local L_1538 = Instance.new("TextLabel");
-                            local L_1539 = Instance.new("Frame");
-                            local L_1540 = Instance.new("UICorner");
-                            local L_1541 = Instance.new("TextButton");
-                            L_1534.Name = L_1530 .. "KeybindFrame";
-                            L_1534.Parent = L_1147;
-                            L_1534.BackgroundColor3 = Color3.fromRGB(60, 60, 60);
-                            L_1534.BackgroundTransparency = 1;
-                            L_1534.Position = UDim2.new(0, 0, 0.208333328, 0);
-                            L_1534.Size = UDim2.new(1, 0, 0, 35);
-                            L_1535.CornerRadius = UDim.new(0, 4);
-                            L_1535.Name = "KeybindCorner";
-                            L_1535.Parent = L_1534;
-                            L_1536.Name = "Background1";
-                            L_1536.Parent = L_1534;
-                            L_1536.AnchorPoint = Vector2.new(0.5, 0.5);
-                            L_1536.Position = UDim2.new(0.5, 0, 0.5, 0);
-                            L_1536.Size = UDim2.new(1, -10, 1, 0);
-                            L_1536.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                            table.insert(ThemeListeners["Background 1 Color"], function()
-                                L_1536.BackgroundColor3 = getgenv().UIColor["Background 1 Color"];
-                                return ;
-                            end);
-                            L_1536.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                            table.insert(ThemeListeners["Background 1 Transparency"], function()
-                                L_1536.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"];
-                                return ;
-                            end);
-                            L_1537.CornerRadius = UDim.new(0, 4);
-                            L_1537.Name = "KeybindBGCorner";
-                            L_1537.Parent = L_1536;
-                            L_1538.Name = "TextColor";
-                            L_1538.Parent = L_1536;
-                            L_1538.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1538.BackgroundTransparency = 1;
-                            L_1538.Position = UDim2.new(0, 10, 0, 0);
-                            L_1538.Size = UDim2.new(1, -10, 1, 0);
-                            L_1538.Font = Enum.Font.GothamBlack;
-                            L_1538.Text = L_1530;
-                            L_1538.TextSize = 14;
-                            L_1538.TextXAlignment = Enum.TextXAlignment.Left;
-                            L_1538.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1538.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            L_1539.Name = "Background2";
-                            L_1539.Parent = L_1536;
-                            L_1539.AnchorPoint = Vector2.new(1, 0.5);
-                            L_1539.Position = UDim2.new(1, -5, 0.5, 0);
-                            L_1539.Size = UDim2.new(0, 150, 0, 25);
-                            L_1539.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                            table.insert(ThemeListeners["Background 2 Color"], function()
-                                L_1539.BackgroundColor3 = getgenv().UIColor["Background 2 Color"];
-                                return ;
-                            end);
-                            L_1540.CornerRadius = UDim.new(0, 4);
-                            L_1540.Name = "KeybindButtonCorner";
-                            L_1540.Parent = L_1539;
-                            L_1541.Name = "KeybindButton";
-                            L_1541.Parent = L_1539;
-                            L_1541.BackgroundColor3 = Color3.fromRGB(230, 230, 230);
-                            L_1541.BackgroundTransparency = 1;
-                            L_1541.Size = UDim2.new(1, 0, 1, 0);
-                            L_1541.Font = Enum.Font.GothamBold;
-                            L_1541.Text = tostring(L_1531):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "");
-                            L_1541.TextSize = 14;
-                            L_1541.TextColor3 = getgenv().UIColor["Text Color"];
-                            table.insert(ThemeListeners["Text Color"], function()
-                                L_1541.TextColor3 = getgenv().UIColor["Text Color"];
-                                return ;
-                            end);
-                            local L_1542 = { [Enum.UserInputType.MouseButton1] = "Mouse1", [Enum.UserInputType.MouseButton2] = "Mouse2", [Enum.UserInputType.MouseButton3] = "Mouse3" };
-                            L_1541.MouseButton1Click:Connect(function()
-                                Internal.ButtonEffect();
-                                return ;
-                            end);
-                            L_1541.MouseButton1Click:Connect(function()
-                                local L_1543 = nil;
-                                L_1541.Text = "...";
-                                L_1543 = UserInputService.InputBegan:Connect(function(L_1544)
-                                    if L_1542[L_1544.UserInputType] then
-                                        L_1541.Text = L_1542[L_1544.UserInputType];
-                                        spawn(function()
-                                            wait(0.1);
-                                            L_1531 = L_1544.UserInputType;
-                                            L_1532 = "UserInputType";
-                                            return ;
-                                        end);
-                                    elseif L_1544.KeyCode ~= Enum.KeyCode.Unknown then
-                                        L_1541.Text = tostring(L_1544.KeyCode):gsub("Enum.KeyCode.", "");
-                                        spawn(function()
-                                            wait(0.1);
-                                            L_1531 = L_1544.KeyCode;
-                                            L_1532 = "KeyCode";
-                                            return ;
-                                        end);
-                                    end;
-                                    L_1543:Disconnect();
-                                    return ;
-                                end);
-                                return ;
-                            end);
-                            UserInputService.InputBegan:Connect(function(L_1545)
-                                if L_1531 == L_1545.UserInputType or L_1531 == L_1545.KeyCode then
-                                    L_1533(L_1531);
-                                end;
-                                return ;
-                            end);
-                            local L_1547 = {
-                                SetKey = function(L_1546)
-                                    L_1531 = L_1546;
-                                    L_1541.Text = tostring(L_1546):gsub("Enum.KeyCode.", ""):gsub("Enum.UserInputType.", "");
-                                    return ;
-                                end,
-                                GetKey = function()
-                                    return L_1531;
-                                end
-                            };
-                            local L_1548 = RegistryKey(L_1101, L_1145, L_1530);
-                            ControlRegistry.Keybinds[L_1548] = {
-                                Get = function()
-                                    return tostring(L_1531);
-                                end,
-                                Set = function(L_1549)
-                                    if not L_1549 then
-                                        return ;
-                                    end;
-                                    local L_1550 = tostring(L_1549);
-                                    for L_1551, L_1552 in ipairs(Enum.KeyCode:GetEnumItems()) do
-                                        if L_1552.Name == L_1550 or "Enum.KeyCode." .. L_1552.Name == L_1550 then
-                                            L_1531 = L_1552;
-                                            L_1541.Text = L_1552.Name;
-                                            return ;
-                                        end;
-                                    end;
-                                    for L_1553, L_1554 in ipairs(Enum.UserInputType:GetEnumItems()) do
-                                        if L_1554.Name == L_1550 or "Enum.UserInputType." .. L_1554.Name == L_1550 then
-                                            L_1531 = L_1554;
-                                            L_1541.Text = L_1554.Name;
-                                            return ;
-                                        end;
-                                    end;
-                                    return ;
-                                end
-                            };
-                            -- STANDALONE ADDITION: the original left Get/Set only on
-                            -- ControlRegistry.Keybinds, reachable solely by rebuilding the
-                            -- "page||section||title" key. Mirrored onto the handle. The
-                            -- registry entry is untouched, so config save/load is unaffected.
-                            do
-                                local reg = ControlRegistry.Keybinds[L_1548];
-                                if reg then
-                                    L_1547.Get = reg.Get;
-                                    L_1547.Set = reg.Set;
-                                end;
-                            end;
-                            return L_1547;
+                            
+                            value = math.clamp(value, minValue, maxValue)
+                            
+                            pcall(function()
+                                callBackAndSetText(value)
+                            end)
+                            Bar.Size = UDim2.new(percentage, 0, 1, 0)
                         end
-                    };
+                    end)
+                    
+                    local function GetSliderValue(Value)
+                        Value = tonumber(Value) or minValue
+                        Value = math.clamp(Value, minValue, maxValue)
+                        
+                        if Rounding then
+                            Value = tonumber(string.format("%.".. Rounding .."f", Value))
+                        elseif not Precise then
+                            Value = math.floor(Value)
+                        end
+                        
+                        local percentage = (Value - minValue) / (maxValue - minValue)
+                        Bar.Size = UDim2.new(percentage, 0, 1, 0)
+                        callBackAndSetText(Value)
+                    end
+                    
+                    Sliderbox_2.FocusLost:Connect(function()
+                        GetSliderValue(Sliderbox_2.Text)
+                    end)
+                    
+                    local slider_function = {}
+                    function slider_function.SetValue(Value)
+                        GetSliderValue(Value)
+                    end
+                    
+                    function slider_function.GetValue()
+                        return tonumber(Sliderbox_2.Text) or minValue
+                    end
+                    
+                    return slider_function
                 end
-            };
-        end;
-        return L_1095;
-    end;
-    -- STANDALONE ADDITION: the original kept this table private and only leaked
-    -- the ScreenGui via getgenv().GUI. Exposing it gives callers a supported
-    -- handle for show/hide/destroy without inventing new methods.
-    -- ------------------------------------------------------------------
-    -- Background presets (ADDITION -- not present in the original source)
-    --
-    -- The plumbing already existed: writing getgenv().UIColor["Background
-    -- Image"] and calling Internal.ReloadMain(url) swaps the backdrop. The
-    -- theme editor exposes it as a free-text URL box under "Background".
-    -- What was missing was a way to do it from code, and a named list.
-    --
-    -- Accepts rbxassetid:// ids, direct .png URLs, and .webm URLs. .webm
-    -- renders as a looping VideoFrame; everything else as an ImageLabel.
-    -- .webm and remote .png both need executor filesystem + request support.
-    -- ------------------------------------------------------------------
-    SeaUI.BackgroundPresets = {};
+                
+                function dropdownSectionFunction:SetOpen(state)
+                    if state ~= isOpen then
+                        DropdownButton.MouseButton1Click:Fire()
+                    end
+                end
+                
+                function dropdownSectionFunction:GetOpen()
+                    return isOpen
+                end
+                
+                function dropdownSectionFunction:SetTitle(newTitle)
+                    if Search then
+                        Dropdowntitle.PlaceholderText = newTitle
+                    else
+                        Dropdowntitle.Text = newTitle
+                    end
+                end
+                
+                local controlData = {
+                    Name = Title,
+                    Section = Section,
+                    Element = DropdownFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+                return dropdownSectionFunction
+            end
+            
+			function sectionFunction:AddDropdown(idk, Setting)
+				local Title = tostring(Setting.Text or Setting.Title) or ""
+				local List = Setting.Values
+				local Search = Setting.Search or false
+				local Selected = Setting.Selected or Setting.Multi or false
+				local Slider = Setting.Slider or false
+				local SliderRelease = Setting.SliderRelease or false
+				local Default = (function ()
+                    if Setting.Default then
+                        if type(Setting.Default) == "number" then
+                            return List[Setting.Default]
+                        elseif type(Setting.Default) == "string" then
+                            return Setting.Default
+                        end
+                    end
+                    return nil
+                end)()
+				local Callback = Setting.Callback
+				local pairs = Setting.SortPairs or pairs
+				local DropdownFrame = Instance.new("Frame")
+				local Dropdownbg = Instance.new("Frame")
+				local Dropdowncorner = Instance.new("UICorner")
+				local Topdrop = Instance.new("Frame")
+				local UICorner = Instance.new("UICorner")
+				local ImgDrop = Instance.new("ImageLabel")
+				local DropdownButton = Instance.new("TextButton")
+				local Dropdownlisttt = Instance.new("Frame")
+				local DropdownScroll = Instance.new("ScrollingFrame")
+				local ScrollContainer = Instance.new("Frame")
+				local ScrollContainerList = Instance.new("UIListLayout")
+				local dropdownLeave = false
+				local Dropdowntitle;
+				if Search then
+					Dropdowntitle = Instance.new("TextBox")
+				else
+					Dropdowntitle = Instance.new("TextLabel")
+				end
+				DropdownFrame.Name = Title .. "DropdownFrame"
+				DropdownFrame.Parent = Section
+				DropdownFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				DropdownFrame.BackgroundTransparency = 1.000
+				DropdownFrame.Position = UDim2.new(0, 0, 0.473684222, 0)
+				DropdownFrame.Size = UDim2.new(1, 0, 0, 25)
+				Dropdownbg.Name = "Background1"
+				Dropdownbg.Parent = DropdownFrame
+				Dropdownbg.AnchorPoint = Vector2.new(0.5, 0.5)
+				Dropdownbg.Position = UDim2.new(0.5, 0, 0.5, 0)
+				Dropdownbg.Size = UDim2.new(1, -10, 1, 0)
+				Dropdownbg.ClipsDescendants = true
+				Dropdownbg.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+				Dropdownbg.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				Dropdowncorner.CornerRadius = UDim.new(0, 4)
+				Dropdowncorner.Name = "Dropdowncorner"
+				Dropdowncorner.Parent = Dropdownbg
+				Topdrop.Name = "Background2"
+				Topdrop.Parent = Dropdownbg
+				Topdrop.Size = UDim2.new(1, 0, 0, 25)
+				Topdrop.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				Topdrop.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				UICorner.CornerRadius = UDim.new(0, 4)
+				UICorner.Parent = Topdrop
+				Dropdowntitle.Name = "TextColorPlaceholder"
+				Dropdowntitle.Parent = Topdrop
+				Dropdowntitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				Dropdowntitle.BackgroundTransparency = 1.000
+				Dropdowntitle.Position = UDim2.new(0, 10, 0, 0)
+				Dropdowntitle.Size = UDim2.new(1, -40, 1, 0)
+				Dropdowntitle.Font = Enum.Font.GothamBlack
+				Dropdowntitle.Text = ''
+				Dropdowntitle.TextSize = 14.000
+				Dropdowntitle.TextXAlignment = Enum.TextXAlignment.Left
+				Dropdowntitle.ClipsDescendants = true
+				local Sel = Instance.new("StringValue", Dropdowntitle)
+				Sel.Value = ""
+				if Default and table.find(List, Default) then
+					Sel.Value = Default
+				end
+				if not Selected then
+					if Search then
+						Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						Dropdowntitle.PlaceholderText = Title .. ': ' .. tostring(Default or "");
+					else
+						Dropdowntitle.Text = Title .. ': ' .. tostring(Default or "");
+					end
+				else
+					if Search then
+						Dropdowntitle.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+						Dropdowntitle.PlaceholderText = Title .. ': ' .. tostring(Default or "");
+					else
+						Dropdowntitle.Text = Title .. ': ' .. tostring(Default or "");
+					end
+				end
+				Dropdowntitle.TextColor3 = getgenv().UIColor["Text Color"]
+				ImgDrop.Name = "ImgDrop"
+				ImgDrop.Parent = Topdrop
+				ImgDrop.AnchorPoint = Vector2.new(1, 0.5)
+				ImgDrop.BackgroundTransparency = 1.000
+				ImgDrop.BorderColor3 = Color3.fromRGB(27, 42, 53)
+				ImgDrop.Position = UDim2.new(1, -6, 0.5, 0)
+				ImgDrop.Size = UDim2.new(0, 15, 0, 15)
+				ImgDrop.Image = "rbxassetid://6954383209"
+				ImgDrop.ImageColor3 = getgenv().UIColor["Dropdown Icon Color"]
+				DropdownButton.Name = "DropdownButton"
+				DropdownButton.Parent = Topdrop
+				DropdownButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				DropdownButton.BackgroundTransparency = 1.000
+				DropdownButton.Size = Search and UDim2.new(0, 30, 0, 30) or UDim2.new(1, 0, 1 , 0)
+				DropdownButton.Position = Search and UDim2.new(1, -35, 0, 0) or UDim2.new(0 , 0 , 0 , 0)
+				DropdownButton.Font = Enum.Font.GothamBold
+				DropdownButton.Text = ""
+				DropdownButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+				DropdownButton.TextSize = 14.000
+				Dropdownlisttt.Name = "Dropdownlisttt"
+				Dropdownlisttt.Parent = Dropdownbg
+				Dropdownlisttt.BackgroundTransparency = 1.000
+				Dropdownlisttt.BorderSizePixel = 0
+				Dropdownlisttt.Position = UDim2.new(0, 0, 0, 25)
+				Dropdownlisttt.Size = UDim2.new(1, 0, 0, 25)
+				Dropdownlisttt.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				DropdownScroll.Name = "DropdownScroll"
+				DropdownScroll.Parent = Dropdownlisttt
+				DropdownScroll.Active = true
+				DropdownScroll.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				DropdownScroll.BackgroundTransparency = 1.000
+				DropdownScroll.BorderSizePixel = 0
+				DropdownScroll.Size = UDim2.new(1, 0, 1, 0)
+				DropdownScroll.BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+				DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+				DropdownScroll.ScrollBarThickness = 5
+				DropdownScroll.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
+				DropdownScroll.ScrollingEnabled = true
+				DropdownScroll.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+				ScrollContainer.Name = "ScrollContainer"
+				ScrollContainer.Parent = DropdownScroll
+				ScrollContainer.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				ScrollContainer.BackgroundTransparency = 1.000
+				ScrollContainer.Position = UDim2.new(0, 5, 0, 5)
+				ScrollContainer.Size = UDim2.new(1, -15, 1, -5)
+				ScrollContainerList.Name = "ScrollContainerList"
+				ScrollContainerList.Parent = ScrollContainer
+				ScrollContainerList.SortOrder = Enum.SortOrder.LayoutOrder
+				ScrollContainerList.Padding = UDim.new(0, 5)
+				ScrollContainerList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+					DropdownScroll.CanvasSize = UDim2.new(0, 0, 0, 10 + ScrollContainerList.AbsoluteContentSize.Y + 5)
+				end)
+				local isbusy = false
+				local found = {}
+				local searchtable = {}
+				local function edit()
+					for i in pairs(found) do
+						found[i] = nil
+					end
+					for h, l in pairs(ScrollContainer:GetChildren()) do
+						if not l:IsA("UIListLayout") and not l:IsA("UIPadding") and not l:IsA('UIGridLayout') then
+							l.Visible = false
+						end
+					end
+					Dropdowntitle.Text = string.lower(Dropdowntitle.Text)
+				end
+				local function SearchDropdown()
+					local Results = {}
+					for i, v in pairs(searchtable) do
+						if string.find(v, Dropdowntitle.Text) then
+							table.insert(found, v)
+						end
+					end
+					for a, b in pairs(ScrollContainer:GetChildren()) do
+						for c, d in pairs(found) do
+							if d == b.Name then
+								b.Visible = true
+							end
+						end
+					end
+				end
+				local function clear_object_in_list()
+					for i, v in next, ScrollContainer:GetChildren() do
+						if v:IsA('Frame') then
+							v:Destroy()
+						end
+					end
+				end
+				local ListNew
+                local OrderedList = {} -- Thêm biến lưu thứ tự
+                if Selected then
+                    ListNew = {}
+                    for _, value in ipairs(List) do
+                        -- Kiểm tra nếu value trùng với Default thì set true
+                        ListNew[value] = (value == Default)
+                        table.insert(OrderedList, value) -- Lưu thứ tự
+                    end
+                else
+                    ListNew = List
+                end
+				local function refreshlist(SortPairs)
+					pairs = SortPairs or pairs
+					clear_object_in_list()
+					searchtable = {}
+					for i, v in pairs(ListNew) do
+						if Selected then
+							table.insert(searchtable, string.lower(i))
+						elseif Slider then
+							table.insert(searchtable, string.lower(v['Title']))
+						else
+							table.insert(searchtable, string.lower(v))
+						end
+					end
+					if Selected then
+                        for _, i in ipairs(OrderedList) do
+                            local v = ListNew[i]
+							local SampleItem = Instance.new("Frame")
+							local SampleItemCorner = Instance.new("UICorner")
+							local SampleItemBG = Instance.new("Frame")
+							local SampleItemBGCorner = Instance.new("UICorner")
+							local SampleItemTitle = Instance.new("TextLabel")
+							local SampleItemCheck = Instance.new("ImageButton")
+							local SampleItemButton = Instance.new("TextButton")
+							SampleItem.Name = string.lower(i)
+							SampleItem.Parent = ScrollContainer
+							SampleItem.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+							SampleItem.BackgroundTransparency = 1.000
+							SampleItem.BorderColor3 = Color3.fromRGB(27, 42, 53)
+							SampleItem.LayoutOrder = 1
+							SampleItem.Position = UDim2.new(0, 0, 0.208333328, 0)
+							SampleItem.Size = UDim2.new(1, 0, 0, 25)
+							SampleItemCorner.CornerRadius = UDim.new(0, 4)
+							SampleItemCorner.Name = "SampleItemCorner"
+							SampleItemCorner.Parent = SampleItem
+							SampleItemBG.Name = "SampleItemBG"
+							SampleItemBG.Parent = SampleItem
+							SampleItemBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							SampleItemBG.BackgroundColor3 = v and getgenv().UIColor["Dropdown Selected Check Color"] or Color3.fromRGB(255, 255, 255)
+							SampleItemBG.BackgroundTransparency = v and .5 or 1
+							SampleItemBG.BorderColor3 = Color3.fromRGB(27, 42, 53)
+							SampleItemBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							SampleItemBG.Size = UDim2.new(1, 0, 1, 0)
+							SampleItemBGCorner.CornerRadius = UDim.new(0, 4)
+							SampleItemBGCorner.Name = "SampleItemBGCorner"
+							SampleItemBGCorner.Parent = SampleItemBG
+							SampleItemTitle.Name = "SampleItemTitle"
+							SampleItemTitle.Parent = SampleItemBG
+							SampleItemTitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+							SampleItemTitle.BackgroundTransparency = 1.000
+							SampleItemTitle.BorderColor3 = Color3.fromRGB(27, 42, 53)
+							SampleItemTitle.Position = UDim2.new(0, 10, 0, 0)
+							SampleItemTitle.Size = UDim2.new(1, -40, 0, 25)
+							SampleItemTitle.Font = Enum.Font.GothamBlack
+							SampleItemTitle.Text = tostring(i)
+							SampleItemTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+							SampleItemTitle.TextSize = 14.000
+							SampleItemTitle.TextStrokeTransparency = 0.500
+							SampleItemTitle.TextXAlignment = Enum.TextXAlignment.Left
+							SampleItemCheck.Name = "SampleItemCheck"
+							SampleItemCheck.Parent = SampleItemBG
+							SampleItemCheck.AnchorPoint = Vector2.new(1, 0.5)
+							SampleItemCheck.BackgroundTransparency = 1.000
+							SampleItemCheck.Position = UDim2.new(1, 0, 0.5, 0)
+							SampleItemCheck.Size = UDim2.new(0, 25, 0, 25)
+							SampleItemCheck.ZIndex = 2
+							SampleItemCheck.Image = "rbxassetid://3926305904"
+							SampleItemCheck.ImageColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+							SampleItemCheck.ImageRectOffset = Vector2.new(312, 4)
+							SampleItemCheck.ImageRectSize = Vector2.new(24, 24)
+							SampleItemCheck.ImageTransparency = v and 0 or 1
+							SampleItemButton.Name = "SampleItemButton"
+							SampleItemButton.Parent = SampleItem
+							SampleItemButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+							SampleItemButton.BackgroundTransparency = 1.000
+							SampleItemButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+							SampleItemButton.BorderSizePixel = 0
+							SampleItemButton.Size = UDim2.new(1, 0, 1, 0)
+							SampleItemButton.Font = Enum.Font.SourceSans
+							SampleItemButton.TextColor3 = getgenv().UIColor["Text Color"]
+							SampleItemButton.TextSize = 14.000
+							SampleItemButton.TextTransparency = 1.000
+							SampleItemButton.MouseEnter:Connect(function()
+								if v then
+									return
+								end
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+								}
+										):Play()
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundTransparency = .7
+								}
+										):Play()
+							end)
+							SampleItemButton.MouseLeave:Connect(function()
+								if v then
+									return
+								end
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+								}
+										):Play()
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundTransparency = 1
+								}
+										):Play()
+							end)
+							SampleItemButton.MouseButton1Click:Connect(function()
+								v = not v
+								TweenService:Create(
+											SampleItemCheck,
+											TI("Tween Animation 1 Speed"), {
+									ImageTransparency = v and 0 or 1
+								}
+										):Play()
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundColor3 = v and getgenv().UIColor["Dropdown Selected Check Color"] or Color3.fromRGB(255, 255, 255)
+								}
+										):Play()
+								TweenService:Create(
+											SampleItemBG,
+											TI("Tween Animation 1 Speed"), {
+									BackgroundTransparency = v and .5 or 1
+								}
+										):Play()
+								if Callback then
+									Callback(i, v)
+									ListNew[i] = v
+								end
+								if Search then
+									Dropdowntitle.PlaceholderText = Title .. ': '
+								else
+									Dropdowntitle.Text = Title .. ': '
+								end
+							end)
+						end
+					elseif Slider then
+						for i, v in pairs(ListNew) do
+							local TitleText = tostring(v.Title) or ""
+							local minValue = tonumber(v.Min) or 0
+							local maxValue = tonumber(v.Max) or 100
+							local Precise = v.Precise or false
+							local DefaultValue = tonumber(v.Default) or minValue
+							local SizeChia = 365;
+							local SliderFrame = Instance.new("Frame")
+							local SliderCorner = Instance.new("UICorner")
+							local SliderBG = Instance.new("Frame")
+							local SliderBGCorner = Instance.new("UICorner")
+							local SliderTitle = Instance.new("TextLabel")
+							local SliderBar = Instance.new("Frame")
+							local SliderButton = Instance.new("TextButton")
+							local SliderBarCorner = Instance.new("UICorner")
+							local Bar = Instance.new("Frame")
+							local BarCorner = Instance.new("UICorner")
+							local Sliderboxframe = Instance.new("Frame")
+							local Sliderbox = Instance.new("UICorner")
+							local Sliderbox_2 = Instance.new("TextBox")
+							SliderFrame.Name = string.lower(v['Title'])
+							SliderFrame.Parent = ScrollContainer
+							SliderFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+							SliderFrame.BackgroundTransparency = 1.000
+							SliderFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+							SliderFrame.Size = UDim2.new(1, 0, 0, 50)
+							SliderCorner.CornerRadius = UDim.new(0, 4)
+							SliderCorner.Name = "SliderCorner"
+							SliderCorner.Parent = SliderFrame
+							SliderBG.Name = "Background1"
+							SliderBG.Parent = SliderFrame
+							SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
+							SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+							SliderBG.Size = UDim2.new(1, -10, 1, 0)
+							SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+							SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+							SliderBGCorner.CornerRadius = UDim.new(0, 4)
+							SliderBGCorner.Name = "SliderBGCorner"
+							SliderBGCorner.Parent = SliderBG
+							SliderTitle.Name = "TextColor"
+							SliderTitle.Parent = SliderBG
+							SliderTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							SliderTitle.BackgroundTransparency = 1.000
+							SliderTitle.Position = UDim2.new(0, 10, 0, 0)
+							SliderTitle.Size = UDim2.new(1, -10, 0, 25)
+							SliderTitle.Font = Enum.Font.GothamBlack
+							SliderTitle.Text = TitleText
+							SliderTitle.TextSize = 14.000
+							SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+							SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+							SliderBar.Name = "SliderBar"
+							SliderBar.Parent = SliderFrame
+							SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
+							SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
+							SliderBar.Size = UDim2.new(1, -20, 0, 6)
+							SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							SliderButton.Name = "SliderButton "
+							SliderButton.Parent = SliderBar
+							SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							SliderButton.BackgroundTransparency = 1.000
+							SliderButton.Size = UDim2.new(1, 0, 1, 0)
+							SliderButton.Font = Enum.Font.GothamBold
+							SliderButton.Text = ""
+							SliderButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+							SliderButton.TextSize = 14.000
+							SliderBarCorner.CornerRadius = UDim.new(1, 0)
+							SliderBarCorner.Name = "SliderBarCorner"
+							SliderBarCorner.Parent = SliderBar
+							Bar.Name = "Bar"
+							Bar.BorderSizePixel = 0
+							Bar.Parent = SliderBar
+							Bar.Size = UDim2.new(0, 0, 1, 0)
+							Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+							BarCorner.CornerRadius = UDim.new(1, 0)
+							BarCorner.Name = "BarCorner"
+							BarCorner.Parent = Bar
+							Sliderboxframe.Name = "Background2"
+							Sliderboxframe.Parent = SliderFrame
+							Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
+							Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
+							Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
+							Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+							Sliderbox.CornerRadius = UDim.new(0, 4)
+							Sliderbox.Name = "Sliderbox"
+							Sliderbox.Parent = Sliderboxframe
+							Sliderbox_2.Name = "TextColor"
+							Sliderbox_2.Parent = Sliderboxframe
+							Sliderbox_2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+							Sliderbox_2.BackgroundTransparency = 1.000
+							Sliderbox_2.Size = UDim2.new(1, 0, 1, 0)
+							Sliderbox_2.Font = Enum.Font.GothamBold
+							Sliderbox_2.Text = ""
+							Sliderbox_2.TextSize = 14.000
+							Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+							SliderButton.MouseEnter:Connect(function()
+								TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+									BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]
+								}):Play()
+							end)
+							SliderButton.MouseLeave:Connect(function()
+								TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+									BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+								}):Play()
+							end)
+							local callBackAndSetText = function(val)
+								Sliderbox_2.Text = val
+								ListNew[i].Default = val
+								Callback(i, v)
+							end
+							if DefaultValue then
+								if DefaultValue <= minValue then
+									DefaultValue = minValue
+								elseif DefaultValue >= maxValue then
+									DefaultValue = maxValue
+								end
+								Bar.Size = UDim2.new(1 - ((maxValue - DefaultValue) / (maxValue - minValue)), 0, 0, 6)
+								callBackAndSetText(DefaultValue)
+							end
+							if SliderRelease then
+								local dragging = false
+								local dragInput
+								local holdTime = 0
+								local holdStarted = 0
 
-    SeaUI.SetBackground = function(url)
-        url = tostring(url or "");
-        getgenv().UIColor["Background Image"] = url;
-        Internal.ReloadMain(url);
-        return url;
-    end;
+										-- Function to detect the start of dragging (for both mouse and touch)
+								local function onInputBegan(input)
+									if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+										holdStarted = tick() -- Record the time when holding starts
+										
+												-- Listen for release to stop dragging
+										input.Changed:Connect(function()
+											if input.UserInputState == Enum.UserInputState.End then
+												dragging = false
+												holdStarted = 0 -- Reset the hold timer
+											end
+										end)
+									end
+								end
+										
+										-- Function to detect when dragging stops
+								local function onInputEnded(input)
+									if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+										dragging = false
+										holdStarted = 0 -- Reset the hold timer
+									end
+								end
 
-    SeaUI.AddBackgroundPreset = function(name, url)
-        SeaUI.BackgroundPresets[tostring(name)] = tostring(url or "");
-        return SeaUI.BackgroundPresets;
-    end;
+										-- Detect input movement (for both mouse and touch)
+								local function onInputChanged(input)
+									if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+										dragInput = input
+									end
+								end
+										
+										-- Connect the events
+								SliderButton.InputBegan:Connect(onInputBegan)
+								SliderButton.InputEnded:Connect(onInputEnded)
+								SliderButton.InputChanged:Connect(onInputChanged)
+										
+										-- RenderStepped updates the position while dragging
+								RunService.RenderStepped:Connect(function()
+									if holdStarted > 0 and (tick() - holdStarted >= holdTime) and not dragging then
+										dragging = true
+									end
+									if dragging and dragInput then
+										local value = Precise and  tonumber(string.format("%.1f", (((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))) or math.floor((((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))
+										pcall(function()
+											callBackAndSetText(value)
+										end)
+										Bar.Size = UDim2.new(0, math.clamp(dragInput.Position.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+									end
+								end)
+							else
+								local dragging = false
+								local dragInput
+								local holdTime = 0 -- Time to hold before dragging is enabled
+								local holdStarted = 0
 
-    SeaUI.SetBackgroundPreset = function(name)
-        local url = SeaUI.BackgroundPresets[tostring(name)];
-        if url == nil then
-            return false;
-        end;
-        SeaUI.SetBackground(url);
-        return true;
-    end;
+										-- Function to detect the start of dragging (for both mouse and touch)
+								local function onInputBegan(input)
+									if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+										holdStarted = tick() -- Record the time when holding starts
+										
+												-- Listen for release to stop dragging
+										input.Changed:Connect(function()
+											if input.UserInputState == Enum.UserInputState.End then
+												dragging = false
+												holdStarted = 0 -- Reset the hold timer
+											end
+										end)
+									end
+								end
+										
+										-- Function to detect when dragging stops
+								local function onInputEnded(input)
+									if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+										dragging = false
+										holdStarted = 0 -- Reset the hold timer
+									end
+								end
 
-    SeaUI.GetBackgroundPresetNames = function()
-        local names = {};
-        for name in pairs(SeaUI.BackgroundPresets) do
-            table.insert(names, name);
-        end;
-        table.sort(names);
-        return names;
-    end;
+										-- Detect input movement (for both mouse and touch)
+								local function onInputChanged(input)
+									if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+										dragInput = input
+									end
+								end
+										
+										-- Connect the events
+								SliderButton.InputBegan:Connect(onInputBegan)
+								SliderButton.InputEnded:Connect(onInputEnded)
+								SliderButton.InputChanged:Connect(onInputChanged)
+										
+										-- RenderStepped updates the position while dragging
+								RunService.RenderStepped:Connect(function()
+									if holdStarted > 0 and (tick() - holdStarted >= holdTime) and not dragging then
+										dragging = true
+									end
+									if dragging and dragInput then
+										local value = Precise and  tonumber(string.format("%.1f", (((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))) or math.floor((((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))
+										pcall(function()
+											callBackAndSetText(value)
+										end)
+										Bar.Size = UDim2.new(0, math.clamp(dragInput.Position.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+									end
+								end)
+							end
+							local function GetSliderValue(Value)
+								if tonumber(Value) <= minValue then
+									Bar.Size = UDim2.new(0, (0 * SizeChia), 0, 6)
+									callBackAndSetText(minValue)
+								elseif tonumber(Value) >= maxValue then
+									Bar.Size = UDim2.new(0, (maxValue  /  maxValue * SizeChia), 0, 6)
+									callBackAndSetText(maxValue)
+								else
+									Bar.Size = UDim2.new(1 - ((maxValue - Value) / (maxValue - minValue)), 0, 0, 6)
+									callBackAndSetText(Value)
+								end
+							end
+							Sliderbox_2.FocusLost:Connect(function()
+								GetSliderValue(Sliderbox_2.Text)
+							end)
+						end
+					else
+						for i, v in pairs (ListNew) do
+							if typeof(v) == "string" then
+								local SampleItem = Instance.new("Frame")
+								local SampleItemCorner = Instance.new("UICorner")
+								local SampleItemBG = Instance.new("Frame")
+								local SampleItemBGCorner = Instance.new("UICorner")
+								local SampleItemTitle = Instance.new("TextLabel")
+								local SampleItemCheck = Instance.new("ImageButton")
+								local SampleItemButton = Instance.new("TextButton")
+								SampleItem.Name = string.lower(v)
+								SampleItem.Parent = ScrollContainer
+								SampleItem.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+								SampleItem.BackgroundTransparency = 1.000
+								SampleItem.BorderColor3 = Color3.fromRGB(27, 42, 53)
+								SampleItem.LayoutOrder = 1
+								SampleItem.Position = UDim2.new(0, 0, 0.208333328, 0)
+								SampleItem.Size = UDim2.new(1, 0, 0, 25)
+								SampleItemCorner.CornerRadius = UDim.new(0, 4)
+								SampleItemCorner.Name = "SampleItemCorner"
+								SampleItemCorner.Parent = SampleItem
+								SampleItemBG.Name = "SampleItemBG"
+								SampleItemBG.Parent = SampleItem
+								SampleItemBG.AnchorPoint = Vector2.new(0.5, 0.5)
+								SampleItemBG.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+								SampleItemBG.BackgroundTransparency = 1
+								SampleItemBG.BorderColor3 = Color3.fromRGB(27, 42, 53)
+								SampleItemBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+								SampleItemBG.Size = UDim2.new(1, 0, 1, 0)
+								SampleItemBGCorner.CornerRadius = UDim.new(0, 4)
+								SampleItemBGCorner.Name = "SampleItemBGCorner"
+								SampleItemBGCorner.Parent = SampleItemBG
+								SampleItemTitle.Name = "SampleItemTitle"
+								SampleItemTitle.Parent = SampleItemBG
+								SampleItemTitle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+								SampleItemTitle.BackgroundTransparency = 1.000
+								SampleItemTitle.BorderColor3 = Color3.fromRGB(27, 42, 53)
+								SampleItemTitle.Position = UDim2.new(0, 10, 0, 0)
+								SampleItemTitle.Size = UDim2.new(1, -40, 0, 25)
+								SampleItemTitle.Font = Enum.Font.GothamBlack
+								SampleItemTitle.Text = v
+								SampleItemTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+								SampleItemTitle.TextSize = 14.000
+								SampleItemTitle.TextStrokeTransparency = 0.500
+								SampleItemTitle.TextXAlignment = Enum.TextXAlignment.Left
+								SampleItemCheck.Name = "SampleItemCheck"
+								SampleItemCheck.Parent = SampleItemBG
+								SampleItemCheck.AnchorPoint = Vector2.new(1, 0.5)
+								SampleItemCheck.BackgroundTransparency = 1.000
+								SampleItemCheck.Position = UDim2.new(1, 0, 0.5, 0)
+								SampleItemCheck.Size = UDim2.new(0, 25, 0, 25)
+								SampleItemCheck.ZIndex = 2
+								SampleItemCheck.Image = "rbxassetid://3926305904"
+								SampleItemCheck.ImageColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+								SampleItemCheck.ImageRectOffset = Vector2.new(312, 4)
+								SampleItemCheck.ImageRectSize = Vector2.new(24, 24)
+								SampleItemCheck.ImageTransparency = 1
+								SampleItemButton.Name = "SampleItemButton"
+								SampleItemButton.Parent = SampleItem
+								SampleItemButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+								SampleItemButton.BackgroundTransparency = 1.000
+								SampleItemButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+								SampleItemButton.BorderSizePixel = 0
+								SampleItemButton.Size = UDim2.new(1, 0, 1, 0)
+								SampleItemButton.Font = Enum.Font.SourceSans
+								SampleItemButton.TextColor3 = getgenv().UIColor["Text Color"]
+								SampleItemButton.TextSize = 14.000
+								SampleItemButton.TextTransparency = 1.000
+								SampleItemButton.MouseEnter:Connect(function()
+									if Sel.Value == v then
+										return
+									end
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+									}
+											):Play()
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundTransparency = .7
+									}
+											):Play()
+								end)
+								SampleItemButton.MouseLeave:Connect(function()
+									if Sel.Value == v then
+										return
+									end
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+									}
+											):Play()
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundTransparency = 1
+									}
+											):Play()
+								end)
+								SampleItemButton.MouseButton1Click:Connect(function()
+									if Search then
+										Dropdowntitle.PlaceholderText = Title .. ': ' .. v or ""
+										Sel.Value = v
+									else
+										Dropdowntitle.Text = Title .. ': ' .. v or ""
+										Sel.Value = v
+									end
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+									}
+											):Play()
+									TweenService:Create(
+												SampleItemBG,
+												TI("Tween Animation 1 Speed"), {
+										BackgroundTransparency = .5
+									}
+											):Play()
+									if Callback then
+										Callback(v)
+									end
+									if Search then
+										Dropdowntitle.Text = ""
+									end
+									refreshlist()
+								end)
+								if Sel.Value == v then
+									SampleItemBG.BackgroundTransparency = .5;
+									SampleItemBG.BackgroundColor3 = getgenv().UIColor["Dropdown Selected Check Color"]
+									SampleItem.LayoutOrder = 0
+								end
+							end
+						end
+					end
+				end
+				if Search then
+					Dropdowntitle.Changed:Connect(function()
+						edit()
+						SearchDropdown()
+					end)
+				end
+				if typeof(Default) ~= 'table' then
+					if Search then
+						Dropdowntitle.PlaceholderText = Title .. ': ' .. tostring(Default or "")
+					else
+						Dropdowntitle.Text = Title .. ': ' .. tostring(Default or "")
+					end
+				elseif Slider then
+					Dropdowntitle.Text = ''
+					Dropdowntitle.PlaceholderText = Title .. ': '
+				elseif Selected then
+					if Search then
+						Dropdowntitle.PlaceholderText = Title .. ': '
+					else
+						Dropdowntitle.Text = Title .. ': '
+					end
+				end
+				DropdownButton.MouseButton1Click:Connect(function()
+					refreshlist()
+					isbusy = not isbusy
+					local listsize = isbusy and UDim2.new(1, 0, 0, 170) or UDim2.new(1, 0, 0, 0)
+					local mainsize = isbusy and UDim2.new(1, 0, 0, 200) or UDim2.new(1, 0, 0, 25)
+					local DropCRotation = isbusy and 90 or 0
+					TweenService:Create(Dropdownlisttt, TI("Tween Animation 2 Speed"), {
+						Size = listsize
+					}):Play()
+					TweenService:Create(DropdownFrame, TI("Tween Animation 2 Speed"), {
+						Size = mainsize
+					}):Play()
+					TweenService:Create(ImgDrop, TI("Tween Animation 2 Speed"), {
+						Rotation = DropCRotation
+					}):Play()
+				end)
+				local dropdownFunction = {
+					rf = refreshlist
+				}
+				function dropdownFunction:ClearText(v)
+					if not Selected then
+						if Search then
+							Dropdowntitle.PlaceholderText = Title .. ': ' .. (v or "")
+						else
+							Dropdowntitle.Text = Title .. ': ' .. (v or "")
+						end
+					else
+						Dropdowntitle.Text = Title .. ': ' .. (v or "")
+					end
+				end
+				function dropdownFunction:GetNewList(List)
+					Sel.Value = ""
+							--refreshlist()
+					isbusy = false
+					local listsize = isbusy and UDim2.new(1, 0, 0, 170) or UDim2.new(1, 0, 0, 0)
+					local mainsize = isbusy and UDim2.new(1, 0, 0, 200) or UDim2.new(1, 0, 0, 25)
+					local DropCRotation = isbusy and 90 or 0
+					TweenService:Create(Dropdownlisttt, TI("Tween Animation 2 Speed"), {
+						Size = listsize
+					}):Play()
+					TweenService:Create(DropdownFrame, TI("Tween Animation 2 Speed"), {
+						Size = mainsize
+					}):Play()
+					TweenService:Create(ImgDrop, TI("Tween Animation 2 Speed"), {
+						Rotation = DropCRotation
+					}):Play()
+					ListNew = {}
+					ListNew = List
+					refreshlist()
+					if Search then
+						Dropdowntitle.PlaceholderText = Title .. ': '
+					else
+						Dropdowntitle.Text = Title .. ': '
+					end
+				end
+				-- THÊM ĐOẠN NÀY
+                function dropdownFunction:SetValue(value)
+                    if not Selected then
+                        -- Dropdown đơn lẻ (single)
+                        if table.find(ListNew, value) then
+                            Sel.Value = value
+                            if Search then
+                                Dropdowntitle.PlaceholderText = Title .. ': ' .. value
+                            else
+                                Dropdowntitle.Text = Title .. ': ' .. value
+                            end
+                            if Callback then
+                                Callback(value)
+                            end
+                            refreshlist()
+                        end
+                    else
+                        -- Dropdown multi-select
+                        if ListNew[value] ~= nil then
+                            ListNew[value] = true
+                            if Search then
+                                Dropdowntitle.PlaceholderText = Title .. ': '
+                            else
+                                Dropdowntitle.Text = Title .. ': '
+                            end
+                            if Callback then
+                                Callback(value, true)
+                            end
+                            refreshlist()
+                        end
+                    end
+                end
+                
+                function dropdownFunction:GetValue()
+                    if not Selected then
+                        return Sel.Value
+                    else
+                        local result = {}
+                        for key, val in pairs(ListNew) do
+                            if val == true then
+                                table.insert(result, key)
+                            end
+                        end
+                        return result
+                    end
+                end
+				local controlData = {
+                    Name = Title,
+                    Section = Section,
+                    Element = DropdownFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName,
+                    SetValue = dropdownFunction.SetValue,  -- THÊM DÒNG NÀY
+                    GetValue = dropdownFunction.GetValue   -- THÊM DÒNG NÀY
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+                return dropdownFunction
+			end
 
-    SeaUI.ClearBackground = function()
-        return SeaUI.SetBackground("");
-    end;
+function sectionFunction:AddKeyBind(Setting, Callback)
+    local TitleText = tostring(Setting.Title or Setting.Text) or ""
+    local Default = Setting.Default or Setting.Key or "F"
+    local Mode = Setting.Mode or "Toggle" -- Hold hoặc Toggle
+    local Callback = Setting.Callback or Callback or function() end
+    
+    local function GetKeyString(key)
+        local keyStr = tostring(key)
+        keyStr = keyStr:gsub("Enum.UserInputType.", "")
+        keyStr = keyStr:gsub("Enum.KeyCode.", "")
+        return keyStr
+    end
+    
+    local CurrentKey = GetKeyString(Default)
+    local CurrentMode = Mode
+    local Picking = false
+    local ToggleState = false
+    local HoldActive = false
+    
+    -- UI Elements (BỎ ModeButton)
+    local BindFrame = Instance.new("Frame")
+    local BindCorner = Instance.new("UICorner")
+    local BindBG = Instance.new("Frame")
+    local ButtonCorner = Instance.new("UICorner")
+    local BindButtonTitle = Instance.new("TextLabel")
+    local BindCor = Instance.new("Frame")
+    local ButtonCorner_2 = Instance.new("UICorner")
+    local Bindkey = Instance.new("TextButton")
+    
+    BindFrame.Name = TitleText .. "bguvl"
+    BindFrame.Parent = Section
+    BindFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    BindFrame.BackgroundTransparency = 1.000
+    BindFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+    BindFrame.Size = UDim2.new(1, 0, 0, 35)
+    
+    BindCorner.CornerRadius = UDim.new(0, 4)
+    BindCorner.Name = "BindCorner"
+    BindCorner.Parent = BindFrame
+    
+    BindBG.Name = "Background1"
+    BindBG.Parent = BindFrame
+    BindBG.AnchorPoint = Vector2.new(0.5, 0.5)
+    BindBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+    BindBG.Size = UDim2.new(1, -10, 1, 0)
+    BindBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+    BindBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+    
+    ButtonCorner.CornerRadius = UDim.new(0, 4)
+    ButtonCorner.Name = "ButtonCorner"
+    ButtonCorner.Parent = BindBG
+    
+    BindButtonTitle.Name = "TextColor"
+    BindButtonTitle.Parent = BindBG
+    BindButtonTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+    BindButtonTitle.BackgroundTransparency = 1.000
+    BindButtonTitle.Position = UDim2.new(0, 10, 0, 0)
+    BindButtonTitle.Size = UDim2.new(1, -10, 1, 0)
+    BindButtonTitle.Font = Enum.Font.GothamBlack
+    BindButtonTitle.Text = TitleText
+    BindButtonTitle.TextSize = 14.000
+    BindButtonTitle.TextXAlignment = Enum.TextXAlignment.Left
+    BindButtonTitle.TextColor3 = getgenv().UIColor["Text Color"]
+    
+    BindCor.Name = "Background2"
+    BindCor.Parent = BindBG
+    BindCor.AnchorPoint = Vector2.new(1, 0.5)
+    BindCor.Position = UDim2.new(1, -5, 0.5, 0)
+    BindCor.Size = UDim2.new(0, 150, 0, 25)
+    BindCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+    
+    ButtonCorner_2.CornerRadius = UDim.new(0, 4)
+    ButtonCorner_2.Name = "ButtonCorner"
+    ButtonCorner_2.Parent = BindCor
+    
+    Bindkey.Name = "Bindkey"
+    Bindkey.Parent = BindCor
+    Bindkey.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+    Bindkey.BackgroundTransparency = 1.000
+    Bindkey.Size = UDim2.new(1, 0, 1, 0)
+    Bindkey.Font = Enum.Font.GothamBold
+    Bindkey.Text = CurrentKey
+    Bindkey.TextSize = 14.000
+    Bindkey.TextColor3 = getgenv().UIColor["Text Color"]
+    
+    -- Change Key
+    Bindkey.MouseButton1Click:Connect(function()
+        if Picking then return end
+        
+        Picking = true
+        Bindkey.Text = "..."
+        
+        task.wait(0.2)
+        
+        local Connection
+        Connection = uis.InputBegan:Connect(function(input)
+            if Picking then
+                local Key
+                
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    Key = input.KeyCode.Name
+                elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    Key = "MouseLeft"
+                elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    Key = "MouseRight"
+                end
+                
+                if Key then
+                    Picking = false
+                    CurrentKey = Key
+                    Bindkey.Text = Key
+                    Connection:Disconnect()
+                end
+            end
+        end)
+    end)
+    
+    -- Input Began (Press)
+    uis.InputBegan:Connect(function(input, gpe)
+        if gpe or Picking then return end
+        if uis:GetFocusedTextBox() then return end
+        
+        local pressedKey
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            pressedKey = input.KeyCode.Name
+        elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+            pressedKey = "MouseLeft"
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            pressedKey = "MouseRight"
+        end
+        
+        if pressedKey == CurrentKey then
+            if CurrentMode == "Toggle" then
+                ToggleState = not ToggleState
+                pcall(Callback, ToggleState)
+            elseif CurrentMode == "Hold" then
+                HoldActive = true
+                pcall(Callback, true)
+            end
+        end
+    end)
+    
+    -- Input Ended (Release) - Only for Hold mode
+    uis.InputEnded:Connect(function(input)
+        if Picking then return end
+        if uis:GetFocusedTextBox() then return end
+        
+        local releasedKey
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            releasedKey = input.KeyCode.Name
+        elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+            releasedKey = "MouseLeft"
+        elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+            releasedKey = "MouseRight"
+        end
+        
+        if releasedKey == CurrentKey and CurrentMode == "Hold" and HoldActive then
+            HoldActive = false
+            pcall(Callback, false)
+        end
+    end)
+    
+    local controlData = {
+        Name = TitleText,
+        Section = Section,
+        Element = BindFrame,
+        SectionName = Section_Name,
+        TabName = Page_Name,
+        TabButton = PageName
+    }
+    table.insert(getgenv().AllControls, controlData)
+    
+    local keybindFunction = {}
+    
+    function keybindFunction:Set(newKey)
+        CurrentKey = GetKeyString(newKey)
+        Bindkey.Text = CurrentKey
+    end
+    
+    function keybindFunction:Get()
+        return CurrentKey
+    end
+    
+    function keybindFunction:SetMode(mode)
+        if mode == "Hold" or mode == "Toggle" then
+            CurrentMode = mode
+            ToggleState = false
+            HoldActive = false
+        end
+    end
+    
+    function keybindFunction:GetMode()
+        return CurrentMode
+    end
+    
+    function keybindFunction:GetState()
+        if CurrentMode == "Toggle" then
+            return ToggleState
+        elseif CurrentMode == "Hold" then
+            return HoldActive
+        end
+        return false
+    end
+    
+    return keybindFunction
+end
+			function sectionFunction:AddInput(idk, Setting)
+				local TitleText = tostring(Setting.Text or Setting.Title) or ""
+				local Placeholder = tostring(Setting.Placeholder) or ""
+				local Default = Setting.Default or false
+				local Number_Only = Setting.Numeric or false
+				local Callback = Setting.Callback
+				local BoxFrame = Instance.new("Frame")
+				local BoxCorner = Instance.new("UICorner")
+				local BoxBG = Instance.new("Frame")
+				local ButtonCorner = Instance.new("UICorner")
+				local Boxtitle = Instance.new("TextLabel")
+				local BoxCor = Instance.new("Frame")
+				local ButtonCorner_2 = Instance.new("UICorner")
+				local Boxxx = Instance.new("TextBox")
+				local Lineeeee = Instance.new("Frame")
+				local UICorner = Instance.new("UICorner")
+				BoxFrame.Name = "BoxFrame"
+				BoxFrame.Parent = Section
+				BoxFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+				BoxFrame.BackgroundTransparency = 1.000
+				BoxFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+				BoxFrame.Size = UDim2.new(1, 0, 0, 60)
+				BoxCorner.CornerRadius = UDim.new(0, 4)
+				BoxCorner.Name = "BoxCorner"
+				BoxCorner.Parent = BoxFrame
+				BoxBG.Name = "Background1"
+				BoxBG.Parent = BoxFrame
+				BoxBG.AnchorPoint = Vector2.new(0.5, 0.5)
+				BoxBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+				BoxBG.Size = UDim2.new(1, -10, 1, 0)
+				BoxBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+				BoxBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				ButtonCorner.CornerRadius = UDim.new(0, 4)
+				ButtonCorner.Name = "ButtonCorner"
+				ButtonCorner.Parent = BoxBG
+				Boxtitle.Name = "TextColor"
+				Boxtitle.Parent = BoxBG
+				Boxtitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				Boxtitle.BackgroundTransparency = 1.000
+				Boxtitle.Position = UDim2.new(0, 10, 0, 0)
+				Boxtitle.Size = UDim2.new(1, -10, 0.5, 0)
+				Boxtitle.Font = Enum.Font.GothamBlack
+				Boxtitle.Text = TitleText
+				Boxtitle.TextSize = 14.000
+				Boxtitle.TextXAlignment = Enum.TextXAlignment.Left
+				Boxtitle.TextColor3 = getgenv().UIColor["Text Color"]
+				BoxCor.Name = "Background2"
+				BoxCor.Parent = BoxBG
+				BoxCor.AnchorPoint = Vector2.new(1, 0.5)
+				BoxCor.ClipsDescendants = true
+				BoxCor.Position = UDim2.new(1, -5, 0, 40)
+				BoxCor.Size = UDim2.new(1, -10, 0, 25)
+				BoxCor.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				ButtonCorner_2.CornerRadius = UDim.new(0, 4)
+				ButtonCorner_2.Name = "ButtonCorner"
+				ButtonCorner_2.Parent = BoxCor
+				Boxxx.Name = "TextColorPlaceholder"
+				Boxxx.Parent = BoxCor
+				Boxxx.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				Boxxx.BackgroundTransparency = 1.000
+				Boxxx.Position = UDim2.new(0, 5, 0, 0)
+				Boxxx.Size = UDim2.new(1, -5, 1, 0)
+				Boxxx.Font = Enum.Font.GothamBold
+				Boxxx.PlaceholderText = Placeholder
+				Boxxx.Text = ""
+				Boxxx.TextSize = 14.000
+				Boxxx.TextXAlignment = Enum.TextXAlignment.Left
+				Boxxx.PlaceholderColor3 = getgenv().UIColor["Placeholder Text Color"]
+				Boxxx.TextColor3 = getgenv().UIColor["Text Color"]
+				Lineeeee.Name = "TextNSBoxLineeeee"
+				Lineeeee.Parent = BoxCor
+				Lineeeee.BackgroundTransparency = 1.000
+				Lineeeee.Position = UDim2.new(0, 0, 1, -2)
+				Lineeeee.Size = UDim2.new(1, 0, 0, 6)
+				Lineeeee.BackgroundColor3 = getgenv().UIColor["Box Highlight Color"]
+				UICorner.CornerRadius = UDim.new(1, 0)
+				UICorner.Parent = Lineeeee
+				Boxxx.Focused:Connect(function()
+					TweenService:Create(Lineeeee, TI("Tween Animation 2 Speed"), {
+						BackgroundTransparency = 0
+					}):Play()
+				end)
+				if Number_Only then
+					Boxxx:GetPropertyChangedSignal("Text"):Connect(function()
+						if tonumber(Boxxx.Text) then
+						else
+							Boxxx.PlaceholderText = Placeholder
+							Boxxx.Text = ''
+						end
+					end)
+				end
+				Boxxx.FocusLost:Connect(function()
+					TweenService:Create(Lineeeee, TI("Tween Animation 2 Speed"), {
+						BackgroundTransparency = 1
+					}):Play()
+					if Boxxx.Text ~= '' then
+						Callback(Boxxx.Text)
+					end
+				end)
+				local textbox_function = {}
+				if Default then
+					Boxxx.Text = Default
+				end
+				function textbox_function.SetValue(Value)
+					Boxxx.Text = Value
+					Callback(Value)
+				end
+				local controlData = {
+                    Name = TitleText,
+                    Section = Section,
+                    Element = BoxFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+				return textbox_function;
+			end
+			function sectionFunction:AddSlider(Setting)
+				local TitleText = tostring(Setting.Text or Setting.Title) or ""
+				local minValue = tonumber(Setting.Min) or 0
+				local maxValue = tonumber(Setting.Max) or 100
+				local Precise = Setting.Precise or false
+				local DefaultValue = tonumber(Setting.Default) or 0
+				local Callback = Setting.Callback
+				local SizeChia = 400;
+				local SliderFrame = Instance.new("Frame")
+				local SliderCorner = Instance.new("UICorner")
+				local SliderBG = Instance.new("Frame")
+				local SliderBGCorner = Instance.new("UICorner")
+				local SliderTitle = Instance.new("TextLabel")
+				local SliderBar = Instance.new("Frame")
+				local SliderButton = Instance.new("TextButton")
+				local SliderBarCorner = Instance.new("UICorner")
+				local Bar = Instance.new("Frame")
+				local BarCorner = Instance.new("UICorner")
+				local Sliderboxframe = Instance.new("Frame")
+				local Sliderbox = Instance.new("UICorner")
+				local Sliderbox_2 = Instance.new("TextBox")
+				SliderFrame.Name = TitleText .. 'buda'
+				SliderFrame.Parent = Section
+				SliderFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+				SliderFrame.BackgroundTransparency = 1.000
+				SliderFrame.Position = UDim2.new(0, 0, 0.208333328, 0)
+				SliderFrame.Size = UDim2.new(1, 0, 0, 50)
+				SliderCorner.CornerRadius = UDim.new(0, 4)
+				SliderCorner.Name = "SliderCorner"
+				SliderCorner.Parent = SliderFrame
+				SliderBG.Name = "Background1"
+				SliderBG.Parent = SliderFrame
+				SliderBG.AnchorPoint = Vector2.new(0.5, 0.5)
+				SliderBG.Position = UDim2.new(0.5, 0, 0.5, 0)
+				SliderBG.Size = UDim2.new(1, -10, 1, 0)
+				SliderBG.BackgroundColor3 = getgenv().UIColor["Background 1 Color"]
+				SliderBG.BackgroundTransparency = getgenv().UIColor["Background 1 Transparency"]
+				SliderBGCorner.CornerRadius = UDim.new(0, 4)
+				SliderBGCorner.Name = "SliderBGCorner"
+				SliderBGCorner.Parent = SliderBG
+				SliderTitle.Name = "TextColor"
+				SliderTitle.Parent = SliderBG
+				SliderTitle.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				SliderTitle.BackgroundTransparency = 1.000
+				SliderTitle.Position = UDim2.new(0, 10, 0, 0)
+				SliderTitle.Size = UDim2.new(1, -10, 0, 25)
+				SliderTitle.Font = Enum.Font.GothamBlack
+				SliderTitle.Text = TitleText
+				SliderTitle.TextSize = 14.000
+				SliderTitle.RichText = true
+				SliderTitle.TextXAlignment = Enum.TextXAlignment.Left
+				SliderTitle.TextColor3 = getgenv().UIColor["Text Color"]
+				SliderBar.Name = "SliderBar"
+				SliderBar.Parent = SliderFrame
+				SliderBar.AnchorPoint = Vector2.new(.5, 0.5)
+				SliderBar.Position = UDim2.new(.5, 0, 0.5, 14)
+				SliderBar.Size = UDim2.new(0, 400, 0, 6)
+				SliderBar.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				SliderButton.Name = "SliderButton "
+				SliderButton.Parent = SliderBar
+				SliderButton.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				SliderButton.BackgroundTransparency = 1.000
+				SliderButton.Size = UDim2.new(1, 0, 1, 0)
+				SliderButton.Font = Enum.Font.GothamBold
+				SliderButton.Text = ""
+				SliderButton.TextColor3 = Color3.fromRGB(230, 230, 230)
+				SliderButton.TextSize = 14.000
+				SliderBarCorner.CornerRadius = UDim.new(1, 0)
+				SliderBarCorner.Name = "SliderBarCorner"
+				SliderBarCorner.Parent = SliderBar
+				Bar.Name = "Bar"
+				Bar.BorderSizePixel = 0
+				Bar.Parent = SliderBar
+				Bar.Size = UDim2.new(0, 0, 1, 0)
+				Bar.BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+				BarCorner.CornerRadius = UDim.new(1, 0)
+				BarCorner.Name = "BarCorner"
+				BarCorner.Parent = Bar
+				Sliderboxframe.Name = "Background2"
+				Sliderboxframe.Parent = SliderFrame
+				Sliderboxframe.AnchorPoint = Vector2.new(1, 0)
+				Sliderboxframe.Position = UDim2.new(1, -10, 0, 5)
+				Sliderboxframe.Size = UDim2.new(0, 150, 0, 25)
+				Sliderboxframe.BackgroundColor3 = getgenv().UIColor["Background 2 Color"]
+				Sliderbox.CornerRadius = UDim.new(0, 4)
+				Sliderbox.Name = "Sliderbox"
+				Sliderbox.Parent = Sliderboxframe
+				Sliderbox_2.Name = "TextColor"
+				Sliderbox_2.Parent = Sliderboxframe
+				Sliderbox_2.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+				Sliderbox_2.BackgroundTransparency = 1.000
+				Sliderbox_2.Size = UDim2.new(1, 0, 1, 0)
+				Sliderbox_2.Font = Enum.Font.GothamBold
+				Sliderbox_2.Text = ""
+				Sliderbox_2.TextSize = 14.000
+				Sliderbox_2.TextColor3 = getgenv().UIColor["Text Color"]
+				SliderButton.MouseEnter:Connect(function()
+					TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+						BackgroundColor3 = getgenv().UIColor["Slider Highlight Color"]
+					}):Play()
+				end)
+				SliderButton.MouseLeave:Connect(function()
+					TweenService:Create(Bar, TI("Tween Animation 2 Speed"), {
+						BackgroundColor3 = getgenv().UIColor["Slider Line Color"]
+					}):Play()
+				end)
+				local callBackAndSetText = function(val)
+					Sliderbox_2.Text = val
+					Callback(tonumber(val))
+				end
+				if DefaultValue then
+					if DefaultValue <= minValue then
+						DefaultValue = minValue
+					elseif DefaultValue >= maxValue then
+						DefaultValue = maxValue
+					end
+					Sliderbox_2.Text = tostring(DefaultValue)
+					Bar.Size = UDim2.new(1 - ((maxValue - DefaultValue) / (maxValue - minValue)), 0, 0, 6)
+				end
+				local dragging = false
+				local dragInput
+				local holdTime = 0 -- Time to hold before dragging is enabled
+				local holdStarted = 0
 
-    -- Changing the name after CreateMain requires re-running the label's theme
-    -- listener, which is what rebuilds the rich-text string. Cheaper than a
-    -- full ReloadMain, which tears the whole window down.
-    SeaUI.SetName = function(name)
-        getgenv().HubName = tostring(name or "Peridot");
-        for _, fn in ipairs(ThemeListeners["Title Text Color"] or {}) do
-            pcall(fn);
-        end;
-        return getgenv().HubName;
-    end;
+						-- Function to detect the start of dragging (for both mouse and touch)
+				local function onInputBegan(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+						holdStarted = tick() -- Record the time when holding starts
+						
+								-- Listen for release to stop dragging
+						input.Changed:Connect(function()
+							if input.UserInputState == Enum.UserInputState.End then
+								dragging = false
+								holdStarted = 0 -- Reset the hold timer
+							end
+						end)
+					end
+				end
+						
+						-- Function to detect when dragging stops
+				local function onInputEnded(input)
+					if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+						dragging = false
+						holdStarted = 0 -- Reset the hold timer
+					end
+				end
 
-    SeaUI.SetLogo = function(image)
-        getgenv().UIColor["Logo Image"] = tostring(image or "");
-        for _, fn in ipairs(ThemeListeners["Logo Image"] or {}) do
-            pcall(fn);
-        end;
-        return getgenv().UIColor["Logo Image"];
-    end;
+						-- Detect input movement (for both mouse and touch)
+				local function onInputChanged(input)
+					if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+						dragInput = input
+					end
+				end
+						
+						-- Connect the events
+				SliderButton.InputBegan:Connect(onInputBegan)
+				SliderButton.InputEnded:Connect(onInputEnded)
+				SliderButton.InputChanged:Connect(onInputChanged)
+						
+						-- RenderStepped updates the position while dragging
+				RunService.RenderStepped:Connect(function()
+					if holdStarted > 0 and (tick() - holdStarted >= holdTime) and not dragging then
+						dragging = true
+					end
+					if dragging and dragInput then
+						local value = Setting.Rouding and  tonumber(string.format("%." .. (Setting.Rouding or 1) .. "f", (((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))) or math.floor((((tonumber(maxValue) - tonumber(minValue)) / SizeChia) * Bar.AbsoluteSize.X) + tonumber(minValue))
+						pcall(function()
+							callBackAndSetText(value)
+						end)
+						Bar.Size = UDim2.new(0, math.clamp(dragInput.Position.X - Bar.AbsolutePosition.X, 0, SizeChia), 0, 6)
+					end
+				end)
+				local function GetSliderValue(Value)
+					if tonumber(Value) <= minValue then
+						Bar.Size = UDim2.new(0, (0 * SizeChia), 0, 6)
+						callBackAndSetText(minValue)
+					elseif tonumber(Value) >= maxValue then
+						Bar.Size = UDim2.new(0, (maxValue  /  maxValue * SizeChia), 0, 6)
+						callBackAndSetText(maxValue)
+					else
+						Bar.Size = UDim2.new(1 - ((maxValue - Value) / (maxValue - minValue)), 0, 0, 6)
+						callBackAndSetText(Value)
+					end
+				end
+				Sliderbox_2.FocusLost:Connect(function()
+					GetSliderValue(Sliderbox_2.Text)
+				end)
+				local slider_function = {}
+				function slider_function.SetValue(Value)
+					GetSliderValue(Value)
+				end
+				local controlData = {
+                    Name = TitleText,
+                    Section = Section,
+                    Element = SliderFrame,
+                    SectionName = Section_Name,
+                    TabName = Page_Name,
+                    TabButton = PageName
+                }
+                table.insert(getgenv().AllControls, controlData)
+                
+				return slider_function
+			end
+			return sectionFunction
+		end
+        local pagefunc = {}
+        function pagefunc:AddLeftGroupbox(name)
+            return pageFunction:AddSection(name)
+        end
+        function pagefunc:AddRightGroupbox(name)
+            return pageFunction:AddSection(name)
+        end
+		return pagefunc
+        end
 
-    -- Show / Hide / Toggle with a fade. Duration is optional (default 0.22s).
-    -- Gui.Enabled is only switched off AFTER the fade finishes, so the window
-    -- does not vanish mid-transition.
-    SeaUI.IsVisible = function()
-        return Internal.Gui ~= nil and Internal.Gui.Enabled and Internal.FadeAlpha < 0.5;
-    end;
+	return Main_Function
+end
 
-    SeaUI.Show = function(duration)
-        if not Internal.Gui then
-            return;
-        end;
-        Internal.Gui.Enabled = true;
-        Internal.FadeTo(0, duration);
-        return true;
-    end;
+--------------------------------------------------------------------------------
+-- Peridot API
+-- Universal.lua and the Blox Fruits module (through BloxFruitsUIAdapter) were
+-- written against the old SeaUI-style API. This layer keeps that API and draws
+-- everything with BananaLib above, so none of those scripts had to change.
+--------------------------------------------------------------------------------
 
-    SeaUI.Hide = function(duration)
-        if not Internal.Gui then
-            return;
-        end;
-        duration = tonumber(duration) or 0.22;
-        Internal.FadeTo(1, duration);
-        local token = Internal.FadeToken;
-        task.delay(duration, function()
-            -- another fade started in the meantime; leave it alone
-            if Internal.FadeToken == token and Internal.Gui then
-                Internal.Gui.Enabled = false;
-            end;
-        end);
-        return true;
-    end;
+local HttpService = game:GetService("HttpService")
 
-    SeaUI.Toggle = function(duration)
-        if SeaUI.IsVisible() then
-            return SeaUI.Hide(duration);
-        end;
-        return SeaUI.Show(duration);
-    end;
+local Peridot = {
+	VERSION = "BananaLib v2 (Peridot)",
+	HasFileSystem = HasFileSystem,
+	Banana = Library, -- raw BananaLib API, for new code that wants it directly
+	Internal = {
+		Gui = Library_Function.Gui,
+		NotiGui = Library_Function.NotiGui,
+		HideGui = Library_Function.HideGui,
+	},
+}
 
-    SeaUI.PlayIntro = function(duration)
-        if not Internal.Gui then
-            return;
-        end;
-        Internal.CaptureFadeState();
-        Internal.FadeTo(1, 0);
-        Internal.Gui.Enabled = true;
-        task.wait();
-        Internal.ScalePop(0.92, (tonumber(duration) or 0.30));
-        Internal.FadeTo(0, (tonumber(duration) or 0.28));
-        return true;
-    end;
+-- Panel transparency changed from the Settings page reaches frames already on screen.
+ThemeListeners["Background 1 Transparency"] = function(value)
+	for _, item in ipairs(Library_Function.Gui:GetDescendants()) do
+		if item:IsA("GuiObject") and (item.Name == "Background1" or item.Name == "RowBG" or item.Name:match("^Page%d+$")) then
+			item.BackgroundTransparency = value
+		end
+	end
+end
 
-    SeaUI.ConfigSystem     = ConfigSystem;
-    SeaUI.SetConfigFolder  = SetConfigFolder;
-    SeaUI.GetConfigFolder  = GetConfigFolder;
-    SeaUI.HasFileSystem    = HasFileSystem;
+--------------------------------------------------------------------------------
+-- Config save / load
+-- Keys are "page||section||title" and the file layout matches the old library,
+-- so configs saved before the switch still load.
+--------------------------------------------------------------------------------
 
-    SeaUI.VERSION = "1.7.1";
-    SeaUI.Internal = Internal;
-    return SeaUI;
-end;
+local ControlRegistry = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {} }
 
-local SeaUI = BuildLibrary()
-SeaUI.RequirementsTracker = RequirementsTracker
-SeaUI.ControlRegistry     = ControlRegistry
+local function register(kind, pageKey, sectionKey, title, entry)
+	ControlRegistry[kind][tostring(pageKey) .. "||" .. tostring(sectionKey) .. "||" .. tostring(title)] = entry
+end
 
-return SeaUI
+local ConfigFolder = "Peridot/Configs"
+
+local function SetConfigFolder(path)
+	ConfigFolder = tostring(path or "Peridot/Configs")
+	return ConfigFolder
+end
+
+local function GetConfigFolder()
+	return ConfigFolder
+end
+
+local function ensureConfigFolder()
+	if not HasFileSystem then
+		return false, "Executor has no file access"
+	end
+	local path = ""
+	for part in ConfigFolder:gmatch("[^/]+") do
+		path = path == "" and part or (path .. "/" .. part)
+		if not isfolder(path) then
+			makefolder(path)
+		end
+	end
+	return true
+end
+
+local function configPath(name)
+	return ConfigFolder .. "/" .. name .. ".json"
+end
+
+local ConfigSystem = {}
+
+function ConfigSystem.List()
+	if not ensureConfigFolder() or type(listfiles) ~= "function" then
+		return {}
+	end
+	local names = {}
+	for _, path in ipairs(listfiles(ConfigFolder)) do
+		local name = path:match("([^/\\]+)%.json$")
+		if name then
+			table.insert(names, name)
+		end
+	end
+	return names
+end
+
+function ConfigSystem.Save(name)
+	if not name or name == "" then
+		return false, "No config name"
+	end
+	local ready, folderErr = ensureConfigFolder()
+	if not ready then
+		return false, folderErr
+	end
+	local data = { Toggles = {}, Sliders = {}, Dropdowns = {}, Keybinds = {}, Boxes = {} }
+	for kind, entries in pairs(ControlRegistry) do
+		for key, entry in pairs(entries) do
+			local ok, value = pcall(entry.Get)
+			if ok then
+				data[kind][key] = value
+			end
+		end
+	end
+	return pcall(writefile, configPath(name), HttpService:JSONEncode(data))
+end
+
+function ConfigSystem.Load(name)
+	if not name or name == "" then
+		return false, "No config name"
+	end
+	local ready, folderErr = ensureConfigFolder()
+	if not ready then
+		return false, folderErr
+	end
+	if not isfile(configPath(name)) then
+		return false, "Config not found"
+	end
+	local decoded, data = pcall(function()
+		return HttpService:JSONDecode(readfile(configPath(name)))
+	end)
+	if not decoded or type(data) ~= "table" then
+		return false, "Invalid config data"
+	end
+	-- Configs saved by the old library also carry a UITheme block. It is skipped
+	-- on purpose: it holds the old blue accent.
+	for kind, entries in pairs(ControlRegistry) do
+		local saved = type(data[kind]) == "table" and data[kind] or {}
+		for key, value in pairs(saved) do
+			local entry = entries[key]
+			if entry then
+				task.spawn(function()
+					local ok, err = pcall(entry.Set, value)
+					if not ok then
+						warn("[Peridot Config]", kind, key, err)
+					end
+				end)
+			end
+		end
+	end
+	return true
+end
+
+function ConfigSystem.Delete(name)
+	if not name or name == "" then
+		return false, "No config name"
+	end
+	local ready, folderErr = ensureConfigFolder()
+	if not ready then
+		return false, folderErr
+	end
+	if not isfile(configPath(name)) then
+		return false, "Config not found"
+	end
+	return pcall(delfile, configPath(name))
+end
+
+getgenv().PeridotConfig = ConfigSystem
+
+--------------------------------------------------------------------------------
+-- Controls
+--------------------------------------------------------------------------------
+
+local function wrapSection(banana, pageKey, sectionKey)
+	local section = {}
+
+	-- The old library fired a toggle's callback once with its default; BananaLib
+	-- does not, so it is fired here to keep scripts' startup state the same.
+	function section.CreateToggle(options, callback)
+		options = options or {}
+		local state = options.Default == true
+		local toggle = banana:AddToggle(nil, {
+			Title = tostring(options.Title or ""),
+			Desc = options.Desc,
+			Default = state,
+			Callback = function(value)
+				state = value
+				if callback then
+					callback(value)
+				end
+			end,
+		})
+		if callback then
+			local ok, err = pcall(callback, state)
+			if not ok then
+				warn("[Peridot UI] toggle callback:", err)
+			end
+		end
+		local handle = {
+			Get = function()
+				return state
+			end,
+			Set = function(value)
+				toggle.SetStage(not not value)
+			end,
+		}
+		handle.SetStage = handle.Set
+		register("Toggles", pageKey, sectionKey, options.Title, handle)
+		return handle
+	end
+
+	function section.CreateButton(options, callback)
+		options = options or {}
+		local button = banana:AddButton({
+			Title = tostring(options.Title or ""),
+			Callback = callback or options.Callback,
+		})
+		return {
+			SetTitle = function(text)
+				button:SetTitle(tostring(text))
+			end,
+		}
+	end
+
+	function section.CreateLabel(options)
+		local text = type(options) == "table" and (options.Title or options.Text) or options
+		local label = banana:AddLabel(tostring(text or ""))
+		return {
+			SetText = function(value)
+				label:SetText(tostring(value))
+			end,
+			SetColor = function(color)
+				label.SetColor(color)
+			end,
+		}
+	end
+
+	function section.CreateSlider(options, callback)
+		options = options or {}
+		local min = tonumber(options.Min) or 0
+		local max = tonumber(options.Max) or 100
+		local value = math.clamp(tonumber(options.Default) or min, min, max)
+		local slider = banana:AddSlider({
+			Title = tostring(options.Title or ""),
+			Min = min,
+			Max = max,
+			Default = value,
+			Rouding = options.Precise and 2 or nil, -- BananaLib's own (misspelled) key for decimal places
+			Callback = function(newValue)
+				value = tonumber(newValue) or value
+				if callback then
+					callback(value)
+				end
+			end,
+		})
+		local handle = {
+			Get = function()
+				return value
+			end,
+			Set = function(newValue)
+				slider.SetValue(tonumber(newValue) or value)
+			end,
+		}
+		handle.SetValue = handle.Set
+		register("Sliders", pageKey, sectionKey, options.Title, handle)
+		return handle
+	end
+
+	function section.CreateBox(options, callback)
+		options = options or {}
+		local text = tostring(options.Default or "")
+		local box = banana:AddInput(nil, {
+			Title = tostring(options.Title or ""),
+			Placeholder = tostring(options.Placeholder or ""),
+			Default = text,
+			Numeric = options.Numeric or options.Number,
+			Callback = function(value)
+				text = value
+				if callback then
+					callback(value)
+				end
+			end,
+		})
+		local handle = {
+			Get = function()
+				return text
+			end,
+			Set = function(value)
+				box.SetValue(tostring(value))
+			end,
+		}
+		handle.SetValue = handle.Set
+		register("Boxes", pageKey, sectionKey, options.Title, handle)
+		return handle
+	end
+
+	function section.CreateDropdown(options, callback)
+		options = options or {}
+		local dropdown = banana:AddDropdown(nil, {
+			Title = tostring(options.Title or ""),
+			Values = options.List or {},
+			Default = options.Default,
+			Search = options.Search,
+			Multi = options.Multi,
+			Callback = callback,
+		})
+		local handle = {}
+		-- Works as handle.GetNewList(list) and handle:GetNewList(list).
+		function handle.GetNewList(first, second)
+			local list = first == handle and second or first
+			dropdown:GetNewList(type(list) == "table" and list or {})
+		end
+		handle.Refresh = handle.GetNewList
+		function handle.Set(value)
+			dropdown:SetValue(value)
+		end
+		handle.SetValue = handle.Set
+		function handle.Get()
+			return dropdown:GetValue()
+		end
+		if not options.Multi then
+			register("Dropdowns", pageKey, sectionKey, options.Title, handle)
+		end
+		return handle
+	end
+
+	function section.CreateKeybind(options, callback)
+		options = options or {}
+		local keybind = banana:AddKeyBind({
+			Title = tostring(options.Title or ""),
+			Default = options.Default or "F",
+			Mode = options.Mode or "Toggle",
+		}, function(state)
+			if callback then
+				callback(state)
+			end
+		end)
+		local handle = {
+			Get = function()
+				return keybind:Get()
+			end,
+			Set = function(key)
+				keybind:Set(key)
+			end,
+		}
+		register("Keybinds", pageKey, sectionKey, options.Title, handle)
+		return handle
+	end
+
+	return section
+end
+
+--------------------------------------------------------------------------------
+-- Window, notifications, visibility, background
+--------------------------------------------------------------------------------
+
+function Peridot.CreateMain(options)
+	options = options or {}
+	getgenv().HubName = options.Name or getgenv().HubName or "Peridot"
+	-- Top bar reads "<Name> <Desc>"; without a Desc the game name (Title) goes there.
+	local desc = (options.Desc and options.Desc ~= "") and options.Desc or options.Title or ""
+	local window = Library:CreateWindow({ Title = getgenv().HubName, Desc = desc })
+
+	if options.FloatingButton == false then
+		Library_Function.HideGui.Enabled = false
+	end
+	if not Library_Function.Gui.Enabled then
+		Library.ToggleUI() -- BananaLib starts hidden; the old library opened straight away
+	end
+
+	local main = { Banana = window }
+	function main.CreatePage(pageOptions)
+		pageOptions = pageOptions or {}
+		local pageKey = tostring(pageOptions.Page_Name or pageOptions.Page_Title or "Page")
+		local tab = window:AddTab(tostring(pageOptions.Page_Title or pageKey))
+		local page = {}
+		function page.CreateSection(name)
+			local sectionKey = tostring(name or "")
+			return wrapSection(tab:AddLeftGroupbox(sectionKey), pageKey, sectionKey)
+		end
+		return page
+	end
+	return main
+end
+
+function Peridot.CreateNoti(options)
+	options = options or {}
+	-- bypass = true: BananaLib mutes notifications whenever getgenv().Config is set.
+	Library:Notify({
+		Title = options.Title,
+		Desc = options.Desc or options.Description,
+		Duration = options.ShowTime or options.Duration or 5,
+	}, true)
+end
+
+function Peridot.IsVisible()
+	return Library_Function.Gui.Enabled
+end
+
+function Peridot.Toggle()
+	Library.ToggleUI()
+end
+
+function Peridot.Show()
+	if not Library_Function.Gui.Enabled then
+		Library.ToggleUI()
+	end
+end
+
+function Peridot.Hide()
+	if Library_Function.Gui.Enabled then
+		Library.ToggleUI()
+	end
+end
+
+-- Backgrounds: rbxassetid://..., a bare asset id, or an http(s) URL to a .png /
+-- .jpg image or a .webm video (the only video format Roblox plays). URLs need
+-- file access + getcustomasset. An empty source clears the background.
+local requestFunction = request or http_request or (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request)
+local backgroundLayer
+
+local function downloadAsset(url)
+	local getAsset = getcustomasset or getsynasset
+	if not (HasFileSystem and getAsset) then
+		error("executor can't load media from URLs", 0)
+	end
+	-- Cached by file name, so picking the same background again skips the download.
+	-- ponytail: a file replaced on GitHub under the same name keeps the old cached copy; rename it to refresh.
+	local name = url:gsub("[?#].*$", ""):match("([^/]+)$") or "background"
+	local path = "Peridot/Backgrounds/" .. name:gsub("[^%w%.%-_]", "_")
+	if not isfolder("Peridot") then
+		makefolder("Peridot")
+	end
+	if not isfolder("Peridot/Backgrounds") then
+		makefolder("Peridot/Backgrounds")
+	end
+	if not isfile(path) then
+		local body
+		if requestFunction then -- request() keeps binary bodies intact
+			local response = requestFunction({ Url = url, Method = "GET" })
+			if response.StatusCode and response.StatusCode >= 400 then
+				error("download failed (HTTP " .. tostring(response.StatusCode) .. ")", 0)
+			end
+			body = response.Body
+		else
+			body = game:HttpGet(url)
+		end
+		if type(body) ~= "string" or body == "" then
+			error("download failed", 0)
+		end
+		writefile(path, body)
+	end
+	return getAsset(path)
+end
+
+function Peridot.SetBackground(source)
+	local container = Library_Function.MainContainer
+	if not container then
+		return false, "No window yet"
+	end
+	local media = tostring(source or "")
+	local isVideo = media:lower():gsub("[?#].*$", ""):match("%.webm$") ~= nil
+	if media:match("^%d+$") then
+		media = "rbxassetid://" .. media
+	elseif media:match("^https?://") then
+		local ok, asset = pcall(downloadAsset, media)
+		if not ok then
+			return false, asset -- the current background stays
+		end
+		media = asset
+	end
+
+	if backgroundLayer then
+		backgroundLayer:Destroy()
+		backgroundLayer = nil
+	end
+	if media == "" then
+		return true
+	end
+
+	-- Its own layer: MainContainer carries a 92%-transparent UIGradient that would wash out anything drawn on it.
+	local layer = Instance.new(isVideo and "VideoFrame" or "ImageLabel")
+	layer.Name = "PeridotBackground"
+	layer.BackgroundTransparency = 1
+	layer.Size = UDim2.new(1, 0, 1, 0)
+	layer.ZIndex = 0 -- under the window content, which sits at the default ZIndex 1
+	if isVideo then
+		layer.Video = media
+		layer.Looped = true
+		layer.Volume = 0
+	else
+		layer.Image = media
+		layer.ScaleType = Enum.ScaleType.Crop
+	end
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 5) -- same as the window's corners
+	corner.Parent = layer
+	layer.Parent = container
+	if isVideo then
+		layer:Play()
+	end
+	backgroundLayer = layer
+	return true
+end
+
+Peridot.ConfigSystem = ConfigSystem
+Peridot.ControlRegistry = ControlRegistry
+Peridot.SetConfigFolder = SetConfigFolder
+Peridot.GetConfigFolder = GetConfigFolder
+
+return Peridot

@@ -3168,6 +3168,7 @@ local Window = UIAdapter.Create(UILibrary, {
     Name = "Peridot",
     Title = GameName,
     Desc = "",
+    FloatingButton = false, -- the quick controls below already have a menu button
 })
 
 local function createQuickControls()
