@@ -3282,11 +3282,7 @@ local function createQuickControls()
             stopCurrentMovement()
         end
     end)
-    userInputService.InputBegan:Connect(function(input, gameProcessed)
-        if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
-            toggleMainWindow()
-        end
-    end)
+    -- The menu key (RightControl by default, changeable in Interface Settings > Interface) is handled by the library.
 end
 
 createQuickControls()

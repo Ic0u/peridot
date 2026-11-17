@@ -84,9 +84,30 @@ end
 
 ---------------------------------------------------------------- services / game
 local services = {}
+local HEARTBEATS, INPUT_BEGAN = {}, {} -- captured callbacks, so tests can step a frame or press a key
+local function capture(list)
+	return {
+		Connect = function(_, f)
+			table.insert(list, f)
+			return {
+				Disconnect = function()
+					for i, g in ipairs(list) do
+						if g == f then table.remove(list, i) break end
+					end
+				end,
+			}
+		end,
+	}
+end
 local function service(name)
 	if not services[name] then
 		local s = newInstance(name)
+		if name == "RunService" then
+			s.Heartbeat = capture(HEARTBEATS)
+		elseif name == "UserInputService" then
+			s.InputBegan = capture(INPUT_BEGAN)
+			s.GetFocusedTextBox = function() return nil end
+		end
 		if name == "HttpService" then
 			rawset(s, "JSONEncode", function(_, t)
 				JSON_N = JSON_N + 1
@@ -416,6 +437,68 @@ end)
 run("gear page builds (Theme / Colors / Window sub-tabs, accent + color pickers)", function()
 	assert(lib.ToggleUISettings() and lib.ToggleUISettings())
 end)
+print("Interface (floating button, menu key)")
+local function press(keyName)
+	local input = { UserInputType = Enum.UserInputType.Keyboard, KeyCode = { Name = keyName } }
+	for _, f in ipairs({ (unpack or table.unpack)(INPUT_BEGAN) }) do
+		pcall(f, input, false) -- other scripts' handlers may not like a fake input
+	end
+end
+local function stepFrame()
+	for _, f in ipairs({ (unpack or table.unpack)(HEARTBEATS) }) do
+		pcall(f)
+	end
+end
+local function savedTheme()
+	return service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"])
+end
+-- a fresh library instance owns the menu key handler (a re-run replaces the old one)
+local ui = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+RUN_SPAWNS = true
+run("button size: clamped to 28-64, saved", function()
+	ui.SetButtonSize(500)
+	assert(savedTheme().ButtonSize == 64, "max 64, got " .. tostring(savedTheme().ButtonSize))
+	ui.SetButtonSize(3)
+	assert(savedTheme().ButtonSize == 28, "min 28")
+	ui.SetButtonSize(40)
+	assert(savedTheme().ButtonSize == 40)
+end)
+run("floating button: player's saved choice wins over the script's", function()
+	ui.SetButtonVisible(false)
+	assert(ui.Internal.HideGui.Enabled == false and savedTheme().FloatingButton == false)
+	ui.CreateMain({ Name = "Peridot", Title = "Interface Test", FloatingButton = true })
+	assert(ui.Internal.HideGui.Enabled == false, "saved 'hidden' beats FloatingButton = true")
+	ui.SetButtonVisible(true)
+	assert(ui.Internal.HideGui.Enabled == true)
+end)
+run("menu key: toggles the window, can be changed, and is saved", function()
+	local before = ui.IsVisible()
+	press("RightControl")
+	assert(ui.IsVisible() ~= before, "RightControl opens/closes")
+	press("RightControl")
+	assert(ui.IsVisible() == before)
+	ui.SetMenuKey("F4")
+	press("RightControl")
+	assert(ui.IsVisible() == before, "old key no longer works")
+	press("F4")
+	assert(ui.IsVisible() ~= before, "new key works")
+	press("F4")
+	assert(savedTheme().MenuKey == "F4", "saved")
+end)
+run("Interface tab builds with the page and its watcher runs", function()
+	assert(ui.ToggleUISettings() and ui.ToggleUISettings())
+	stepFrame()
+	assert(savedTheme().MenuKey == "F4", "watcher left the saved key alone")
+end)
+run("a re-run replaces the old menu key handler (no double toggle)", function()
+	local again = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	again.CreateMain({ Name = "Peridot", Title = "Interface Test 2" })
+	local before = again.IsVisible()
+	press("F4")
+	assert(again.IsVisible() ~= before, "toggled exactly once")
+end)
+RUN_SPAWNS = false
+
 run("accent rainbow: saved while running, frozen + saved when stopped, cleared by a preset", function()
 	local json = service("HttpService")
 	RUN_SPAWNS = true
