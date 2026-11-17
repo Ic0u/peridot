@@ -254,7 +254,7 @@ local function createLoaderContent(parent)
     title.AnchorPoint = Vector2.new(0.5, 0.5)
     title.BackgroundTransparency = 1
     title.Position = UDim2.fromScale(0.5, 0.36)
-    title.Size = UDim2.fromOffset(460, 64)
+    title.Size = UDim2.fromOffset(460, 84)
     title.Parent = container
 
     local titleScale = Instance.new("UIScale")
@@ -264,7 +264,7 @@ local function createLoaderContent(parent)
     local titleLayout = Instance.new("UIListLayout")
     titleLayout.FillDirection = Enum.FillDirection.Horizontal
     titleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    titleLayout.Padding = UDim.new(0, 6)
+    titleLayout.Padding = UDim.new(0, 0)
     titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
     titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
     titleLayout.Parent = title
@@ -277,7 +277,7 @@ local function createLoaderContent(parent)
         slot.Name = "LetterSlot" .. index
         slot.BackgroundTransparency = 1
         slot.LayoutOrder = index
-        slot.Size = UDim2.fromOffset(character == " " and 12 or 34, 60)
+        slot.Size = UDim2.fromOffset(character == "I" and 26 or 40, 76) -- I is narrow; a full slot leaves a gap around it
         slot.Parent = title
 
         if character ~= " " then
@@ -289,22 +289,22 @@ local function createLoaderContent(parent)
             letter.Rotation = letterRotations[index]
             letter.Size = UDim2.fromScale(1, 1)
             letter.Text = character
-            letter.TextColor3 = Color3.fromRGB(244, 250, 228)
-            letter.TextSize = 38
+            letter.TextColor3 = Color3.fromRGB(255, 255, 255) -- UIGradient multiplies this, so white lets the gradient set the color
+            letter.TextSize = 54
             letter.TextTransparency = 1
             letter.Parent = slot
 
             local letterStroke = Instance.new("UIStroke")
-            letterStroke.Color = Color3.fromRGB(74, 112, 24)
+            letterStroke.Color = Color3.fromRGB(112, 140, 58)
             letterStroke.Thickness = 1.25
             letterStroke.Transparency = 1
             letterStroke.Parent = letter
 
             local letterGradient = Instance.new("UIGradient")
             letterGradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(166, 217, 66)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(240, 249, 205)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(122, 184, 38)),
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(212, 227, 148)), -- pale highlight on top
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(184, 207, 108)), -- body
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 180, 76)), -- deeper olive underneath
             })
             letterGradient.Offset = Vector2.new(-0.22, 0)
             letterGradient.Rotation = 90
@@ -326,7 +326,7 @@ local function createLoaderContent(parent)
     local progressTrack = Instance.new("Frame")
     progressTrack.Name = "ProgressTrack"
     progressTrack.AnchorPoint = Vector2.new(0.5, 0.5)
-    progressTrack.BackgroundColor3 = Color3.fromRGB(238, 237, 241)
+    progressTrack.BackgroundColor3 = Color3.fromRGB(206, 216, 176)
     progressTrack.BackgroundTransparency = 1
     progressTrack.BorderSizePixel = 0
     progressTrack.Position = UDim2.fromScale(0.5, 0.68)
@@ -351,9 +351,9 @@ local function createLoaderContent(parent)
 
     local fillGradient = Instance.new("UIGradient")
     fillGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(118, 176, 34)),
-        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(232, 246, 176)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 212, 62)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 180, 76)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(212, 227, 148)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(184, 207, 108)),
     })
     fillGradient.Offset = Vector2.new(-1, 0)
     fillGradient.Parent = progressFill
@@ -366,7 +366,7 @@ local function createLoaderContent(parent)
     status.Size = UDim2.fromOffset(360, 24)
     status.Font = Enum.Font.PatrickHand
     status.Text = "Initializing..."
-    status.TextColor3 = Color3.fromRGB(246, 242, 244)
+    status.TextColor3 = Color3.fromRGB(232, 240, 208)
     status.TextSize = 19
     status.TextTransparency = 1
     status.TextXAlignment = Enum.TextXAlignment.Center
@@ -486,7 +486,7 @@ function Loader.Start(onComplete)
             tween(
                 view.Stroke,
                 0.32,
-                { Transparency = 0.16 },
+                { Transparency = 0.3 },
                 Enum.EasingStyle.Quint,
                 Enum.EasingDirection.Out
             )
