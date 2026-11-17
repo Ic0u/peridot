@@ -497,6 +497,14 @@ run("a re-run replaces the old toggle key handler (no double toggle)", function(
 	press("F4")
 	assert(again.IsVisible() ~= before, "toggled exactly once")
 end)
+run("Reset Icon returns to the main Peridot icon and clears the saved custom one", function()
+	assert(ui.SetLogo("123456"))
+	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://123456", "custom icon applied")
+	assert(savedTheme().Logo == "123456", "custom icon saved")
+	assert(ui.SetLogo(""))
+	assert(getgenv().UIColor["Logo Image"] == "rbxassetid://80832574371637", "back to the main icon, got " .. tostring(getgenv().UIColor["Logo Image"]))
+	assert(savedTheme().Logo == nil, "saved custom icon cleared")
+end)
 RUN_SPAWNS = false
 
 run("accent rainbow: saved while running, frozen + saved when stopped, cleared by a preset", function()

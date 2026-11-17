@@ -326,7 +326,7 @@ Library_Function.HideGui.Name = 'Peridot Btn'
 -- UI toggle button (opens/closes the window): its size is a player option
 -- (Interface Settings > UI Toggle), 38px by default. The texture fills the button
 -- and stays put; only the outline gets a little stronger while the UI is open.
-local ToggleButtonTexture = "rbxassetid://18626735276"
+local ToggleButtonTexture = "rbxassetid://7287221556"
 local ButtonSize = math.clamp(tonumber(SavedTheme.ButtonSize) or 38, 28, 64)
 local function buttonImageSize()
 	return ButtonSize - 4
@@ -1994,7 +1994,7 @@ function Library:CreateWindow(Setting)
              Button_1.BackgroundTransparency = 1
              Button_1.Size = UDim2.new(1, 0,1, 0)
              Button_1.Font = Enum.Font.GothamBold
-             Button_1.Text = "Click"
+             Button_1.Text = Setting.ButtonText or "Click" -- Peridot: e.g. "Reset"
              Button_1.TextColor3 = Color3.fromRGB(240, 240, 240)
              Button_1.TextSize = 13
 
@@ -4423,19 +4423,20 @@ end
 			},
 		})
 		accentPicker.FollowKey("Title Text Color") -- the swatch shows the live accent, rainbow included
-		local logoSection = themeTab:AddSection("Logo")
+		local logoSection = themeTab:AddSection("Icon")
 		logoSection:AddInput(nil, {
-			Title = "Logo image",
+			Title = "Icon image",
 			Placeholder = "rbxassetid://, image URL or workspace file",
 			Callback = function(text)
 				local ok, err = Library_Function.SetLogo(text)
 				if not ok then
-					Library:Notify({ Title = "Logo", Desc = tostring(err), Duration = 4 }, true)
+					Library:Notify({ Title = "Icon", Desc = tostring(err), Duration = 4 }, true)
 				end
 			end,
 		})
 		logoSection:AddButton({
-			Title = "Default logo",
+			Title = "Reset Icon",
+			ButtonText = "Reset", -- back to the main Peridot icon
 			Callback = function()
 				Library_Function.SetLogo("")
 			end,
@@ -4558,6 +4559,7 @@ end
 
 		windowTab:AddSection("Reset"):AddButton({
 			Title = "Reset theme",
+			ButtonText = "Reset",
 			Callback = function()
 				Library_Function.ResetTheme()
 				Library_Function.OnAccentChanged()
@@ -4797,6 +4799,7 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 		options = options or {}
 		local button = banana:AddButton({
 			Title = tostring(options.Title or ""),
+			ButtonText = options.ButtonText, -- label on the green button, "Click" by default
 			Callback = callback or options.Callback,
 		})
 		return {
