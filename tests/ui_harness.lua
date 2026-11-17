@@ -845,6 +845,7 @@ local function runLoops(hook, limit) -- run each captured task.spawn body until 
 	end
 end
 
+local universalBackground = lib.ControlRegistry.Dropdowns["UI Settings||Background||Background"]
 local registryBefore = {}
 for kind, entries in pairs(lib.ControlRegistry) do
 	registryBefore[kind] = {}
@@ -1027,6 +1028,21 @@ run("lists show how many entries they found, and Refresh re-reads them", functio
 	getgenv().GetMobs = function() return {} end
 	BUTTONS["Refresh Mob List"]()
 	assert(hasLabel("No mobs found. Press Refresh once the game has finished loading."), "empty state says what to do")
+end)
+
+run("Interface Settings has the Background section, and it loads a background", function()
+	local entry -- the second window's picker is registered under its sub-tab key
+	for key, handle in pairs(lib.ControlRegistry.Dropdowns) do
+		if key:sub(-#"||Background||Background") == "||Background||Background" and handle ~= universalBackground then
+			entry = handle
+		end
+	end
+	assert(entry, "the Blox Fruits window built its own Background picker")
+	local before = getgenv().UIColor["Background 1 Transparency"]
+	entry.Set("Green Night Driving")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn see-through while a background shows")
+	entry.Set("None")
+	assert(getgenv().UIColor["Background 1 Transparency"] == before, "and come back when it is cleared")
 end)
 
 run("Stop All Features switches everything off", function()

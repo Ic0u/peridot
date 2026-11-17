@@ -5401,6 +5401,107 @@ function Peridot.SetBackground(source)
 	return true
 end
 
+-- The Background section of the Interface Settings page, shared by every script:
+-- a picker over workspace/Peridot/Backgrounds, a custom source box, and a first-run
+-- download of the hub's own set (assets/backgrounds/backgrounds.json under baseUrl).
+function Peridot.AddBackgroundSection(window, baseUrl)
+	baseUrl = baseUrl or "https://raw.githubusercontent.com/Ic0u/peridot/main/"
+	local function notify(desc)
+		Peridot.CreateNoti({ Title = "Background", Desc = desc, ShowTime = 4 })
+	end
+	local section = window.UISettings.CreateSection("Background")
+
+	local transparencyBefore
+	local function applyBackground(source)
+		local ok, err = Peridot.SetBackground(source)
+		if not ok then
+			return notify(tostring(err))
+		end
+		-- see-through panels while a background shows; the player's own setting comes back when cleared
+		if source ~= "" then
+			transparencyBefore = transparencyBefore or getgenv().UIColor["Background 1 Transparency"]
+			getgenv().UIColor["Background 1 Transparency"] = 0.25
+		elseif transparencyBefore then
+			getgenv().UIColor["Background 1 Transparency"] = transparencyBefore
+			transparencyBefore = nil
+		end
+	end
+
+	local function backgroundTitle(path) -- "Peridot/Backgrounds/persona_5_rainy.jpg" -> "Persona 5 Rainy"
+		local words = {}
+		for word in path:match("([^/\\]+)$"):gsub("%.%w+$", ""):gmatch("[^_%s]+") do
+			table.insert(words, word:sub(1, 1):upper() .. word:sub(2))
+		end
+		return table.concat(words, " ")
+	end
+
+	local backgroundPaths = {}
+	local dropdown
+	local function refreshList()
+		backgroundPaths = {}
+		local names = {}
+		for _, path in ipairs(Peridot.ListBackgrounds()) do
+			local title = backgroundTitle(path)
+			if not backgroundPaths[title] then
+				backgroundPaths[title] = path
+				table.insert(names, title)
+			end
+		end
+		table.sort(names)
+		table.insert(names, 1, "None")
+		if dropdown then
+			dropdown.GetNewList(names)
+		end
+		return names
+	end
+
+	dropdown = section.CreateDropdown({
+		Title = "Background",
+		List = refreshList(),
+		Default = "None",
+		Search = true,
+	}, function(name)
+		applyBackground(backgroundPaths[name] or "")
+	end)
+	section.CreateButton({ Title = "Refresh list" }, refreshList)
+	section.CreateLabel({ Title = "Add your own: put images or .webm videos in workspace/Peridot/Backgrounds, then Refresh." })
+
+	task.spawn(function()
+		local ok, list = pcall(function()
+			local http = game:GetService("HttpService")
+			return http:JSONDecode(game:HttpGet(baseUrl .. "assets/backgrounds/backgrounds.json"))
+		end)
+		if not ok or type(list) ~= "table" then
+			return
+		end
+		local added, failed = 0, 0
+		for _, file in pairs(list) do
+			local result = Peridot.DownloadBackground(baseUrl .. "assets/backgrounds/" .. file, file)
+			if result == "new" then
+				added = added + 1
+			elseif not result then
+				failed = failed + 1
+			end
+		end
+		if added > 0 then
+			refreshList()
+		end
+		if failed > 0 then
+			notify(failed .. " background(s) couldn't be downloaded")
+		end
+	end)
+
+	section.CreateBox({
+		Title = "Custom Background",
+		Placeholder = "rbxassetid://, URL or workspace file",
+		Default = "",
+	}, function(url)
+		if url ~= "" then
+			applyBackground(url)
+		end
+	end)
+end
+
 Peridot.ConfigSystem = ConfigSystem
 Peridot.ControlRegistry = ControlRegistry
 Peridot.SetConfigFolder = SetConfigFolder

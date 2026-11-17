@@ -1200,6 +1200,10 @@ do
     end
 end
 
+-- Interface Settings (the gear) already holds the theme, colors, window and UI toggle options;
+-- the background picker is added to it here, as in the other scripts.
+UILibrary.AddBackgroundSection(Window, MODULE_BASE_URL)
+
 if not coreLoaded then
     notify("Blox Fruits", "The feature script failed to load, so switches will not work.", 8)
 end
