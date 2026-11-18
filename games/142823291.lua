@@ -79,47 +79,50 @@ local function safe(where, fn)
 end
 
 ----------------------------------------------------------------------------
--- Pages. The script names its sections with the page they belong on ("MAIN • FLY",
--- "VISUAL • ...", "⚡ Fling", ...); unnamed ones are the aim sections. All pages are
--- made up front so sections the script adds later keep the sidebar in this order.
+-- Wording and layout. libraries/mm2-text.lua says, in plain English, where every
+-- section and control goes and what to call it; anything it does not list is cleaned up
+-- (symbols removed, capitals fixed, developer words replaced) and put on the Extras page.
 ----------------------------------------------------------------------------
 
-local PAGE_ORDER = { "Combat", "Main", "Visual", "World", "Troll", "Emotes", "Map", "Misc" }
-local pages = {}
-for _, name in ipairs(PAGE_ORDER) do
+local Text = loadRemoteModule("libraries/mm2-text.lua")
+
+----------------------------------------------------------------------------
+-- Pages and sub-tabs, made up front so they keep the order in the wording file.
+----------------------------------------------------------------------------
+
+local pages, tabs = {}, {}
+for _, name in ipairs(Text.pages) do
     pages[name] = Window.CreatePage({ Page_Name = name, Page_Title = name })
+    tabs[name] = {}
+    for _, tabName in ipairs(Text.tabs[name] or {}) do
+        tabs[name][tabName] = pages[name].CreateSubTab(tabName)
+    end
 end
 
-local PREFIX_PAGES = {
-    MAIN = "Main", WORLD = "World", VISUAL = "Visual", EMOTES = "Emotes",
-    MISC = "Misc", TROLL = "Troll", MAP = "Map", FARM = "World",
-}
-local WORLD_TAGS = { "Fling", "⚡", "🤖", "📋", "⚙", "🔘", "🔑" }
-local NAMED_PAGES = {
-    ["Visuals"] = "Visual", ["Object ESP"] = "Visual",
-    ["Bomb Jump+"] = "World", ["Gold Bomb Jump+"] = "World",
-    ["FE Animations"] = "Emotes", ["About"] = "Emotes",
-    ["Inventory Unlimiter V5"] = "Misc", ["Pm-WallHop"] = "Misc",
-    ["Backshots"] = "Troll",
-}
+local function tabFor(pageName, tabName)
+    if not pages[pageName] then
+        pageName, tabName = Text.fallback.page, Text.fallback.tab
+    end
+    if not tabs[pageName][tabName] then
+        tabs[pageName][tabName] = pages[pageName].CreateSubTab(tabName)
+    end
+    return tabs[pageName][tabName], pageName, tabName
+end
 
--- page and shown title for one of the script's section names
-local function routeSection(name)
-    local prefix, rest = name:match("^(%u+)%s+(.*)$")
-    if prefix and PREFIX_PAGES[prefix] then
-        -- drop the bullet after the prefix (one section spells it as the text "u{2022}")
-        local shown = rest:gsub("^u{2022}%s*", ""):gsub("^[^%w]+", ""):gsub("%s+$", "")
-        return PREFIX_PAGES[prefix], shown ~= "" and shown or PREFIX_PAGES[prefix]
-    end
-    if NAMED_PAGES[name] then
-        return NAMED_PAGES[name], name
-    end
-    for _, tag in ipairs(WORLD_TAGS) do
-        if name:find(tag, 1, true) then
-            return "World", name
+-- Sections are made when their first control arrives, so a section whose controls were all
+-- moved elsewhere or hidden never shows up empty.
+local madeSections = {}
+local function sectionFor(pageName, tabName, title, intro)
+    local tab, page, tabKey = tabFor(pageName, tabName)
+    local key = page .. "/" .. tabKey .. "/" .. title
+    if not madeSections[key] then
+        local section = tab.CreateSection(title)
+        if type(intro) == "string" and intro ~= "" then
+            section.CreateLabel({ Title = intro })
         end
+        madeSections[key] = section
     end
-    return "Combat", name
+    return madeSections[key]
 end
 
 local KEY_NAMES = {
@@ -141,68 +144,112 @@ local function pace()
     end
 end
 
--- One section of the script, drawn in the Peridot window. Methods and return values match
--- the Noir host the script was written for.
+-- One section of the script. Methods and return values match the Noir host the script was
+-- written for, but each control is placed and worded through mm2-text.lua first.
 local function makeSection(name, description)
     pace()
-    local pageName, shown = routeSection(name)
-    local section = pages[pageName].CreateSection(shown)
-    if type(description) == "string" and description ~= "" then
-        section.CreateLabel({ Title = description })
+    local key = Text.sectionKey(name)
+    local pageName, tabName, title, intro = Text.home(name, description)
+
+    -- where a control goes: its own section, or one the wording file moves it to
+    local function target(route)
+        if route then
+            local routePage, routeTab, routeTitle = route:match("^([^/]+)/([^/]+)/(.+)$")
+            if routePage then
+                return sectionFor(routePage, routeTab, routeTitle, nil)
+            end
+        end
+        return sectionFor(pageName, tabName, title, intro)
     end
 
     local used = {}
-    local function unique(label) -- the same label twice in a section would share a config key
-        pace() -- every control passes through here
+    local function unique(label) -- the same title twice in a section would share a config key
+        pace()
         label = tostring(label or "")
         local n = (used[label] or 0) + 1
         used[label] = n
         return n == 1 and label or (label .. " (" .. n .. ")")
     end
 
+    -- the wording and place for one control; hidden controls return nil
+    local function place(kind, label)
+        local newTitle, help, route, buttonText = Text.describe(key, kind, label)
+        if newTitle == "-" or newTitle == "" then
+            return nil
+        end
+        return newTitle, help, target(route), buttonText
+    end
+
     local api = { Name = name }
 
     function api:AddToggle(label, callback)
-        local handle = section.CreateToggle({ Title = unique(label) }, safe(label, function(on)
-            if callback then
-                callback(on)
-            end
-        end))
-        adapterToggles[#adapterToggles + 1] = handle
+        local newTitle, help, section = place("Toggle", label)
+        local state = false
+        local handle
+        if newTitle then
+            handle = section.CreateToggle({ Title = unique(newTitle), Desc = help ~= "" and help or nil }, safe(label, function(on)
+                state = on == true
+                if callback then
+                    callback(on)
+                end
+            end))
+            adapterToggles[#adapterToggles + 1] = handle
+        end
         return function(value)
             if value == nil then
-                value = not handle.Get()
+                value = not state
             end
-            handle.Set(value == true)
+            if handle then
+                handle.Set(value == true)
+            else
+                state = value == true
+                if callback then
+                    safe(label, callback)(state)
+                end
+            end
         end
     end
 
     function api:AddButton(label, callback)
-        section.CreateButton({ Title = unique(label) }, safe(label, function()
-            if callback then
-                callback()
-            end
-        end))
+        local newTitle, _, section, buttonText = place("Button", label)
+        if newTitle then
+            section.CreateButton({ Title = unique(newTitle), ButtonText = buttonText }, safe(label, function()
+                if callback then
+                    callback()
+                end
+            end))
+        end
         return {}
     end
 
     function api:AddSlider(label, min, max, default, callback)
         min, max = tonumber(min) or 0, tonumber(max) or 100
         local current = math.clamp(math.floor((tonumber(default) or min) + 0.5), min, max)
+        local newTitle, _, section = place("Slider", label)
+        local handle
         local reported = false
-        local handle = section.CreateSlider({ Title = unique(label), Min = min, Max = max, Default = current }, safe(label, function(value)
-            current = math.clamp(math.floor((tonumber(value) or current) + 0.5), min, max)
-            reported = true
-            if callback then
-                callback(current)
-            end
-        end))
+        if newTitle then
+            handle = section.CreateSlider({ Title = unique(newTitle), Min = min, Max = max, Default = current }, safe(label, function(value)
+                current = math.clamp(math.floor((tonumber(value) or current) + 0.5), min, max)
+                reported = true
+                if callback then
+                    callback(current)
+                end
+            end))
+        end
         if not reported and callback then
             safe(label, callback)(current) -- the script expects its start value once, like Noir did
         end
         return {
             SetValue = function(_, value)
-                handle.Set(value)
+                if handle then
+                    handle.Set(value)
+                else
+                    current = tonumber(value) or current
+                    if callback then
+                        safe(label, callback)(current)
+                    end
+                end
             end,
             GetValue = function()
                 return current
@@ -211,40 +258,53 @@ local function makeSection(name, description)
     end
 
     function api:AddDropdown(label, values, callback)
-        local items, lookup = {}, {}
+        local items, lookup, shownOf = {}, {}, {}
         local function load(list) -- Peridot lists hold text; keep the script's own values behind them
-            items, lookup = {}, {}
+            items, lookup, shownOf = {}, {}, {}
             for _, value in ipairs(type(list) == "table" and list or {}) do
-                local key = tostring(value)
-                items[#items + 1] = key
-                lookup[key] = value
+                local shown = Text.value(label, value)
+                items[#items + 1] = shown
+                lookup[shown] = value
+                shownOf[tostring(value)] = shown
             end
         end
         load(values)
-        local handle = section.CreateDropdown({
-            Title = unique(label),
-            List = items,
-            Default = items[1],
-            Search = #items > 10,
-        }, safe(label, function(key)
-            if callback and lookup[key] ~= nil then
-                callback(lookup[key])
-            end
-        end))
+        local newTitle, _, section = place("Dropdown", label)
+        local handle
+        if newTitle then
+            handle = section.CreateDropdown({
+                Title = unique(newTitle),
+                List = items,
+                Default = items[1],
+                Search = #items > 10,
+            }, safe(label, function(shown)
+                if callback and lookup[shown] ~= nil then
+                    callback(lookup[shown])
+                end
+            end))
+        elseif callback and items[1] then
+            safe(label, callback)(lookup[items[1]])
+        end
         local ctl = {}
         function ctl:SetValue(value)
-            handle.Set(tostring(value))
+            if handle then
+                handle.Set(shownOf[tostring(value)] or tostring(value))
+            elseif callback then
+                safe(label, callback)(value)
+            end
         end
         ctl.Select = ctl.SetValue
         function ctl:Refresh(newValues, selected)
             load(newValues)
-            handle.GetNewList(items)
+            if handle then
+                handle.GetNewList(items)
+            end
             local chosen = selected
             if chosen == nil then
                 chosen = (type(newValues) == "table" and newValues[1]) or nil
             end
             if chosen ~= nil then
-                handle.Set(tostring(chosen))
+                ctl:SetValue(chosen)
             end
         end
         function ctl:ChangeItems(newValues)
@@ -261,33 +321,46 @@ local function makeSection(name, description)
                 lookup[player.Name] = player
             end
         end
-        return section.CreateDropdown({ Title = unique(label), List = names, Default = "None", Search = true }, safe(label, function(name)
+        local newTitle, _, section = place("PlayerDropdown", label)
+        if not newTitle then
+            return {}
+        end
+        return section.CreateDropdown({ Title = unique(newTitle), List = names, Default = "None", Search = true }, safe(label, function(chosen)
             if callback then
-                callback(lookup[name])
+                callback(lookup[chosen])
             end
         end))
     end
 
     function api:AddTextBox(label, callback)
-        local handle = section.CreateBox({ Title = unique(label), Placeholder = tostring(label or "") }, safe(label, function(text)
-            if callback then
-                callback(text)
-            end
-        end))
+        local newTitle, help, section = place("TextBox", label)
+        local handle
+        if newTitle then
+            handle = section.CreateBox({ Title = unique(newTitle), Placeholder = help ~= "" and help or newTitle }, safe(label, function(text)
+                if callback then
+                    callback(text)
+                end
+            end))
+        end
         return {
             SetValue = function(_, value)
-                handle.Set(tostring(value))
+                if handle then
+                    handle.Set(tostring(value))
+                end
             end,
         }
     end
 
     function api:AddLabel(textValue)
         local current = tostring(textValue or "")
-        local handle = section.CreateLabel({ Title = current })
+        local newTitle, _, section = place("Label", current)
+        local handle = newTitle and section.CreateLabel({ Title = newTitle }) or nil
         return {
             SetValue = function(_, value)
                 current = tostring(value)
-                handle.SetText(current)
+                if handle then
+                    handle.SetText(Text.hasRussian(current) and "" or Text.clean(current))
+                end
             end,
             GetValue = function()
                 return current
@@ -296,21 +369,28 @@ local function makeSection(name, description)
     end
 
     function api:AddParagraph(title, body)
-        section.CreateLabel({ Title = tostring(title or "") })
-        if body ~= nil and tostring(body) ~= "" then
-            section.CreateLabel({ Title = tostring(body) })
+        local newTitle, _, section = place("Paragraph", title)
+        if newTitle then
+            section.CreateLabel({ Title = newTitle })
+            if body ~= nil and tostring(body) ~= "" and not Text.hasRussian(body) then
+                section.CreateLabel({ Title = Text.words(tostring(body)) })
+            end
         end
         return {}
     end
 
     function api:AddColorpicker(label, default, callback)
         local colour = typeof(default) == "Color3" and default or Color3.fromRGB(140, 172, 68)
-        local handle = section.CreateColorPicker({ Title = unique(label), Default = colour }, safe(label, function(value)
-            colour = value
-            if callback then
-                callback(value)
-            end
-        end))
+        local newTitle, _, section = place("Colorpicker", label)
+        local handle
+        if newTitle then
+            handle = section.CreateColorPicker({ Title = unique(newTitle), Default = colour }, safe(label, function(value)
+                colour = value
+                if callback then
+                    callback(value)
+                end
+            end))
+        end
         if callback then
             safe(label, callback)(colour) -- the script expects its start color once, like Noir did
         end
@@ -320,7 +400,9 @@ local function makeSection(name, description)
                     return
                 end
                 colour = value
-                handle.Set(value)
+                if handle then
+                    handle.Set(value)
+                end
                 if callback then
                     safe(label, callback)(value)
                 end
@@ -335,22 +417,28 @@ local function makeSection(name, description)
     function api:AddKeybind(label, default, callback)
         local current = tostring(default or "None")
         local list = {}
-        for _, key in ipairs(KEY_NAMES) do
-            list[#list + 1] = key
+        for _, keyName in ipairs(KEY_NAMES) do
+            list[#list + 1] = keyName
         end
         if not table.find(list, current) then
             table.insert(list, 2, current)
         end
-        local handle = section.CreateDropdown({ Title = unique(label), List = list, Default = current, Search = true }, safe(label, function(key)
-            current = key
-            if callback then
-                callback(key)
-            end
-        end))
+        local newTitle, _, section = place("Keybind", label)
+        local handle
+        if newTitle then
+            handle = section.CreateDropdown({ Title = unique(newTitle), List = list, Default = current, Search = true }, safe(label, function(keyName)
+                current = keyName
+                if callback then
+                    callback(keyName)
+                end
+            end))
+        end
         return {
             SetValue = function(_, value)
                 current = tostring(value)
-                handle.Set(current)
+                if handle then
+                    handle.Set(current)
+                end
             end,
             GetValue = function()
                 return current
@@ -371,8 +459,9 @@ function MM2Host.CreateTab()
     return tab
 end
 
+-- Messages from the script use developer words in places; say them plainly.
 function MM2Host.Notify(message, duration)
-    local text = tostring(message or ""):gsub("^MM2 Silent Aim: ", "")
+    local text = Text.words((tostring(message or ""):gsub("^MM2 Silent Aim: ", "")))
     notify("MM2", text, tonumber(duration) or 3)
 end
 
@@ -389,7 +478,6 @@ end
 ----------------------------------------------------------------------------
 
 do
-    local panels = pages.Misc.CreateSection("Noir Panels")
     local function open(page)
         local show = environment.__NoirShowPanel
         if type(show) ~= "function" then
@@ -397,16 +485,17 @@ do
         end
         show(page)
     end
-    panels.CreateButton({ Title = "Emote Browser", ButtonText = "Open" }, safe("Emote Browser", function()
+    local emoteBox = sectionFor("Emotes", "Browser", "Emote Browser", "Browse hundreds of emotes with pictures, and open the game's own emote buttons.")
+    emoteBox.CreateButton({ Title = "Open The Emote Browser", ButtonText = "Open" }, safe("Emote Browser", function()
         open("emotes")
     end))
+    local panels = sectionFor("Extras", "Panels", "Extra Panels", "These open in their own window. Use the minimize button there to close them.")
     panels.CreateButton({ Title = "Skin Changer", ButtonText = "Open" }, safe("Skin Changer", function()
         open("skins")
     end))
-    panels.CreateButton({ Title = "Noir Settings (language, stream mode)", ButtonText = "Open" }, safe("Noir Settings", function()
+    panels.CreateButton({ Title = "Language And Streamer Options", ButtonText = "Open" }, safe("Language And Streamer Options", function()
         open("settings")
     end))
-    panels.CreateLabel({ Title = "The panel's minimize button closes it again." })
 end
 
 ----------------------------------------------------------------------------

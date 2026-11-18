@@ -1,0 +1,272 @@
+# Every control label the Murder Mystery 2 script creates, one per line: section<TAB>type<TAB>label.
+# Made from libraries/mm2-main.lua and the scripts embedded in it (the few controls whose labels are
+# built at run time are listed by hand at the end). tests/ui_harness.lua runs each one through
+# libraries/mm2-text.lua and checks the wording.
+MISC • CUSTOMIZE CURSOR	Toggle	Enable Custom Cursor
+MISC • CUSTOMIZE CURSOR	Dropdown	Cursor Design
+MISC • CUSTOMIZE CURSOR	Toggle	Enable Cursor Color
+MISC • CUSTOMIZE CURSOR	Colorpicker	Cursor Color
+MISC • CUSTOMIZE CURSOR	Slider	Cursor Artwork Scale
+MISC • CUSTOMIZE CURSOR	TextBox	Custom Cursor ID
+MISC • FPS	Toggle	Fps Boost
+MISC • FPS	Toggle	Less Lag
+MISC • FPS	Toggle	No Shadows
+MISC • FPS	Toggle	Optimize Coins
+MISC • FPS	Toggle	Auto Remove Chroma Effects
+MISC • FPS	Toggle	Auto Remove Pets Display
+MISC • FPS	Toggle	Auto Remove Coins
+MISC • FPS	Toggle	Auto Remove Corpses
+MISC • FPS	Toggle	Enable Frame Enhancement
+MISC • FPS	Label	Client-side protections
+MISC • FPS	Toggle	Fade
+MISC • FPS	Toggle	Trap
+MISC • FPS	Toggle	AntiFling
+MISC • FPS	Toggle	Anti AFK
+MISC • FPS	Toggle	Anti Void
+MISC • AIMLOCK	Toggle	Enable Aimlock
+MISC • AIMLOCK	Toggle	Enable Aimlock Bind Button
+MISC • AIMLOCK	Slider	Aimlock Bind Button Size
+MISC • AIMLOCK	Toggle	Aimlock Wall Check
+MISC • AIMLOCK	Toggle	Aimlock FOV Check
+MISC • AIMLOCK	Slider	Aimlock FOV Radius
+MISC • AIMLOCK	Slider	Aimlock Smoothness
+MISC • AIMLOCK	Toggle	Aimlock Horizontal Prediction
+MISC • AIMLOCK	Dropdown	Aimlock Target Player
+MISC • AIMLOCK	Button	Refresh Aimlock Player List
+MISC • AIMLOCK	Button	Clear Aimlock Player Selection
+MISC • AIMLOCK	Dropdown	Aimlock Target Body Part
+MISC • AIMLOCK	Dropdown	Aimlock Prediction
+MISC • AIMLOCK	Keybind	Aimlock Quick Toggle
+MISC • AIMLOCK	Label	Tip: select Auto Murderer for automatic role targeting. Drag the round AIM button to move it.
+MAIN • UNIVERSAL	Toggle	Infinite Jump
+MAIN • INVISIBLE	Toggle	Invisible
+MAIN • INVISIBLE	Toggle	Enable Invisible Bind Button
+MAIN • INVISIBLE	Slider	Invisible Bind Button Size
+MAIN • INVISIBLE	Label	Round Invisible button: tap to toggle; drag it to move. Its size and position are saved.
+MISC • DESYNC	Toggle	Desync
+MISC • DESYNC	Toggle	Enable Desync Bind Button
+MISC • DESYNC	Slider	Desync Bind Button Size
+MISC • DESYNC	Label	Enable Desync to save the current position; you can then move locally while its saved position is sent on desync frames.
+MAIN • SELF MODS	Toggle	Enable WalkSpeed
+MAIN • SELF MODS	Slider	WalkSpeed
+MAIN • SELF MODS	Toggle	Enable JumpPower
+MAIN • SELF MODS	Slider	JumpPower
+MAIN • SELF MODS	Toggle	Auto Prestige
+MAIN • SELF MODS	Button	Prestige Now
+MAIN • SERVER	Toggle	Show Round Timer
+MAIN • SERVER	Toggle	Instant Role Detection
+MAIN • SERVER	Toggle	Auto Notify Roles
+MAIN • SERVER	Button	Show Murderer Chance
+MAIN • SERVER	Button	Refresh Roles
+MAIN • SERVER	Label	Roles are sampled during the 10 second countdown.
+WORLD • GUN	Toggle	Enable Auto GG
+WORLD • GUN	Label	Auto GG picks up GunDrop while you do not have a Gun.
+WORLD • GUN	Button	Grab Gun
+WORLD • GUN	Toggle	Gun Aura
+WORLD • GUN	Slider	Gun Aura Range
+WORLD • GUN	Toggle	Auto Notify Dropped Gun
+WORLD • GUN	Toggle	Gun Pickup Notify
+WORLD • GUN	Toggle	Enable Grab Gun Bind Button
+WORLD • GUN	Slider	Grab Gun Bind Button Size
+WORLD • GUN	Label	Round Grab Gun button: drag it to move; its size and position are saved.
+SILENT AIM	Toggle	Enabled
+SILENT AIM	Toggle	Wall Check
+SILENT AIM	Toggle	Show Shoot Murder Button
+SILENT AIM	Toggle	Lock Shoot Murder Button
+SILENT AIM	Dropdown	Silent Aim Mode
+SILENT AIM	Label	Noir — стандартный Noir, Tering — альтернативный режим.
+SILENT AIM	Label	BULLET TRACER
+SILENT AIM	Paragraph	Bullet Tracer
+SILENT AIM	Toggle	Bullet Tracers
+SILENT AIM	Dropdown	Tracer Method
+SILENT AIM	Dropdown	Tracer Style
+SILENT AIM	Colorpicker	Tracer Color
+SILENT AIM	Colorpicker	Tail Color
+SILENT AIM	Toggle	Rainbow Tracers
+SILENT AIM	Slider	Tracer Width
+SILENT AIM	Slider	Tracer Speed
+SILENT AIM	Slider	Tracer Duration
+SILENT AIM	Toggle	Impact Effect
+SILENT AIM	Toggle	Muzzle Flash
+SILENT AIM	Toggle	Show Other Shots
+SILENT AIM	Button	Preview Tracer
+SILENT AIM	Label	Стили: Energy/Laser/Lightning/Plasma/Fire/Smoke/Stardust. Preview — камера преследует трейсер.
+Noir Auto prediction profile	Toggle	Auto Prediction
+Noir Auto prediction profile	Toggle	Adaptive Engine
+Noir Auto prediction profile	Toggle	Lock Config
+Noir Auto prediction profile	Toggle	Upgrade Mode
+Noir Auto prediction profile	Toggle	Monitor
+Noir Auto prediction profile	Toggle	FPS Boost
+Noir Auto prediction profile	Button	Print Telemetry
+Noir Auto prediction profile	Label	
+Noir Auto prediction profile	Label	Noir Auto updates gun prediction using ping. Turning it off stops updates and keeps the last values.
+Noir Auto prediction profile	Label	FPS Boost is shared with the hub's MISC • FPS control.
+SILENT AIM	Label	GUN UTILITIES • native Noir implementation
+SILENT AIM	Paragraph	GUN TRIGGER BOT
+SILENT AIM	Toggle	Gun Trigger Bot
+SILENT AIM	Toggle	Gun Trigger Bot Wall Check
+SILENT AIM	Toggle	Apply Prediction On Gun Trigger Bot
+GUN	Toggle	Piercer Bullet
+GUN	Label	If a wall is between you and the target, the shot starts on their side of the wall. Turn this on with Silent Aim.
+KNIFE SILENT AIM	Toggle	Knife Silent Aim
+KNIFE SILENT AIM	Toggle	KnifeThrown Aura
+KNIFE SILENT AIM	Slider	Knife Throw Aura
+KNIFE SILENT AIM	Toggle	Knife Wall Check
+KNIFE SILENT AIM	Toggle	Prioritize Sheriff
+KNIFE SILENT AIM	Label	NATIVE KNIFE UTILITIES • equipped Knife only
+KNIFE SILENT AIM	Toggle	Instant Throw
+KNIFE SILENT AIM	Toggle	Fast Throw
+KNIFE SILENT AIM	Toggle	Auto Kill Everyone
+KNIFE SILENT AIM	Toggle	Auto Kill Sheriff
+KNIFE SILENT AIM	Button	Kill Everyone
+KNIFE SILENT AIM	Button	Kill Sheriff
+KNIFE SILENT AIM	Toggle	Enable Kill Sheriff Bindable Button
+KNIFE SILENT AIM	Dropdown	Kill Player
+KNIFE SILENT AIM	Button	Kill Player
+KNIFE SILENT AIM	Button	Refresh Kill Player List
+FE Animations	Label	Loading settings...
+FE Animations	Paragraph	Saved settings
+FE Animations	Toggle	Enable FE Anims
+FE Animations	Paragraph	Full animation reset
+FE Animations	Button	Reapply / Retry
+TROLL • BACKSHOTS	Toggle	Show Backshots Button
+TROLL • BACKSHOTS	Keybind	Backshots Keybind
+TROLL • BACKSHOTS	Slider	Backshots Speed
+TROLL • BACKSHOTS	Slider	Backshots Distance
+TROLL • BACKSHOTS	Slider	Backshots GUI Size
+TROLL • BACKSHOTS	Label	Backshots ported from Better ODH: camera-locked backward shuffle troll.
+TROLL • JERK R15	Toggle	Show Jerk Button
+TROLL • JERK R15	Slider	Jerk Button Size
+TROLL • JERK R15	Toggle	Enable Jerk R15
+TROLL • JERK R15	Slider	Jerk Speed (higher = faster)
+TROLL • JERK R15	Keybind	Jerk R15 Keybind
+TROLL • JERK R15	Label	Requires an R15 rig. Reapplies if the track stops; turns off on respawn.
+TROLL • BANG	Dropdown	Bang Target
+TROLL • BANG	Button	Refresh Player List
+TROLL • BANG	Toggle	Bang Player
+TROLL • BANG	Slider	Bang Speed
+TROLL • BANG	Keybind	Bang Keybind
+TROLL • BANG	Label	Pick a target, hit Refresh if the list is stale, then enable. Stops automatically if the target leaves or you respawn.
+VISUAL • BY OBJECT	Toggle	Dropped Gun
+VISUAL • BY OBJECT	Toggle	Throwing Knives
+MAIN • NOCLIP	Toggle	Noclip
+MAIN • NOCLIP	Toggle	Enable Noclip Bind Button
+MAIN • NOCLIP	Slider	Noclip Bind Button Size
+MAIN • FLY	Toggle	Fly
+MAIN • FLY	Toggle	Enable Fly Bind Button
+MAIN • FLY	Slider	Fly Bind Button Size
+MAIN • FLY	Slider	Fly Speed
+MAIN • SPEED GLITCH	Toggle	Enable Speed Glitch UI
+MAIN • SPEED GLITCH	Toggle	Only Work Sideways
+MAIN • SPEED GLITCH	Slider	Side Speed
+MAIN • SPEED GLITCH	Slider	Toggle Size
+MAIN • SPEED GLITCH	Dropdown	Select Emote
+MAIN • SPEED GLITCH	TextBox	Custom Emote ID
+MAIN • SPEED GLITCH	Label	Tap the floating button to toggle the glitch; drag to move it. Position is saved and the UI auto-recovers if removed.
+MAIN u{2022} FUN CLIENT	Toggle	Permanent Korblox (R15)
+MAIN u{2022} FUN CLIENT	Toggle	Permanent Headless
+MAIN u{2022} FUN CLIENT	Label	Both looks are reapplied after each respawn. Korblox requires an R15 character.
+Bomb Jump+	Toggle	Enable Auto Bomb Jump
+Bomb Jump+	Toggle	Auto-Get Bomb
+Bomb Jump+	Toggle	Enable Bomb Jump Bind Button
+Bomb Jump+	Slider	Bomb Jump Bind Button Size
+Bomb Jump+	Keybind	Bomb Jump Keybind
+Bomb Jump+	Label	Bomb Jump Options
+Gold Bomb Jump+	Toggle	Enable Auto Gold Bomb Jump
+Gold Bomb Jump+	Toggle	Auto-Get Gold Bomb
+Gold Bomb Jump+	Keybind	Gold Bomb Jump Keybind
+🔘 Binds	Toggle	Bind Sheriff
+🔘 Binds	Toggle	Bind Murderer
+🔑 Keys	Toggle	Key Sheriff
+🔑 Keys	Toggle	Key Everyone
+PISTOL PREDICTION	Button	Save Pistol Preset
+PISTOL PREDICTION	Button	Load Pistol Preset
+KNIFE PREDICTION	Button	Save Knife Preset
+KNIFE PREDICTION	Button	Load Knife Preset
+VISUAL • CHAM	Toggle	Everyone
+VISUAL • CHAM	Toggle	Murderer Only
+VISUAL • CHAM	Toggle	Sheriff Only
+VISUAL • CHAM	Toggle	Hero Only
+VISUAL • CHAM	Toggle	Dead Only
+VISUAL • ESP	Toggle	Everyone
+VISUAL • ESP	Toggle	Murderer Only
+VISUAL • ESP	Toggle	Sheriff Only
+VISUAL • ESP	Toggle	Hero Only
+VISUAL • ESP	Toggle	Dead Only
+VISUAL • OUTLINE	Toggle	Everyone
+VISUAL • OUTLINE	Toggle	Murderer Only
+VISUAL • OUTLINE	Toggle	Sheriff Only
+VISUAL • OUTLINE	Toggle	Hero Only
+VISUAL • OUTLINE	Toggle	Dead Only
+VISUAL • HIGHLIGHT	Toggle	Everyone
+VISUAL • HIGHLIGHT	Toggle	Murderer Only
+VISUAL • HIGHLIGHT	Toggle	Sheriff Only
+VISUAL • HIGHLIGHT	Toggle	Hero Only
+VISUAL • HIGHLIGHT	Toggle	Dead Only
+VISUAL • TRACER	Toggle	Everyone
+VISUAL • TRACER	Toggle	Murderer Only
+VISUAL • TRACER	Toggle	Sheriff Only
+VISUAL • TRACER	Toggle	Hero Only
+VISUAL • TRACER	Toggle	Dead Only
+VISUAL • ESP BOX	Toggle	Everyone
+VISUAL • ESP BOX	Toggle	Murderer Only
+VISUAL • ESP BOX	Toggle	Sheriff Only
+VISUAL • ESP BOX	Toggle	Hero Only
+VISUAL • ESP BOX	Toggle	Dead Only
+VISUAL • ESP AVATAR	Toggle	Everyone
+VISUAL • ESP AVATAR	Toggle	Murderer Only
+VISUAL • ESP AVATAR	Toggle	Sheriff Only
+VISUAL • ESP AVATAR	Toggle	Hero Only
+VISUAL • ESP AVATAR	Toggle	Dead Only
+VISUAL • ESP FIRE	Toggle	Everyone
+VISUAL • ESP FIRE	Toggle	Murderer Only
+VISUAL • ESP FIRE	Toggle	Sheriff Only
+VISUAL • ESP FIRE	Toggle	Hero Only
+VISUAL • ESP FIRE	Toggle	Dead Only
+MISC • CUSTOMIZE CURSOR	Section	
+MISC • FPS	Section	
+MISC • AIMLOCK	Section	
+MAIN • UNIVERSAL	Section	
+MAIN • INVISIBLE	Section	
+MISC • DESYNC	Section	
+MAIN • SELF MODS	Section	
+MAIN • SERVER	Section	
+WORLD • GUN	Section	
+SILENT AIM	Section	
+Noir Auto prediction profile	Section	
+GUN	Section	
+KNIFE SILENT AIM	Section	
+PISTOL PREDICTION	Section	
+KNIFE PREDICTION	Section	
+FE Animations	Section	
+Inventory Unlimiter V5	Section	
+TROLL • BACKSHOTS	Section	
+TROLL • JERK R15	Section	
+TROLL • BANG	Section	
+VISUAL • BY OBJECT	Section	
+MAIN • NOCLIP	Section	
+MAIN • FLY	Section	
+MAIN • SPEED GLITCH	Section	
+MAIN u{2022} FUN CLIENT	Section	
+WORLD • FE Animations	Section	
+WORLD • Inventory Unlimiter V5	Section	
+WORLD • About	Section	
+WORLD • Bomb Jump+	Section	
+WORLD • Gold Bomb Jump+	Section	
+WORLD • Pm-WallHop	Section	
+PISTOL NOIR CONFIG	Section	
+KNIFE NOIR CONFIG	Section	
+VISUAL • CHAM	Section	
+VISUAL • ESP	Section	
+VISUAL • OUTLINE	Section	
+VISUAL • HIGHLIGHT	Section	
+VISUAL • TRACER	Section	
+VISUAL • ESP BOX	Section	
+VISUAL • ESP AVATAR	Section	
+VISUAL • ESP FIRE	Section	
+⚡ Fling	Section	
+🤖 Auto	Section	
+📋 Lists	Section	
+⚙️ Tuning	Section	
+🔘 Binds	Section	
+🔑 Keys	Section	
