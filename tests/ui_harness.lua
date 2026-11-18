@@ -1444,6 +1444,24 @@ run("MM2 port check: every builder the script calls exists in the adapter", func
 	assert(markers >= 7, "the script's Peridot patches are in place, found " .. markers)
 	assert(CORE_MM2:find("return NoirGenv().PeridotMM2Host.CreateTab()", 1, true), "controls are routed to Peridot")
 end)
+run("MM2 test mode: refuses other games unless forced, and says so when forced", function()
+	local saved = { getgenv().PeridotMM2Loaded, getgenv().PeridotMM2Host, getgenv().PeridotForceGame }
+	getgenv().PeridotMM2Loaded, getgenv().PeridotForceGame = nil, nil
+	PLACE_ID_OVERRIDE = 1
+	local before = #HTTP_LOG
+	assert(pcall(assert(loadfile(REPO .. "/games/142823291.lua"))))
+	assert(#HTTP_LOG == before, "another game without the flag loads nothing")
+	getgenv().PeridotForceGame = true
+	UI_ERRORS, WARNINGS = {}, {}
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/142823291.lua")))
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	assert(#HTTP_LOG > before, "forced: the module loads")
+	assert(#UI_ERRORS == 0, "errors: " .. tostring(UI_ERRORS[1]))
+	getgenv().PeridotForceGame = nil
+	getgenv().PeridotMM2Loaded, getgenv().PeridotMM2Host = saved[1], saved[2]
+end)
+
 BUTTONS, BOXES, DROPDOWNS = mm2Saved[1], mm2Saved[2], mm2Saved[3]
 
 run("Unload UI stops everything, removes the windows, and a re-run skips the core", function()
