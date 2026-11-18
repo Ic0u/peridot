@@ -7,22 +7,29 @@ local SUPPORTED_PLACES = {
     [142823291] = true,
 }
 
-if not SUPPORTED_PLACES[game.PlaceId] then
+local environment = (getgenv and getgenv()) or _G
+
+-- Test mode: getgenv().PeridotForceGame = true builds the window in any game, so the
+-- interface can be tried without joining Murder Mystery 2. The game features need MM2 itself.
+local testMode = not SUPPORTED_PLACES[game.PlaceId]
+if testMode and not environment.PeridotForceGame then
     warn("Peridot Murder Mystery 2 module was loaded in an unsupported place")
     return
 end
 
 local PlayersService = game:GetService("Players")
 local LocalPlayer = PlayersService.LocalPlayer or PlayersService.PlayerAdded:Wait()
-local GameName = "Murder Mystery 2"
+local GameName = testMode and "Murder Mystery 2 (test mode)" or "Murder Mystery 2"
 pcall(function()
+    if testMode then
+        return
+    end
     local productInfo = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
     if type(productInfo) == "table" and type(productInfo.Name) == "string" and productInfo.Name ~= "" then
         GameName = productInfo.Name
     end
 end)
 
-local environment = (getgenv and getgenv()) or _G
 if environment.PeridotMM2Loaded then
     warn("Peridot Murder Mystery 2 is already running")
     return
@@ -440,4 +447,7 @@ UILibrary.AddBackgroundSection(Window, MODULE_BASE_URL)
 
 if not coreLoaded then
     notify("Murder Mystery 2", "The features failed to load, so switches will not work.", 8)
+end
+if testMode then
+    notify("Test mode", "This is not Murder Mystery 2, so only the interface works here.", 8)
 end
