@@ -418,7 +418,8 @@ run("the intro loader outranks every other ScreenGui (it must stay top-most)", f
 	end
 	local loaderOrder = tonumber(read("loader.lua"):match("screenGui%.DisplayOrder = (%d+)"))
 	assert(loaderOrder and loaderOrder >= 1000000, "the loader's DisplayOrder is very high, got " .. tostring(loaderOrder))
-	for _, file in ipairs({ "libraries/UILibrary.lua", "scripts/Universal.lua", "games/2753915549.lua" }) do
+	for _, file in ipairs({ "libraries/UILibrary.lua", "scripts/Universal.lua", "games/2753915549.lua",
+		"games/142823291.lua", "libraries/mm2-main.lua" }) do
 		for order in read(file):gmatch("DisplayOrder = (%d+)") do
 			assert(tonumber(order) < loaderOrder, file .. " sets a ScreenGui at or above the loader: " .. order)
 		end
@@ -899,7 +900,7 @@ end
 
 run("module builds with no errors (stub core, shared library)", function()
 	OVERRIDES["libraries/UILibrary.lua"] = "return _G.__HARNESS_LIB"
-	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE
+	OVERRIDES["libraries/bf-main.lua"] = BF_STUB_CORE
 	_G.__HARNESS_LIB = lib
 	PLACE_ID_OVERRIDE = 2753915549
 	getgenv().PeridotBloxFruitsLoaded, getgenv().PeridotBloxFruitsCoreLoaded = nil, nil
@@ -1252,7 +1253,7 @@ local function buildSea(world, stubExtra)
 	for _, entries in pairs(lib.ControlRegistry) do
 		for _, handle in pairs(entries) do known[handle] = true end
 	end
-	OVERRIDES["libraries/BloxFruitsCore.lua"] = BF_STUB_CORE .. "\nenv.World" .. world .. " = true\n" .. (stubExtra or "")
+	OVERRIDES["libraries/bf-main.lua"] = BF_STUB_CORE .. "\nenv.World" .. world .. " = true\n" .. (stubExtra or "")
 	getgenv().PeridotBloxFruitsLoaded, getgenv().PeridotBloxFruitsCoreLoaded = nil, nil
 	_G.World1, _G.World2, _G.World3 = nil, nil, nil
 	PLACE_ID_OVERRIDE = 2753915549
@@ -1308,6 +1309,143 @@ run("an unknown sea hides nothing", function()
 	assert(#bfToggles >= 200)
 end)
 
+---------------------------------------------------------------- Murder Mystery 2 module
+print("games/142823291.lua")
+
+-- Drives the adapter the way libraries/mm2-main.lua (the Noir script) does: through
+-- host.CreateTab() and the section builders, with Noir's argument order.
+local MM2_STUB_CORE = [==[
+local host = getgenv().PeridotMM2Host
+MM2 = { calls = {} }
+local calls = MM2.calls
+local tab = host.CreateTab()
+local aim = tab:AddSection("SILENT AIM", "Aims the gun at the murderer")
+MM2.setAim = aim:AddToggle("Enabled", function(v) calls.aim = v end)
+MM2.fov = aim:AddSlider("FOV", 0, 500, 120, function(v) calls.fov = v end)
+MM2.mode = aim:AddDropdown("Target", { "Murderer", "Sheriff", 3 }, function(v) calls.mode = v end)
+MM2.key = aim:AddKeybind("Aim key", "None", function(k) calls.key = k end)
+MM2.color = aim:AddColorpicker("FOV color", Color3.new(1, 0, 0), function(c) calls.color = c end)
+MM2.box = aim:AddTextBox("Player", function(t) calls.text = t end)
+MM2.label = aim:AddLabel("Status: idle")
+aim:AddParagraph("About", "How the aim works")
+aim:AddButton("Shoot", function() calls.shot = (calls.shot or 0) + 1 end)
+aim:AddToggle("Enabled", function(v) calls.second = v end) -- same label twice
+aim:AddPlayerDropdown("Target player", function(p) calls.player = p end)
+tab:AddSection("MAIN • SELF MODS"):AddToggle("Speed", function(v) calls.speed = v end)
+tab:AddSection("MAIN \x75{2022} FUN CLIENT"):AddToggle("Fun", function() end)
+tab:AddSection("TROLL \u{2022} BANG"):AddToggle("Bang", function() end)
+tab:AddSection("⚡ Fling"):AddToggle("Loop fling", function() end)
+tab:AddSection("VISUAL • "):AddToggle("Glow", function() end)
+tab:AddSection("FE Animations"):AddToggle("Play", function() end)
+tab:AddSection("Inventory Unlimiter V5"):AddToggle("Unlock", function() end)
+tab:AddSection("MAP \u{2022} TELEPORT"):AddButton("Lobby", function() end)
+host.Notify("MM2 Silent Aim: loaded", 2)
+getgenv().__NoirShowPanel = function(page) calls.panel = page end
+getgenv().__NoirGui = Instance.new("ScreenGui")
+]==]
+
+local mm2Saved = { BUTTONS, BOXES, DROPDOWNS }
+run("MM2 module builds the script's controls in the Peridot window", function()
+	BUTTONS, BOXES, DROPDOWNS = {}, {}, {}
+	OVERRIDES["libraries/mm2-main.lua"] = MM2_STUB_CORE
+	PLACE_ID_OVERRIDE = 142823291
+	getgenv().PeridotMM2Loaded = nil
+	UI_ERRORS, WARNINGS = {}, {}
+	local stopRecording = recordButtons()
+	local ok, err = pcall(assert(loadfile(REPO .. "/games/142823291.lua")))
+	stopRecording()
+	PLACE_ID_OVERRIDE = nil
+	assert(ok, err)
+	assert(#UI_ERRORS == 0 and #WARNINGS == 0, "errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
+	assert(MM2 and MM2.setAim, "the stub core ran against the adapter")
+end)
+
+run("MM2 sections land on the page their name points to", function()
+	for _, key in ipairs({
+		"Combat||SILENT AIM||Enabled", "Combat||SILENT AIM||Enabled (2)", "Main||SELF MODS||Speed",
+		"Main||FUN CLIENT||Fun", "Troll||BANG||Bang", "World||⚡ Fling||Loop fling", "Visual||Visual||Glow",
+		"Emotes||FE Animations||Play", "Misc||Inventory Unlimiter V5||Unlock",
+	}) do
+		assert(lib.ControlRegistry.Toggles[key], "missing toggle " .. key)
+	end
+	assert(BUTTONS["Lobby"], "the Map section's button")
+end)
+
+run("MM2 controls keep the Noir return values and callback timing", function()
+	local calls = MM2.calls
+	assert(calls.aim == false, "a toggle reports its start state")
+	MM2.setAim(true)
+	assert(calls.aim == true and lib.ControlRegistry.Toggles["Combat||SILENT AIM||Enabled"].Get() == true)
+	MM2.setAim()
+	assert(calls.aim == false, "calling the setter with nothing flips it")
+
+	assert(calls.fov == 120, "a slider reports its start value once")
+	MM2.fov:SetValue(200)
+	assert(calls.fov == 200 and MM2.fov:GetValue() == 200)
+
+	assert(calls.mode == nil, "a dropdown says nothing until something is picked")
+	MM2.mode:SetValue(3)
+	assert(calls.mode == 3, "the script gets its own value back, not text, got " .. tostring(calls.mode))
+	MM2.mode:Refresh({ "A", "B" }, "B")
+	assert(calls.mode == "B", "Refresh picks the given value")
+
+	lib.ControlRegistry.Dropdowns["Combat||SILENT AIM||Aim key"].Set("Q")
+	assert(calls.key == "Q" and MM2.key:GetValue() == "Q", "a key picker hands the key name over")
+
+	assert(calls.color ~= nil, "a color picker reports its start color")
+	local before = calls.color
+	MM2.color:SetRGBValue(Color3.new(0, 1, 0))
+	assert(calls.color ~= before)
+
+	MM2.label:SetValue("Status: aiming")
+	assert(MM2.label:GetValue() == "Status: aiming" and hasLabel("Status: aiming"))
+	BUTTONS["Shoot"]()
+	assert(calls.shot == 1)
+end)
+
+run("MM2 panel buttons open the script's own panels", function()
+	for title, page in pairs({ ["Emote Browser"] = "emotes", ["Skin Changer"] = "skins", ["Noir Settings (language, stream mode)"] = "settings" }) do
+		BUTTONS[title]()
+		assert(MM2.calls.panel == page, title .. " opened " .. tostring(MM2.calls.panel))
+	end
+end)
+
+run("MM2 Stop All Features and Unload UI", function()
+	MM2.setAim(true)
+	BUTTONS["Stop All Features"]()
+	assert(MM2.calls.aim == false, "switches go off")
+	local realUnload, unloaded = lib.Unload, false
+	lib.Unload = function() unloaded = true end -- the shared test window stays for the tests after this
+	BUTTONS["Unload UI"]()
+	lib.Unload = realUnload
+	assert(unloaded and getgenv().PeridotMM2Loaded == nil and getgenv().PeridotMM2Host == nil)
+end)
+
+run("MM2 port check: every builder the script calls exists in the adapter", function()
+	local function read(path)
+		local f = assert(io.open(REPO .. "/" .. path, "rb"))
+		local text = f:read("*a")
+		f:close()
+		return text
+	end
+	local CORE_MM2, UI_MM2 = read("libraries/mm2-main.lua"), read("games/142823291.lua")
+	local missing, seen = {}, {}
+	for method in CORE_MM2:gmatch(":(Add%u%a*)%(") do
+		if not seen[method] then
+			seen[method] = true
+			if method ~= "AddSection" and not UI_MM2:find("function api:" .. method .. "(", 1, true) then
+				missing[#missing + 1] = method
+			end
+		end
+	end
+	assert(seen.AddToggle and seen.AddSlider, "found the script's builders")
+	assert(#missing == 0, "the adapter lacks: " .. table.concat(missing, ", "))
+	local _, markers = CORE_MM2:gsub("Peridot:", "")
+	assert(markers >= 7, "the script's Peridot patches are in place, found " .. markers)
+	assert(CORE_MM2:find("return NoirGenv().PeridotMM2Host.CreateTab()", 1, true), "controls are routed to Peridot")
+end)
+BUTTONS, BOXES, DROPDOWNS = mm2Saved[1], mm2Saved[2], mm2Saved[3]
+
 run("Unload UI stops everything, removes the windows, and a re-run skips the core", function()
 	local farm = control("Toggles", "Farm||Auto Farm||Auto Farm Level") -- the first window's switch
 	farm.Set(true)
@@ -1320,7 +1458,7 @@ run("Unload UI stops everything, removes the windows, and a re-run skips the cor
 	runLoops(nil, 3) -- the interface loops now end on their own
 	local coreFetches = 0
 	for _, path in ipairs(HTTP_LOG) do
-		if path == "libraries/BloxFruitsCore.lua" then coreFetches = coreFetches + 1 end
+		if path == "libraries/bf-main.lua" then coreFetches = coreFetches + 1 end
 	end
 	OVERRIDES["libraries/UILibrary.lua"] = nil -- a real re-run downloads a fresh library
 	PLACE_ID_OVERRIDE = 2753915549
@@ -1329,14 +1467,14 @@ run("Unload UI stops everything, removes the windows, and a re-run skips the cor
 	assert(ok, err)
 	local after = 0
 	for _, path in ipairs(HTTP_LOG) do
-		if path == "libraries/BloxFruitsCore.lua" then after = after + 1 end
+		if path == "libraries/bf-main.lua" then after = after + 1 end
 	end
 	assert(after == coreFetches, "the core was not downloaded or run twice")
 end)
 
 ---------------------------------------------------------------- 5. port check
 -- The Blox Fruits port must keep every option of the source reachable. These read
--- libraries/BloxFruitsCore.lua (the ported script) and games/2753915549.lua (its UI).
+-- libraries/bf-main.lua (the ported script) and games/2753915549.lua (its UI).
 print("Port check")
 local function readRepo(path)
 	local f = assert(io.open(REPO .. "/" .. path, "rb"))
@@ -1344,7 +1482,7 @@ local function readRepo(path)
 	f:close()
 	return text
 end
-local CORE, UI = readRepo("libraries/BloxFruitsCore.lua"), readRepo("games/2753915549.lua")
+local CORE, UI = readRepo("libraries/bf-main.lua"), readRepo("games/2753915549.lua")
 
 local function set(list)
 	local out = {}

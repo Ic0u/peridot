@@ -1,4 +1,4 @@
--- Peridot Blox Fruits module. The game logic is libraries/BloxFruitsCore.lua;
+-- Peridot Blox Fruits module. The game logic is libraries/bf-main.lua;
 -- this file only builds the interface and writes the option flags the core reads.
 
 local MODULE_BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
@@ -105,7 +105,7 @@ end)
 -- script again after Unload UI only rebuilds the interface.
 local coreLoaded, coreError = true, nil
 if not environment.PeridotBloxFruitsCoreLoaded then
-    coreLoaded, coreError = pcall(loadRemoteModule, "libraries/BloxFruitsCore.lua")
+    coreLoaded, coreError = pcall(loadRemoteModule, "libraries/bf-main.lua")
     if coreLoaded then
         environment.PeridotBloxFruitsCoreLoaded = true
     else
