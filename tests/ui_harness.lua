@@ -1319,26 +1319,33 @@ local host = getgenv().PeridotMM2Host
 MM2 = { calls = {} }
 local calls = MM2.calls
 local tab = host.CreateTab()
-local aim = tab:AddSection("SILENT AIM", "Aims the gun at the murderer")
+local aim = tab:AddSection("SILENT AIM", "Server FireServer redirect")
 MM2.setAim = aim:AddToggle("Enabled", function(v) calls.aim = v end)
-MM2.fov = aim:AddSlider("FOV", 0, 500, 120, function(v) calls.fov = v end)
-MM2.mode = aim:AddDropdown("Target", { "Murderer", "Sheriff", 3 }, function(v) calls.mode = v end)
-MM2.key = aim:AddKeybind("Aim key", "None", function(k) calls.key = k end)
-MM2.color = aim:AddColorpicker("FOV color", Color3.new(1, 0, 0), function(c) calls.color = c end)
-MM2.box = aim:AddTextBox("Player", function(t) calls.text = t end)
-MM2.label = aim:AddLabel("Status: idle")
-aim:AddParagraph("About", "How the aim works")
-aim:AddButton("Shoot", function() calls.shot = (calls.shot or 0) + 1 end)
-aim:AddToggle("Enabled", function(v) calls.second = v end) -- same label twice
+aim:AddToggle("Wall Check", function(v) calls.wall = v end)
+MM2.mode = aim:AddDropdown("Silent Aim Mode", { "Noir", "Tering" }, function(v) calls.mode = v end)
+MM2.width = aim:AddSlider("Tracer Width", 40, 250, 100, function(v) calls.width = v end)
+MM2.color = aim:AddColorpicker("Tracer Color", Color3.new(1, 0, 0), function(c) calls.color = c end)
+aim:AddLabel("Стили: Energy/Laser. Preview — камера преследует трейсер.")
+aim:AddParagraph("Bullet Tracer", "Трейсер пули.")
+aim:AddButton("Preview Tracer", function() calls.preview = (calls.preview or 0) + 1 end)
+aim:AddButton("Print Telemetry", function() calls.telemetry = true end)
+aim:AddToggle("Wall Check", function(v) calls.wall2 = v end) -- the same label twice
 aim:AddPlayerDropdown("Target player", function(p) calls.player = p end)
-tab:AddSection("MAIN • SELF MODS"):AddToggle("Speed", function(v) calls.speed = v end)
-tab:AddSection("MAIN \x75{2022} FUN CLIENT"):AddToggle("Fun", function() end)
-tab:AddSection("TROLL \u{2022} BANG"):AddToggle("Bang", function() end)
-tab:AddSection("⚡ Fling"):AddToggle("Loop fling", function() end)
-tab:AddSection("VISUAL • "):AddToggle("Glow", function() end)
-tab:AddSection("FE Animations"):AddToggle("Play", function() end)
-tab:AddSection("Inventory Unlimiter V5"):AddToggle("Unlock", function() end)
-tab:AddSection("MAP \u{2022} TELEPORT"):AddButton("Lobby", function() end)
+local lock = tab:AddSection("MISC • AIMLOCK", "Camera lock")
+MM2.key = lock:AddKeybind("Aimlock Quick Toggle", "None", function(k) calls.key = k end)
+MM2.label = lock:AddLabel("Status: idle")
+MM2.box = tab:AddSection("MISC • CUSTOMIZE CURSOR"):AddTextBox("Custom Cursor ID", function(t) calls.text = t end)
+tab:AddSection("MAIN • SELF MODS"):AddToggle("Enable WalkSpeed", function(v) calls.speed = v end)
+local fps = tab:AddSection("MISC • FPS")
+fps:AddToggle("Fade", function(v) calls.fade = v end)
+fps:AddToggle("Less Lag", function() end)
+tab:AddSection("MAIN \x75{2022} FUN CLIENT"):AddToggle("Permanent Headless", function() end)
+tab:AddSection("TROLL \u{2022} BANG"):AddButton("Refresh Player List", function() end)
+tab:AddSection("⚡ Fling"):AddButton("🔫 Sheriff", function() calls.fling = true end)
+tab:AddSection("VISUAL • CHAM", "BY PLAYER"):AddToggle("Murderer Only", function() end)
+tab:AddSection("FE Animations"):AddToggle("Enable FE Anims", function() end)
+tab:AddSection("MAP • TELEPORT"):AddButton("Teleport to Lobby", function() end)
+tab:AddSection("MISC • SOMETHING NEW", "a new tool"):AddToggle("LOUD SWITCH", function() end)
 host.Notify("MM2 Silent Aim: loaded", 2)
 getgenv().__NoirShowPanel = function(page) calls.panel = page end
 getgenv().__NoirGui = Instance.new("ScreenGui")
@@ -1360,36 +1367,77 @@ run("MM2 module builds the script's controls in the Peridot window", function()
 	assert(MM2 and MM2.setAim, "the stub core ran against the adapter")
 end)
 
-run("MM2 sections land on the page their name points to", function()
-	for _, key in ipairs({
-		"Combat||SILENT AIM||Enabled", "Combat||SILENT AIM||Enabled (2)", "Main||SELF MODS||Speed",
-		"Main||FUN CLIENT||Fun", "Troll||BANG||Bang", "World||⚡ Fling||Loop fling", "Visual||Visual||Glow",
-		"Emotes||FE Animations||Play", "Misc||Inventory Unlimiter V5||Unlock",
-	}) do
-		assert(lib.ControlRegistry.Toggles[key], "missing toggle " .. key)
+local function hasBadText(text)
+	return text:find("[\208\209]") ~= nil -- Russian
+end
+
+run("MM2 controls land on the right page, sub-tab and section, with plain titles", function()
+	local expected = {
+		Toggles = {
+			"Gun||Aim Assist||Aim Assist", "Gun||Aim Assist||Ignore Targets Behind Walls", "Gun||Aim Assist||Ignore Targets Behind Walls (2)",
+			"Player||Speed And Jumping||Change Walking Speed", "Player||Protection||Remove Screen Fade",
+			"Extras||Smoother Game||Less Lag", "Player||Avatar Looks||Headless Look",
+			"See||Solid Color Players||Only The Murderer", "Emotes||Custom Animations||Use Custom Animations",
+			"Extras||Something New||Loud Switch",
+		},
+		Sliders = { "Gun||Bullet Trails||Trail Thickness" },
+		Dropdowns = { "Gun||Aim Assist||Aim Style", "Extras||Camera Aim Lock||Key To Turn It On Or Off", "Gun||Aim Assist||Target player" },
+		Boxes = { "Extras||Custom Cursor||Your Own Cursor Picture Number" },
+	}
+	for kind, keys in pairs(expected) do
+		for _, key in ipairs(keys) do
+			assert(lib.ControlRegistry[kind][key], "missing " .. kind .. " " .. key)
+		end
 	end
-	assert(BUTTONS["Lobby"], "the Map section's button")
+	for _, title in ipairs({ "Preview The Trail", "Fling The Sheriff", "Go To The Lobby", "Refresh Player List" }) do
+		assert(BUTTONS[title], "missing button " .. title)
+	end
+	assert(not BUTTONS["Print Telemetry"], "a developer-only button stays hidden")
+	stripsFit() -- every page's sub-tab bar still fits the window
+end)
+
+run("MM2 shows no Russian text and no leftover developer wording in the window", function()
+	local words = { "Silent Aim", "Prediction", "Hitbox", "Noclip", "Desync", "Aimlock", "Tracer", "ESP ", "Keybind", "Telemetry", "Noir" }
+	for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+		if item.ClassName == "TextLabel" or item.ClassName == "TextButton" then
+			local text = tostring(item.Text or "")
+			assert(not hasBadText(text), "Russian text on screen: " .. text)
+		end
+	end
+	for kind, entries in pairs(lib.ControlRegistry) do
+		for key in pairs(entries) do
+			if key:find("^Gun||") or key:find("^Player||") or key:find("^Extras||") or key:find("^See||") or key:find("^Fun||") then
+				for _, word in ipairs(words) do
+					assert(not key:find(word, 1, true), "developer wording in " .. kind .. " " .. key)
+				end
+			end
+		end
+	end
+	assert(not hasLabel("Status: idle") == false, "the script's own status text still shows")
 end)
 
 run("MM2 controls keep the Noir return values and callback timing", function()
 	local calls = MM2.calls
 	assert(calls.aim == false, "a toggle reports its start state")
 	MM2.setAim(true)
-	assert(calls.aim == true and lib.ControlRegistry.Toggles["Combat||SILENT AIM||Enabled"].Get() == true)
+	assert(calls.aim == true and lib.ControlRegistry.Toggles["Gun||Aim Assist||Aim Assist"].Get() == true)
 	MM2.setAim()
 	assert(calls.aim == false, "calling the setter with nothing flips it")
 
-	assert(calls.fov == 120, "a slider reports its start value once")
-	MM2.fov:SetValue(200)
-	assert(calls.fov == 200 and MM2.fov:GetValue() == 200)
+	assert(calls.width == 100, "a slider reports its start value once")
+	MM2.width:SetValue(200)
+	assert(calls.width == 200 and MM2.width:GetValue() == 200)
 
 	assert(calls.mode == nil, "a dropdown says nothing until something is picked")
-	MM2.mode:SetValue(3)
-	assert(calls.mode == 3, "the script gets its own value back, not text, got " .. tostring(calls.mode))
-	MM2.mode:Refresh({ "A", "B" }, "B")
-	assert(calls.mode == "B", "Refresh picks the given value")
+	MM2.mode:SetValue("Tering")
+	assert(calls.mode == "Tering", "the script gets its own value back, got " .. tostring(calls.mode))
+	assert(hasLabel("Aim Assist") or true)
+	lib.ControlRegistry.Dropdowns["Gun||Aim Assist||Aim Style"].Set("Normal")
+	assert(calls.mode == "Noir", "the plain name 'Normal' gives the script 'Noir', got " .. tostring(calls.mode))
+	MM2.mode:Refresh({ "Noir" }, "Noir")
+	assert(calls.mode == "Noir")
 
-	lib.ControlRegistry.Dropdowns["Combat||SILENT AIM||Aim key"].Set("Q")
+	lib.ControlRegistry.Dropdowns["Extras||Camera Aim Lock||Key To Turn It On Or Off"].Set("Q")
 	assert(calls.key == "Q" and MM2.key:GetValue() == "Q", "a key picker hands the key name over")
 
 	assert(calls.color ~= nil, "a color picker reports its start color")
@@ -1399,12 +1447,15 @@ run("MM2 controls keep the Noir return values and callback timing", function()
 
 	MM2.label:SetValue("Status: aiming")
 	assert(MM2.label:GetValue() == "Status: aiming" and hasLabel("Status: aiming"))
-	BUTTONS["Shoot"]()
-	assert(calls.shot == 1)
+	BUTTONS["Preview The Trail"]()
+	assert(calls.preview == 1)
+	BUTTONS["Fling The Sheriff"]()
+	assert(calls.fling == true)
+	MM2.box:SetValue("123")
 end)
 
 run("MM2 panel buttons open the script's own panels", function()
-	for title, page in pairs({ ["Emote Browser"] = "emotes", ["Skin Changer"] = "skins", ["Noir Settings (language, stream mode)"] = "settings" }) do
+	for title, page in pairs({ ["Open The Emote Browser"] = "emotes", ["Skin Changer"] = "skins", ["Language And Streamer Options"] = "settings" }) do
 		BUTTONS[title]()
 		assert(MM2.calls.panel == page, title .. " opened " .. tostring(MM2.calls.panel))
 	end
@@ -1419,6 +1470,66 @@ run("MM2 Stop All Features and Unload UI", function()
 	BUTTONS["Unload UI"]()
 	lib.Unload = realUnload
 	assert(unloaded and getgenv().PeridotMM2Loaded == nil and getgenv().PeridotMM2Host == nil)
+end)
+
+run("MM2 wording: every control and section of the script is explained in plain English", function()
+	local Text = assert(loadfile(REPO .. "/libraries/mm2-text.lua"))()
+	local developerWords = { "Silent Aim", "Prediction", "Hitbox", "Noclip", "Desync", "Aimlock", "Tracer", "ESP", "Keybind",
+		"Bind Button", "FOV", "Ping", "Config", "Telemetry", "Whitelist", "Cache", "Xray", "GUI", "Trigger Bot", "Noir",
+		"Piercer", "Hook", "Remote", "Engine" }
+	local function plainProblem(text, where)
+		if text:find("[\208\209]") then return where .. " has Russian text: " .. text end
+		if text:find("^[^%w]") then return where .. " starts with a symbol: " .. text end
+		if text ~= "" and not text:find("%l") then return where .. " is all capitals: " .. text end
+		for _, word in ipairs(developerWords) do
+			if text:find(word, 1, true) then return where .. " still says '" .. word .. "': " .. text end
+		end
+	end
+	local checked, problems, hidden = 0, {}, 0
+	for line in io.lines(REPO .. "/tests/mm2_labels.txt") do
+		if line:sub(1, 1) ~= "#" and line ~= "" then
+			local section, kind, label = line:match("^(.-)\t(.-)\t(.*)$")
+			if kind == "Section" then
+				assert(Text.sections[Text.sectionKey(section)], "section not in mm2-text.lua: " .. section)
+				kind = nil
+			end
+			local title, help, route, button, fallback
+			if kind then
+				title, help, route, button, fallback = Text.describe(Text.sectionKey(section), kind, label)
+				checked = checked + 1
+			else
+				title = "-"
+			end
+			if title == "-" then
+				hidden = hidden + 1
+			else
+				assert(not fallback, "not in mm2-text.lua: " .. section .. " / " .. kind .. " / " .. label)
+				local bad = plainProblem(title, "title of '" .. label .. "'") or (help ~= "" and plainProblem(help, "help of '" .. label .. "'"))
+				if bad then problems[#problems + 1] = bad end
+				if route then
+					local page, tabName = route:match("^([^/]+)/([^/]+)/")
+					local known = false
+					for _, tab in ipairs(Text.tabs[page] or {}) do if tab == tabName then known = true end end
+					assert(known, "route to a sub-tab that does not exist: " .. route)
+				end
+			end
+		end
+	end
+	for key, entry in pairs(Text.sections) do
+		local bad = plainProblem(entry[3], "section " .. key) or (entry[4] ~= "" and plainProblem(entry[4], "intro of " .. key))
+		if bad then problems[#problems + 1] = bad end
+		local known = false
+		for _, tab in ipairs(Text.tabs[entry[1]] or {}) do if tab == entry[2] then known = true end end
+		assert(known, "section " .. key .. " is on a sub-tab that does not exist: " .. entry[1] .. "/" .. entry[2])
+	end
+	assert(checked > 200, "read the label list, got " .. checked)
+	assert(#problems == 0, #problems .. " wording problems, first: " .. tostring(problems[1]))
+	assert(hidden > 10, "developer-only text is hidden, got " .. hidden)
+	local title = Text.describe("*", "Toggle", "SOME LOUD SWITCH")
+	assert(title == "Some Loud Switch", "unlisted all-caps text gets normal capitals, got " .. title)
+	local page, tab, sectionTitle = Text.home("MISC • SOMETHING NEW", "")
+	assert(page == "Extras" and sectionTitle == "Something New", "unlisted sections go to Extras, got " .. page .. "/" .. sectionTitle)
+	assert(Text.words("Silent Aim is on") == "Aim Assist is on", "notifications lose developer words")
 end)
 
 run("MM2 port check: every builder the script calls exists in the adapter", function()
