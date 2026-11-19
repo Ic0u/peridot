@@ -1185,7 +1185,7 @@ run("the Theme tab of Interface Settings shows the theme library", function()
 		end
 		return false
 	end
-	for _, wanted in ipairs({ "My Themes", "Share Theme", "Custom theme name", "Create theme", "Load theme", "Overwrite theme",
+	for _, wanted in ipairs({ "Preinstalled Themes", "Toggle button border", "My Themes", "Share Theme", "Custom theme name", "Create theme", "Load theme", "Overwrite theme",
 		"Delete theme", "Reset default", "Current default theme: none", "Export current theme", "Import theme" }) do
 		assert(hasText(wanted), "missing on the Theme tab: " .. wanted)
 	end
@@ -1193,16 +1193,14 @@ end)
 
 ---------------------------------------------------------------- every theme color is wired
 print("Theme colors")
-run("every color in the theme has a picker or the accent, and something that uses it", function()
+run("every color in the theme has its own picker on the Colors tab, and something that uses it", function()
 	local source = io.open(REPO .. "/libraries/UILibrary.lua", "rb"):read("*a")
 	local themeTable = source:match("local T1UIColor = {(.-)\n}\n")
-	local colorsTab = source:match("local ColorGroups = {(.-)local AnimationSliders")
-	local accentKeys = source:match("local AccentKeys = {(.-)}")
+	local colorsTab = source:match("local ColorGroups = {(.-)local ColorTitles")
 	local checked, problems = 0, {}
 	for key in themeTable:gmatch('%["([^"]+)"%]%s*=%s*Color3%.fromRGB') do
 		checked = checked + 1
-		local hasPicker = colorsTab:find('"' .. key .. '"', 1, true) or accentKeys:find('"' .. key .. '"', 1, true)
-			or key == "Slider Highlight Color" or key == "Dropdown Selected Check Color" -- shades of the accent
+		local hasPicker = colorsTab:find('"' .. key .. '"', 1, true)
 		local _, binds = source:gsub('Bind%([^,]+,%s*"[%w]+",%s*"' .. key .. '"%)', "")
 		local listener = source:find('ThemeListeners["' .. key .. '"]', 1, true)
 		local _, reads = source:gsub('UIColor%[[\'"]' .. key .. '[\'"]%]', "")
