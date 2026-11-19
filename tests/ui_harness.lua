@@ -426,6 +426,46 @@ run("the intro loader outranks every other ScreenGui (it must stay top-most)", f
 	end
 end)
 
+run("intro card: Authenticating, Success !, then the game's name, or Universal elsewhere", function()
+	local function runLoader(placeId)
+		local texts, gui = {}, nil
+		local realNew = Instance.new
+		Instance.new = function(class, parent)
+			local instance = realNew(class, parent)
+			if class == "TextLabel" then
+				instance:GetPropertyChangedSignal("Text"):Connect(function() texts[#texts + 1] = instance.Text end)
+			elseif class == "ScreenGui" then
+				gui = instance
+			end
+			return instance
+		end
+		local Loader = assert(loadfile(REPO .. "/loader.lua"))()
+		local got
+		PLACE_ID_OVERRIDE = placeId
+		RUN_SPAWNS = true
+		local ok, err = pcall(Loader.Start, function(info) got = info end)
+		RUN_SPAWNS = false
+		PLACE_ID_OVERRIDE = nil
+		Instance.new = realNew
+		assert(ok, err)
+		return texts, got, gui
+	end
+
+	local texts, info, gui = runLoader(142823291)
+	local order = table.concat(texts, " / ")
+	assert(order:find("Peridot", 1, true), "the card says Peridot: " .. order)
+	assert(order:find("Authenticating / Authenticating%. / Authenticating%.%. / Authenticating%.%.%. / Success ! / Murder Mystery 2$"),
+		"status lines in order: " .. order)
+	assert(info and info.name == "Murder Mystery 2" and info.supported == true, "the game is found")
+	assert(info.url:sub(-#"games/142823291.lua") == "games/142823291.lua", "and its script is the one to load: " .. info.url)
+	assert(gui and (gui.Parent == nil or gui.Parent == P), "the card is gone before the script loads") -- unset properties read as P in the mock
+	assert(gui.DisplayOrder >= 1000000, "the card stays on top of everything")
+
+	texts, info = runLoader(1)
+	assert(texts[#texts] == "Universal" and info.name == "Universal" and info.supported == false, "an unknown game says Universal")
+	assert(info.url:sub(-#"scripts/Universal.lua") == "scripts/Universal.lua")
+end)
+
 print("Button labels")
 run("green button labels say what the button does, using real titles from the scripts", function()
 	local expected = {
