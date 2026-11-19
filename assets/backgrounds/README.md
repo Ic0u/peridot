@@ -14,3 +14,6 @@ Files in this folder show up in **Settings → Interface → Background** in the
 
 A value can also be a full `https://` link or an `rbxassetid://` id instead of a file in this folder.
 The hub caches each download by file name, so to replace a background, give the new file a new name.
+
+The preinstalled themes (**Interface Settings → Theme → Preinstalled Themes**) each pair with one of these files by name,
+so keep the file names as they are. A theme downloads its picture from here the first time it is picked.
