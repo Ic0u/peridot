@@ -138,10 +138,6 @@ local function createCard(parent)
     group.GroupTransparency = 1
     group.Parent = parent
 
-    local scale = Instance.new("UIScale")
-    scale.Scale = 0.55 -- the card grows from small and shrinks back to small
-    scale.Parent = group
-
     local panel = Instance.new("Frame")
     panel.Name = "Panel"
     panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -196,7 +192,7 @@ local function createCard(parent)
     status.TextTruncate = Enum.TextTruncate.AtEnd
     status.Parent = panel
 
-    return { Group = group, Scale = scale, Status = status, StatusPosition = status.Position }
+    return { Group = group, Status = status }
 end
 
 -- games.json maps place ids to game names; without it, the built-in list above.
@@ -286,22 +282,16 @@ function Loader.Start(onComplete)
 
     local card = createCard(screenGui)
 
+    -- the status line changes with a short cross-fade, nothing moves
     local function setStatus(text)
-        local base = card.StatusPosition
-        local out = tween(card.Status, 0.12, { TextTransparency = 1, Position = base + UDim2.fromOffset(0, -4) },
-            Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-        out.Completed:Wait()
+        tween(card.Status, 0.15, { TextTransparency = 1 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In).Completed:Wait()
         card.Status.Text = text
-        card.Status.Position = base + UDim2.fromOffset(0, 6)
-        local back = tween(card.Status, 0.22, { TextTransparency = 0, Position = base })
-        back.Completed:Wait()
+        tween(card.Status, 0.2, { TextTransparency = 0 }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out).Completed:Wait()
     end
 
     task.spawn(function()
-        -- expand in: grows from small with a soft overshoot while it fades up
-        tween(card.Group, 0.35, { GroupTransparency = 0 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-        local grown = tween(card.Scale, 0.5, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        grown.Completed:Wait()
+        -- a smooth fade in
+        tween(card.Group, 0.4, { GroupTransparency = 0 }, Enum.EasingStyle.Sine, Enum.EasingDirection.Out).Completed:Wait()
 
         -- "Authenticating" with moving dots while the game list loads (at least three steps)
         local info
@@ -320,10 +310,8 @@ function Loader.Start(onComplete)
         setStatus(info.name)
         task.wait(1)
 
-        -- shrink and fade out with an ease, then hand over to the game script
-        tween(card.Group, 0.4, { GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-        local shrunk = tween(card.Scale, 0.4, { Scale = 0.55 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        shrunk.Completed:Wait()
+        -- ease out, then hand over to the game script
+        tween(card.Group, 0.4, { GroupTransparency = 1 }, Enum.EasingStyle.Sine, Enum.EasingDirection.In).Completed:Wait()
         if screenGui.Parent then
             screenGui:Destroy()
         end
