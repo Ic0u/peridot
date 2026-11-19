@@ -4,14 +4,13 @@ local Loader = {}
 
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
-local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
-local Workspace = game:GetService("Workspace")
 
 local BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 local UNIVERSAL_URL = BASE_URL .. "scripts/Universal.lua"
 local GUI_NAME = "PeridotLoaderGui"
-local BLUR_NAME = "PeridotLoaderBlur"
+local LOGO_IMAGE = "rbxassetid://97933423096090" -- the Peridot logo, same as the main window
+local ACCENT = Color3.fromRGB(140, 172, 68) -- Peridot green
 local DEFAULT_GAMES = {
     ["2753915549"] = "Blox Fruits - First Sea",
     ["4442272183"] = "Blox Fruits - Second Sea",
@@ -109,11 +108,7 @@ local function parentGui(screenGui)
 end
 
 local function destroyExisting()
-    local coreGui
-    local coreGuiOk = pcall(function()
-        coreGui = game:GetService("CoreGui")
-    end)
-
+    local coreGuiOk, coreGui = pcall(game.GetService, game, "CoreGui")
     if coreGuiOk and coreGui then
         local existing = coreGui:FindFirstChild(GUI_NAME)
         if existing then
@@ -121,273 +116,89 @@ local function destroyExisting()
         end
     end
 
-    local playerGui = getPlayerGui()
-    local existing = playerGui:FindFirstChild(GUI_NAME)
+    local existing = getPlayerGui():FindFirstChild(GUI_NAME)
     if existing then
         existing:Destroy()
     end
-
-    local oldBlur = Lighting:FindFirstChild(BLUR_NAME)
-    if oldBlur then
-        oldBlur:Destroy()
-    end
 end
 
-local function createWhiteVignette(parent)
-    local layer = Instance.new("Frame")
-    layer.Name = "WhiteVignette"
-    layer.BackgroundTransparency = 1
-    layer.BorderSizePixel = 0
-    layer.Size = UDim2.fromScale(1, 1)
-    layer.Parent = parent
-
-    local edges = {}
-    local edgeDefinitions = {
-        { "Top", UDim2.fromScale(1, 0.28), UDim2.fromScale(0, 0), 90 },
-        { "Bottom", UDim2.fromScale(1, 0.28), UDim2.fromScale(0, 0.72), 270 },
-        { "Left", UDim2.fromScale(0.28, 1), UDim2.fromScale(0, 0), 0 },
-        { "Right", UDim2.fromScale(0.28, 1), UDim2.fromScale(0.72, 0), 180 },
-    }
-
-    for _, definition in ipairs(edgeDefinitions) do
-        local edge = Instance.new("Frame")
-        edge.Name = definition[1]
-        edge.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        edge.BackgroundTransparency = 1
-        edge.BorderSizePixel = 0
-        edge.Size = definition[2]
-        edge.Position = definition[3]
-        edge.Parent = layer
-
-        local gradient = Instance.new("UIGradient")
-        gradient.Rotation = definition[4]
-        gradient.Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.62, 0.72),
-            NumberSequenceKeypoint.new(1, 1),
-        })
-        gradient.Parent = edge
-
-        table.insert(edges, edge)
-    end
-
-    return edges
-end
-
-local function tweenVignette(edges, transparency, duration, direction)
-    local firstTween
-    for index, edge in ipairs(edges) do
-        local edgeTween = tween(
-            edge,
-            duration,
-            { BackgroundTransparency = transparency },
-            Enum.EasingStyle.Quint,
-            direction
-        )
-        if index == 1 then
-            firstTween = edgeTween
-        end
-    end
-
-    return firstTween
-end
-
-local function bindResponsiveScale(uiScale)
-    local viewportConnection
-
-    local function updateScale()
-        local camera = Workspace.CurrentCamera
-        if not camera then
-            return
-        end
-
-        local viewport = camera.ViewportSize
-        local scale = math.min(viewport.X / 1600, viewport.Y / 900)
-        scale = math.clamp(scale, 0.68, 1)
-        uiScale.Scale = math.floor(scale * 20 + 0.5) / 20
-    end
-
-    local function bindCamera()
-        if viewportConnection then
-            viewportConnection:Disconnect()
-            viewportConnection = nil
-        end
-
-        local camera = Workspace.CurrentCamera
-        if camera then
-            viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)
-        end
-        updateScale()
-    end
-
-    local cameraConnection = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera)
-    bindCamera()
-
-    return function()
-        cameraConnection:Disconnect()
-        if viewportConnection then
-            viewportConnection:Disconnect()
-        end
-    end
-end
-
-local function createLoaderContent(parent)
+-- The intro card: a small dark panel in the middle of the screen with the logo, "Peridot"
+-- in green, and one white status line underneath.
+local function createCard(parent)
+    -- A CanvasGroup fades everything together, but it clips its children, so it is 8px larger
+    -- than the panel to leave room for the panel's outline.
     local group = Instance.new("CanvasGroup")
-    group.Name = "LoaderContent"
+    group.Name = "Card"
     group.AnchorPoint = Vector2.new(0.5, 0.5)
-    group.BackgroundTransparency = 1
-    group.GroupTransparency = 1
     group.Position = UDim2.fromScale(0.5, 0.5)
-    group.Size = UDim2.fromOffset(560, 240)
+    group.Size = UDim2.fromOffset(308, 120)
+    group.BackgroundTransparency = 1
+    group.BorderSizePixel = 0
+    group.GroupTransparency = 1
     group.Parent = parent
 
-    local container = Instance.new("Frame")
-    container.Name = "CenteredContent"
-    container.AnchorPoint = Vector2.new(0.5, 0.5)
-    container.BackgroundTransparency = 1
-    container.Position = UDim2.fromScale(0.5, 0.5)
-    container.Size = UDim2.fromScale(1, 1)
-    container.Parent = group
+    local scale = Instance.new("UIScale")
+    scale.Scale = 0.9
+    scale.Parent = group
 
-    local responsiveScale = Instance.new("UIScale")
-    responsiveScale.Scale = 1
-    responsiveScale.Parent = container
+    local panel = Instance.new("Frame")
+    panel.Name = "Panel"
+    panel.AnchorPoint = Vector2.new(0.5, 0.5)
+    panel.Position = UDim2.fromScale(0.5, 0.5)
+    panel.Size = UDim2.new(1, -8, 1, -8)
+    panel.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    panel.BackgroundTransparency = 0.06
+    panel.BorderSizePixel = 0
+    panel.Parent = group
 
-    local title = Instance.new("Frame")
-    title.Name = "Title"
-    title.AnchorPoint = Vector2.new(0.5, 0.5)
-    title.BackgroundTransparency = 1
-    title.Position = UDim2.fromScale(0.5, 0.36)
-    title.Size = UDim2.fromOffset(460, 84)
-    title.Parent = container
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = panel
 
-    local titleScale = Instance.new("UIScale")
-    titleScale.Scale = 1
-    titleScale.Parent = title
+    local outline = Instance.new("UIStroke")
+    outline.Color = Color3.fromRGB(205, 210, 196)
+    outline.Thickness = 1.5
+    outline.Transparency = 0.45
+    outline.Parent = panel
 
-    local titleLayout = Instance.new("UIListLayout")
-    titleLayout.FillDirection = Enum.FillDirection.Horizontal
-    titleLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    titleLayout.Padding = UDim.new(0, 0)
-    titleLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    titleLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    titleLayout.Parent = title
+    local logo = Instance.new("ImageLabel")
+    logo.Name = "Logo"
+    logo.BackgroundTransparency = 1
+    logo.Image = LOGO_IMAGE
+    logo.Position = UDim2.fromOffset(14, 12)
+    logo.Size = UDim2.fromOffset(24, 24)
+    logo.ScaleType = Enum.ScaleType.Fit
+    logo.Parent = panel
 
-    local letterViews = {}
-    local brandLetters = { "P", "E", "R", "I", "D", "O", "T" }
-    local letterRotations = { -7, 4, -3, 5, -4, 3, -5 }
-    for index, character in ipairs(brandLetters) do
-        local slot = Instance.new("Frame")
-        slot.Name = "LetterSlot" .. index
-        slot.BackgroundTransparency = 1
-        slot.LayoutOrder = index
-        slot.Size = UDim2.fromOffset(character == "I" and 26 or 40, 76) -- I is narrow; a full slot leaves a gap around it
-        slot.Parent = title
-
-        if character ~= " " then
-            local letter = Instance.new("TextLabel")
-            letter.Name = "Letter" .. index
-            letter.BackgroundTransparency = 1
-            letter.Font = Enum.Font.FredokaOne
-            letter.Position = UDim2.fromOffset(0, 24)
-            letter.Rotation = letterRotations[index]
-            letter.Size = UDim2.fromScale(1, 1)
-            letter.Text = character
-            letter.TextColor3 = Color3.fromRGB(255, 255, 255) -- UIGradient multiplies this, so white lets the gradient set the color
-            letter.TextSize = 54
-            letter.TextTransparency = 1
-            letter.Parent = slot
-
-            local letterStroke = Instance.new("UIStroke")
-            letterStroke.Color = Color3.fromRGB(112, 140, 58)
-            letterStroke.Thickness = 1.25
-            letterStroke.Transparency = 1
-            letterStroke.Parent = letter
-
-            local letterGradient = Instance.new("UIGradient")
-            letterGradient.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(212, 227, 148)), -- pale highlight on top
-                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(184, 207, 108)), -- body
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 180, 76)), -- deeper olive underneath
-            })
-            letterGradient.Offset = Vector2.new(-0.22, 0)
-            letterGradient.Rotation = 90
-            letterGradient.Parent = letter
-
-            local letterScale = Instance.new("UIScale")
-            letterScale.Scale = 0.72
-            letterScale.Parent = letter
-
-            table.insert(letterViews, {
-                Label = letter,
-                Scale = letterScale,
-                Stroke = letterStroke,
-                Gradient = letterGradient,
-            })
-        end
-    end
-
-    local progressTrack = Instance.new("Frame")
-    progressTrack.Name = "ProgressTrack"
-    progressTrack.AnchorPoint = Vector2.new(0.5, 0.5)
-    progressTrack.BackgroundColor3 = Color3.fromRGB(206, 216, 176)
-    progressTrack.BackgroundTransparency = 1
-    progressTrack.BorderSizePixel = 0
-    progressTrack.Position = UDim2.fromScale(0.5, 0.68)
-    progressTrack.Size = UDim2.fromOffset(320, 4)
-    progressTrack.Parent = container
-
-    local trackCorner = Instance.new("UICorner")
-    trackCorner.CornerRadius = UDim.new(1, 0)
-    trackCorner.Parent = progressTrack
-
-    local progressFill = Instance.new("Frame")
-    progressFill.Name = "ProgressFill"
-    progressFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255) -- UIGradient multiplies this, so white lets the gradient set the hue
-    progressFill.BackgroundTransparency = 1
-    progressFill.BorderSizePixel = 0
-    progressFill.Size = UDim2.fromScale(0, 1)
-    progressFill.Parent = progressTrack
-
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(1, 0)
-    fillCorner.Parent = progressFill
-
-    local fillGradient = Instance.new("UIGradient")
-    fillGradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 180, 76)),
-        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(212, 227, 148)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(184, 207, 108)),
-    })
-    fillGradient.Offset = Vector2.new(-1, 0)
-    fillGradient.Parent = progressFill
+    local brand = Instance.new("TextLabel")
+    brand.Name = "Brand"
+    brand.BackgroundTransparency = 1
+    brand.Position = UDim2.fromOffset(46, 10)
+    brand.Size = UDim2.new(1, -60, 0, 28)
+    brand.Font = Enum.Font.GothamBold
+    brand.Text = "Peridot"
+    brand.TextColor3 = ACCENT
+    brand.TextSize = 18
+    brand.TextXAlignment = Enum.TextXAlignment.Left
+    brand.Parent = panel
 
     local status = Instance.new("TextLabel")
     status.Name = "Status"
     status.AnchorPoint = Vector2.new(0.5, 0.5)
     status.BackgroundTransparency = 1
-    status.Position = UDim2.fromScale(0.5, 0.82)
-    status.Size = UDim2.fromOffset(360, 24)
-    status.Font = Enum.Font.PatrickHand
-    status.Text = "Initializing..."
-    status.TextColor3 = Color3.fromRGB(232, 240, 208)
+    status.Position = UDim2.new(0.5, 0, 0, 74)
+    status.Size = UDim2.new(1, -28, 0, 30)
+    status.Font = Enum.Font.GothamBold
+    status.Text = "Authenticating"
+    status.TextColor3 = Color3.fromRGB(242, 242, 238)
     status.TextSize = 19
-    status.TextTransparency = 1
-    status.TextXAlignment = Enum.TextXAlignment.Center
-    status.Parent = container
+    status.TextTruncate = Enum.TextTruncate.AtEnd
+    status.Parent = panel
 
-    return {
-        Group = group,
-        ResponsiveScale = responsiveScale,
-        TitleScale = titleScale,
-        LetterViews = letterViews,
-        ProgressTrack = progressTrack,
-        ProgressFill = progressFill,
-        ProgressGradient = fillGradient,
-        Status = status,
-    }
+    return { Group = group, Scale = scale, Status = status, StatusPosition = status.Position }
 end
 
+-- games.json maps place ids to game names; without it, the built-in list above.
 local function fetchGameRegistry()
     local response = fetchText(BASE_URL .. "games.json")
     if not response then
@@ -400,6 +211,16 @@ local function fetchGameRegistry()
     end
 
     return DEFAULT_GAMES
+end
+
+-- name to show, script to run, and whether this game has its own script
+local function resolveGame(registry)
+    local placeId = tostring(game.PlaceId)
+    local name = registry[placeId]
+    if type(name) == "string" and name ~= "" then
+        return { name = name, url = BASE_URL .. "games/" .. placeId .. ".lua", supported = true }
+    end
+    return { name = "Universal", url = UNIVERSAL_URL, supported = false }
 end
 
 local function runSource(url)
@@ -416,15 +237,7 @@ local function runSource(url)
     return pcall(compiled)
 end
 
-local function launchDefaultScript()
-    local supportedGames = fetchGameRegistry()
-    local placeId = tostring(game.PlaceId)
-    local scriptUrl = supportedGames[placeId]
-        and (BASE_URL .. "games/" .. placeId .. ".lua")
-        or UNIVERSAL_URL
-    runSource(scriptUrl)
-end
-
+-- onComplete, when given, runs instead of the game script and receives { name, url, supported }.
 function Loader.Start(onComplete)
     if Loader._running then
         return nil
@@ -444,134 +257,58 @@ function Loader.Start(onComplete)
     end)
     parentGui(screenGui)
 
-    local blur = Instance.new("BlurEffect")
-    blur.Name = BLUR_NAME
-    blur.Size = 0
-    blur.Parent = Lighting
+    local card = createCard(screenGui)
 
-    local vignetteEdges = createWhiteVignette(screenGui)
-    local views = createLoaderContent(screenGui)
-    local disconnectResponsiveScale = bindResponsiveScale(views.ResponsiveScale)
+    local function setStatus(text)
+        local base = card.StatusPosition
+        local out = tween(card.Status, 0.12, { TextTransparency = 1, Position = base + UDim2.fromOffset(0, -4) },
+            Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        out.Completed:Wait()
+        card.Status.Text = text
+        card.Status.Position = base + UDim2.fromOffset(0, 6)
+        local back = tween(card.Status, 0.22, { TextTransparency = 0, Position = base })
+        back.Completed:Wait()
+    end
 
     task.spawn(function()
-        tweenVignette(vignetteEdges, 0.82, 0.48, Enum.EasingDirection.Out)
-        local blurIn = tween(blur, 0.48, { Size = 20 })
-        blurIn.Completed:Wait()
+        -- pop in
+        tween(card.Scale, 0.38, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        local shown = tween(card.Group, 0.3, { GroupTransparency = 0 })
+        shown.Completed:Wait()
 
-        local contentIn = tween(
-            views.Group,
-            0.24,
-            { GroupTransparency = 0 },
-            Enum.EasingStyle.Quint,
-            Enum.EasingDirection.Out
-        )
-        contentIn.Completed:Wait()
-
-        local lastLetterTween
-        for _, view in ipairs(views.LetterViews) do
-            lastLetterTween = tween(
-                view.Label,
-                0.44,
-                {
-                    Position = UDim2.fromOffset(0, 0),
-                    Rotation = 0,
-                    TextTransparency = 0,
-                },
-                Enum.EasingStyle.Back,
-                Enum.EasingDirection.Out
-            )
-            tween(
-                view.Scale,
-                0.44,
-                { Scale = 1 },
-                Enum.EasingStyle.Back,
-                Enum.EasingDirection.Out
-            )
-            tween(
-                view.Stroke,
-                0.32,
-                { Transparency = 0.3 },
-                Enum.EasingStyle.Quint,
-                Enum.EasingDirection.Out
-            )
-            tween(view.Gradient, 0.48, { Offset = Vector2.new(0.22, 0) })
-            task.wait(0.048)
+        -- "Authenticating" with moving dots while the game list loads (at least three steps)
+        local info
+        task.spawn(function()
+            info = resolveGame(fetchGameRegistry())
+        end)
+        local step = 0
+        while not info or step < 3 do
+            step = step + 1
+            card.Status.Text = "Authenticating" .. string.rep(".", step % 4)
+            task.wait(0.32)
         end
 
-        if lastLetterTween then
-            lastLetterTween.Completed:Wait()
-        end
+        setStatus("Success !")
+        task.wait(0.6)
+        setStatus(info.name)
+        task.wait(1)
 
-        local pulseUp = tween(views.TitleScale, 0.16, { Scale = 1.055 }, Enum.EasingStyle.Sine)
-        pulseUp.Completed:Wait()
-        local pulseDown = tween(views.TitleScale, 0.18, { Scale = 0.988 }, Enum.EasingStyle.Sine)
-        pulseDown.Completed:Wait()
-        local pulseSettle = tween(views.TitleScale, 0.22, { Scale = 1 }, Enum.EasingStyle.Sine)
-        pulseSettle.Completed:Wait()
-
-        local uiFade = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-        TweenService:Create(views.ProgressTrack, uiFade, { BackgroundTransparency = 0.56 }):Play()
-        TweenService:Create(views.ProgressFill, uiFade, { BackgroundTransparency = 0 }):Play()
-        task.wait(0.1)
-        TweenService:Create(views.Status, uiFade, { TextTransparency = 0 }):Play()
-        task.wait(0.25)
-
-        local function setProgress(message, percent, holdTime)
-            local hideStatus = tween(views.Status, 0.12, { TextTransparency = 1 })
-            hideStatus.Completed:Wait()
-            views.Status.Text = message
-            views.ProgressGradient.Offset = Vector2.new(-1, 0)
-            tween(views.Status, 0.18, { TextTransparency = 0 })
-            tween(views.ProgressFill, 0.62, { Size = UDim2.fromScale(percent, 1) })
-            tween(
-                views.ProgressGradient,
-                0.72,
-                { Offset = Vector2.new(1, 0) },
-                Enum.EasingStyle.Sine,
-                Enum.EasingDirection.InOut
-            )
-            task.wait(holdTime)
-        end
-
-        setProgress("Initializing...", 0.3, 0.52)
-        setProgress("Loading...", 0.74, 0.54)
-        setProgress("Ready.", 1, 0.36)
-
-        for index, view in ipairs(views.LetterViews) do
-            task.delay((index - 1) * 0.025, function()
-                if view.Scale.Parent then
-                    local rise = tween(view.Scale, 0.12, { Scale = 1.08 }, Enum.EasingStyle.Sine)
-                    rise.Completed:Wait()
-                    tween(view.Scale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
-                end
-            end)
-        end
-        task.wait(0.18)
-
-        tween(views.TitleScale, 0.32, { Scale = 0.94 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tweenVignette(vignetteEdges, 1, 0.34, Enum.EasingDirection.In)
-        tween(blur, 0.34, { Size = 0 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        local contentOut = tween(
-            views.Group,
-            0.34,
-            { GroupTransparency = 1 },
-            Enum.EasingStyle.Quint,
-            Enum.EasingDirection.In
-        )
-        contentOut.Completed:Wait()
-
-        disconnectResponsiveScale()
-        if blur.Parent then
-            blur:Destroy()
-        end
+        -- ease out, then hand over to the game script
+        tween(card.Scale, 0.3, { Scale = 0.92 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        local hidden = tween(card.Group, 0.3, { GroupTransparency = 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        hidden.Completed:Wait()
         if screenGui.Parent then
             screenGui:Destroy()
         end
 
         Loader._running = false
-        local callback = onComplete or launchDefaultScript
         task.spawn(function()
-            local ok, err = pcall(callback)
+            local ok, err
+            if onComplete then
+                ok, err = pcall(onComplete, info)
+            else
+                ok, err = pcall(runSource, info.url)
+            end
             if not ok then
                 warn("Peridot loader callback failed:", err)
             end
