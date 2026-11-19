@@ -276,7 +276,7 @@ if tonumber(SavedTheme.PanelTransparency) then
 	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
 end
 T1UIColor["Section Panel Transparency"] = sectionTransparency(T1UIColor["Background 1 Transparency"])
-local WINDOW_GLASS = 0.45 -- frame transparency of the Transparent window style
+local WINDOW_GLASS = 0.92 -- frame transparency of the Transparent window style (the original library's see-through frame)
 if SavedTheme.WindowStyle == "Transparent" then
 	T1UIColor["Background Main Transparency"] = WINDOW_GLASS
 end
@@ -4814,7 +4814,7 @@ end
 		end
 
 		-- Window: panel transparency, animation speeds, easing, reset
-		local panelSection = windowTab:AddSection("Panels")
+		local panelSection = windowTab:AddSection("Window Look")
 		local styleDropdown = panelSection:AddDropdown(nil, {
 			Title = "Window style",
 			Values = { "Solid", "Transparent" },
@@ -4823,7 +4823,6 @@ end
 				Library_Function.SetWindowStyle(style)
 			end,
 		})
-		panelSection:AddLabel("Solid keeps the window dark. Transparent lets the game show through it, like glass.")
 		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
@@ -4836,6 +4835,7 @@ end
 				saveThemeSoon()
 			end,
 		})
+		panelSection:AddLabel("Solid: a dark window.\nTransparent: the game shows through, like glass.\nPanel transparency: how much shows through the menus.")
 		local animationSection = windowTab:AddSection("Animation")
 		for _, spec in ipairs(AnimationSliders) do
 			sliders[spec[1]] = animationSection:AddSlider({
@@ -5687,7 +5687,7 @@ end
 
 -- With the Transparent window style the picture lets some of the game through as well.
 local function pictureTransparency()
-	return (tonumber(getgenv().UIColor["Background Main Transparency"]) or 0) * 0.5
+	return (tonumber(getgenv().UIColor["Background Main Transparency"]) or 0) * 0.4
 end
 
 -- An empty source clears the background; on failure the current one stays. The window gets

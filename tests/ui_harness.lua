@@ -1190,7 +1190,7 @@ run("window style: Transparent lets the game show through, Solid puts it back, a
 		fresh.ThemeSystem.Apply("Peridot")
 		assert(frame.BackgroundTransparency == 0 and shadow.ImageTransparency == 0.35, "solid by default, with its shadow")
 		fresh.SetWindowStyle("Transparent")
-		assert(frame.BackgroundTransparency == 0.45, "the frame lets the game through")
+		assert(frame.BackgroundTransparency == 0.92, "the frame lets the game through, like the original")
 		assert(shadow.ImageTransparency == 1, "and the shadow's dark middle is hidden")
 		assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn a little see-through")
 		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).WindowStyle == "Transparent", "saved")
@@ -1200,7 +1200,7 @@ run("window style: Transparent lets the game show through, Solid puts it back, a
 		assert(frame.BackgroundTransparency == 0 and shadow.ImageTransparency == 0.35, "Solid puts the frame and shadow back")
 		assert(getgenv().UIColor["Background 1 Transparency"] == 0, "and the panels")
 		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).WindowStyle == nil)
-		assert(fresh.ThemeSystem.Apply("glassy") and frame.BackgroundTransparency == 0.45, "a saved theme brings the style back")
+		assert(fresh.ThemeSystem.Apply("glassy") and frame.BackgroundTransparency == 0.92, "a saved theme brings the style back")
 		assert(fresh.ThemeSystem.Apply("Ocean") and frame.BackgroundTransparency == 0, "a theme without it is solid")
 		assert(fresh.ThemeSystem.Import(json:JSONEncode({ WindowStyle = "Evil" })) and frame.BackgroundTransparency == 0, "unknown styles are ignored")
 		assert(fresh.ThemeSystem.Apply("glassy"))
@@ -1211,7 +1211,7 @@ run("window style: Transparent lets the game show through, Solid puts it back, a
 	for _, item in ipairs(again.Internal.Gui:GetDescendants()) do
 		if item.Name == "MainContainer" then reloaded = item end
 	end
-	assert(reloaded.BackgroundTransparency == 0.45, "the next session opens transparent")
+	assert(reloaded.BackgroundTransparency == 0.92, "the next session opens transparent")
 	withSpawns(function()
 		again.ThemeSystem.Delete("glassy")
 		again.ThemeSystem.Apply("Peridot")
