@@ -976,6 +976,72 @@ run("the Theme tab of Interface Settings shows the theme library", function()
 	end
 end)
 
+---------------------------------------------------------------- every theme color is wired
+print("Theme colors")
+run("every color in the theme has a picker or the accent, and something that uses it", function()
+	local source = io.open(REPO .. "/libraries/UILibrary.lua", "rb"):read("*a")
+	local themeTable = source:match("local T1UIColor = {(.-)\n}\n")
+	local colorsTab = source:match("local ColorGroups = {(.-)local AnimationSliders")
+	local accentKeys = source:match("local AccentKeys = {(.-)}")
+	local checked, problems = 0, {}
+	for key in themeTable:gmatch('%["([^"]+)"%]%s*=%s*Color3%.fromRGB') do
+		checked = checked + 1
+		local hasPicker = colorsTab:find('"' .. key .. '"', 1, true) or accentKeys:find('"' .. key .. '"', 1, true)
+			or key == "Slider Highlight Color" or key == "Dropdown Selected Check Color" -- shades of the accent
+		local _, binds = source:gsub('Bind%([^,]+,%s*"[%w]+",%s*"' .. key .. '"%)', "")
+		local listener = source:find('ThemeListeners["' .. key .. '"]', 1, true)
+		local _, reads = source:gsub('UIColor%[[\'"]' .. key .. '[\'"]%]', "")
+		if not hasPicker then problems[#problems + 1] = key .. " has no picker" end
+		if binds == 0 and not listener and reads == 0 then problems[#problems + 1] = key .. " is not used by anything" end
+	end
+	assert(checked >= 28, "read the theme, got " .. checked)
+	assert(#problems == 0, table.concat(problems, "; "))
+end)
+
+run("the window frame, sidebar, section panels, outlines, labels and check marks follow the theme", function()
+	local priorColors = getgenv().UIColor
+	local fresh = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	local window = fresh.CreateMain({ Name = "Peridot", Title = "Theme test", Desc = "" })
+	local section = window.CreatePage({ Page_Name = "Page", Page_Title = "Page" }).CreateSection("Section")
+	section.CreateToggle({ Title = "A toggle" }, function() end)
+	section.CreateLabel({ Title = "A label" })
+	local function rgb(c) return math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5) end
+	local function paints(match, property, r, g, b) -- some instance chosen by `match` now has this color
+		for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+			if match(item) then
+				local cr, cg, cb = rgb(item[property])
+				if cr == r and cg == g and cb == b then return true end
+			end
+		end
+		return false
+	end
+	local function named(name) return function(item) return item.Name == name end end
+	local checks = {
+		{ "Background Main Color", named("MainContainer"), "BackgroundColor3", "the window frame" },
+		{ "Sidebar Color", named("Background1"), "BackgroundColor3", "the sidebar" },
+		{ "Section Panel Color", function(item) return item.Name:sub(-4) == "_Dot" end, "BackgroundColor3", "the section panels" },
+		{ "Outline Color", named("TopStroke"), "BackgroundColor3", "the line under the title" },
+		{ "Label Color", named("LabelBG"), "BackgroundColor3", "label rows" },
+		{ "Toggle Checked Color", named("check"), "BackgroundColor3", "toggle check marks" },
+	}
+	for index, entry in ipairs(checks) do
+		local r, g, b = 10 + index, 20 + index, 30 + index
+		getgenv().UIColor[entry[1]] = Color3.fromRGB(r, g, b)
+		assert(paints(entry[2], entry[3], r, g, b), entry[4] .. " did not follow " .. entry[1])
+	end
+	-- outlines are UIStrokes: the window edge, the sidebar edge, section edges
+	getgenv().UIColor["Outline Color"] = Color3.fromRGB(7, 8, 9)
+	local strokes = 0
+	for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+		if item.ClassName == "UIStroke" then
+			local r, g, b = rgb(item.Color)
+			if r == 7 and g == 8 and b == 9 then strokes = strokes + 1 end
+		end
+	end
+	assert(strokes >= 3, "window, sidebar and section outlines follow Outline Color, got " .. strokes)
+	getgenv().UIColor = priorColors
+end)
+
 ---------------------------------------------------------------- dark, solid window
 print("Dark window")
 run("the window frame and panels are solid by default, and an old see-through setting is capped", function()

@@ -58,7 +58,6 @@ getgenv().PeridotUI = true
 local DisableAnimation = game.Players.LocalPlayer.PlayerGui:FindFirstChild('TouchGui')
 local T1UIColor = {
 	["Border Color"] = Color3.fromRGB(140, 172, 68),
-	["Click Effect Color"] = Color3.fromRGB(230, 230, 230),
 	["Setting Icon Color"] = Color3.fromRGB(230, 230, 230),
 	["Logo Image"] = "rbxassetid://97933423096090",
 	["Search Icon Color"] = Color3.fromRGB(240, 240, 230),
@@ -72,19 +71,21 @@ local T1UIColor = {
 	["Background 1 Transparency"] = 0,
 	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
 	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
+	-- window parts: what they look like today (their frame color times the old gradient)
+	["Sidebar Color"] = Color3.fromRGB(4, 4, 6),
+	["Section Panel Color"] = Color3.fromRGB(9, 9, 12),
+	["Outline Color"] = Color3.fromRGB(90, 90, 70),
 	["Background Image"] = "",
 	["Page Selected Color"] = Color3.fromRGB(140, 172, 68),
 	["Section Text Color"] = Color3.fromRGB(220, 220, 210),
 	["Section Underline Color"] = Color3.fromRGB(140, 172, 68),
 	["Toggle Border Color"] = Color3.fromRGB(140, 172, 68),
-	["Toggle Checked Color"] = Color3.fromRGB(230, 230, 230),
+	["Toggle Checked Color"] = Color3.fromRGB(140, 172, 68),
 	["Toggle Desc Color"] = Color3.fromRGB(185, 185, 185),
 	["Button Color"] = Color3.fromRGB(140, 172, 68),
-	["Label Color"] = Color3.fromRGB(38, 38, 42),
+	["Label Color"] = Color3.fromRGB(38, 38, 46),
 	["Dropdown Icon Color"] = Color3.fromRGB(230, 230, 230),
-	["Dropdown Selected Color"] = Color3.fromRGB(140, 172, 68),
 	["Dropdown Selected Check Color"] = Color3.fromRGB(120, 150, 56),
-	["Textbox Highlight Color"] = Color3.fromRGB(140, 172, 68),
 	["Box Highlight Color"] = Color3.fromRGB(140, 172, 68),
 	["Slider Line Color"] = Color3.fromRGB(140, 172, 68),
 	["Slider Highlight Color"] = Color3.fromRGB(96, 124, 44),
@@ -158,8 +159,8 @@ end
 -- (title-bar gear) changes it live and saves the choice to Peridot/Theme.json.
 local AccentKeys = {
 	"Border Color", "Search Icon Highlight Color", "Title Text Color", "Page Selected Color",
-	"Section Underline Color", "Toggle Border Color", "Button Color", "Dropdown Selected Color",
-	"Textbox Highlight Color", "Box Highlight Color", "Slider Line Color",
+	"Section Underline Color", "Toggle Border Color", "Toggle Checked Color", "Button Color",
+	"Box Highlight Color", "Slider Line Color",
 }
 local AccentPresets = {
 	{ "Peridot", Color3.fromRGB(140, 172, 68) },
@@ -995,13 +996,13 @@ function Library:CreateWindow(Setting)
 	MainContainer.Parent = Body
 	MainContainer.AnchorPoint = Vector2.new(0.5, 0.5)
 	MainContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
-	MainContainer.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	Bind(MainContainer, "BackgroundColor3", "Background Main Color")
 	MainContainer.Size = UDim2.new(1, -8, 1, -8)
 	Library_Function.MainContainer = MainContainer -- SetBackground draws on it
 
 	local uistr = Instance.new("UIStroke", MainContainer);
 	uistr.Thickness = 1;
-	uistr.Color = Color3.fromRGB(90, 90, 70);
+	Bind(uistr, "Color", "Outline Color")
 
 	local uigradient = Instance.new("UIGradient", MainContainer);
 	uigradient.Color = ColorSequence.new{
@@ -1040,7 +1041,7 @@ function Library:CreateWindow(Setting)
 	
 	local TopStroke = Instance.new("Frame", TopMain)
 	TopStroke.Name = "TopStroke"
-	TopStroke.BackgroundColor3 = Color3.fromRGB(90, 90, 70)
+	Bind(TopStroke, "BackgroundColor3", "Outline Color")
 	TopStroke.BackgroundTransparency = 0.6
 	TopStroke.BorderSizePixel = 0
 	TopStroke.Position = UDim2.new(0, 0, 1, -1)
@@ -1116,17 +1117,18 @@ function Library:CreateWindow(Setting)
 	PageControl.Parent = Concacmain
 	PageControl.Position = UDim2.new(0, 5, 0, 0)
 	PageControl.Size = UDim2.new(0, 180, 0, 325)
-	PageControl.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+	Bind(PageControl, "BackgroundColor3", "Sidebar Color")
 	Bind(PageControl, "BackgroundTransparency", "Background 1 Transparency")
 
 	local pageControlStroke = Instance.new("UIStroke", PageControl)
-	pageControlStroke.Color = Color3.fromRGB(90, 90, 70)
+	Bind(pageControlStroke, "Color", "Outline Color")
 	pageControlStroke.Thickness = 1
 
+	-- the gradient only shades the Sidebar color (darker at the top), it never sets a color of its own
 	local pageControlGradient = Instance.new("UIGradient", PageControl)
 	pageControlGradient.Color = ColorSequence.new{
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 34)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(38, 38, 46))
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(188, 188, 188)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
 	}
 	pageControlGradient.Rotation = 90
 	pageControlGradient.Transparency = NumberSequence.new{
@@ -1715,18 +1717,19 @@ function Library:CreateWindow(Setting)
 			Section.Name = Section_Name .. "_Dot"
 			Section.Parent = PageList
 			Section.Size = UDim2.new(1, -5, 0, 30)
-			Section.BackgroundColor3 = Color3.fromRGB(48, 48, 56)
+			Bind(Section, "BackgroundColor3", "Section Panel Color")
 			Section.BackgroundTransparency = 0.15
 			Section.ClipsDescendants = true
 
 			local sectionStroke = Instance.new("UIStroke", Section)
-			sectionStroke.Color = Color3.fromRGB(90, 90, 70)
+			Bind(sectionStroke, "Color", "Outline Color")
 			sectionStroke.Thickness = 1
 
+			-- shades the Section panel color (darker at the top); it never sets a color of its own
 			local sectionGradient = Instance.new("UIGradient", Section)
 			sectionGradient.Color = ColorSequence.new{
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 38, 46)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(48, 48, 56))
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(201, 201, 201)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
 			}
 			sectionGradient.Rotation = 90
 			sectionGradient.Transparency = NumberSequence.new{
@@ -1924,7 +1927,7 @@ function Library:CreateWindow(Setting)
 				check.Name = "check"
 				check.Parent = checkbox
 				check.AnchorPoint = Vector2.new(0.5, 0.5)
-				Bind(check, "BackgroundColor3", "Button Color")
+				Bind(check, "BackgroundColor3", "Toggle Checked Color")
 				check.Position = UDim2.new(0.5, 0, 0.5, 0)
 				local cac = 5
 				if Desc then
@@ -2225,7 +2228,7 @@ function Library:CreateWindow(Setting)
                 LabelBG.Parent = LabelFrame
                 LabelBG.AnchorPoint = Vector2.new(0.5, 0)
                 LabelBG.AutomaticSize = Enum.AutomaticSize.Y
-                LabelBG.BackgroundColor3 = Color3.fromRGB(38,38,46)
+                Bind(LabelBG, "BackgroundColor3", "Label Color")
                 LabelBG.BackgroundTransparency = 0.25
                 LabelBG.Position = UDim2.new(0.5, 0,0, 0)
                 LabelBG.Size = UDim2.new(1, -10,0, -10)
@@ -4154,7 +4157,7 @@ end
 				SwatchCorner.CornerRadius = UDim.new(0, 4)
 				SwatchCorner.Parent = Swatch
 				local SwatchStroke = Instance.new("UIStroke")
-				SwatchStroke.Color = Color3.fromRGB(90, 90, 70)
+				Bind(SwatchStroke, "Color", "Outline Color")
 				SwatchStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 				SwatchStroke.Parent = Swatch
 
@@ -4500,8 +4503,9 @@ end
 	local ColorGroups = {
 		{ "Main", { "Title Text Color", "Setting Icon Color", "Search Icon Color", "Search Icon Highlight Color" } },
 		{ "Text", { "GUI Text Color", "Text Color", "Placeholder Text Color", "Section Text Color", "Toggle Desc Color" } },
-		{ "Background", { "Background Main Color", "Background 1 Color", "Background 2 Color", "Background 3 Color" } },
-		{ "Controls", { "Page Selected Color", "Section Underline Color", "Toggle Border Color", "Button Color",
+		{ "Background", { "Background Main Color", "Sidebar Color", "Section Panel Color", "Background 1 Color", "Background 2 Color", "Background 3 Color", "Label Color" } },
+		{ "Outline", { "Outline Color" } },
+		{ "Controls", { "Page Selected Color", "Section Underline Color", "Toggle Border Color", "Toggle Checked Color", "Button Color",
 			"Dropdown Icon Color", "Dropdown Selected Check Color", "Box Highlight Color", "Slider Line Color", "Slider Highlight Color" } },
 	}
 	local AnimationSliders = {
