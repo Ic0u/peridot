@@ -836,6 +836,146 @@ run("UIColor writes (Settings page) reach the theme", function()
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0.4)
 end)
 
+---------------------------------------------------------------- theme library
+print("Theme library")
+local function accentOf() -- the live accent as 0-255 numbers
+	local c = getgenv().UIColor["Title Text Color"]
+	return math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5)
+end
+local function withSpawns(fn)
+	RUN_SPAWNS = true
+	local ok, err = pcall(fn)
+	RUN_SPAWNS = false
+	assert(ok, err)
+end
+local TS = lib.ThemeSystem
+
+run("built-in themes apply on top of the shipped look and Peridot returns to it", function()
+	local names = table.concat(TS.ListBuiltIn(), ",")
+	assert(names:find("Peridot", 1, true) and names:find("Ocean", 1, true) and names:find("Glass", 1, true), names)
+	withSpawns(function()
+		assert(TS.Apply("Ocean"))
+		local r, g, b = accentOf()
+		assert(r == 90 and g == 160 and b == 255, "Ocean accent")
+		assert(TS.Apply("Glass"))
+		r, g, b = accentOf()
+		assert(r == 140 and g == 172 and b == 68, "Glass starts from the shipped accent, not Ocean's")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "Glass makes the panels see-through")
+		assert(TS.Apply("Snappy"))
+		assert(getgenv().UIColor["Tween Animation 1 Speed"] == 0.12 and getgenv().UIColor["Background 1 Transparency"] == 0)
+		assert(TS.Apply("Peridot"))
+		assert(getgenv().UIColor["Tween Animation 1 Speed"] == 0.25, "Peridot restores the shipped speeds")
+	end)
+	local ok, err = TS.Apply("No Such Theme")
+	assert(not ok and err == "Theme not found", tostring(err))
+end)
+
+run("saved themes: create, refuse duplicates and built-in names, overwrite, load, delete", function()
+	withSpawns(function()
+		lib.SetAccent("Ruby")
+		assert(TS.Create("mine"))
+		assert(FILES["Peridot/Themes/mine.json"], "written to Peridot/Themes")
+		local ok, err = TS.Create("mine")
+		assert(not ok and err:find("already exists"), "no silent overwrite: " .. tostring(err))
+		ok, err = TS.Create("Ocean")
+		assert(not ok and err:find("built%-in"), tostring(err))
+		ok, err = TS.Create("../evil")
+		assert(not ok and err:find("slashes"), tostring(err))
+		ok, err = TS.Create("   ")
+		assert(not ok, "a blank name is refused")
+		ok, err = TS.Save("Ocean")
+		assert(not ok and err:find("cannot be changed"), tostring(err))
+
+		assert(TS.Apply("Ocean"))
+		assert(select(3, accentOf()) == 255)
+		assert(TS.Apply("mine"))
+		local r, g, b = accentOf()
+		assert(r == 220 and g == 70 and b == 80, "the saved theme brings Ruby back")
+
+		lib.SetAccent("Gold")
+		assert(TS.Save("mine"), "overwrite")
+		assert(TS.Apply("Ocean") and TS.Apply("mine"))
+		assert(select(2, accentOf()) == 206, "overwritten with Gold")
+
+		local list = table.concat(TS.List(), ",")
+		assert(list == "mine", "default.txt and other files are not listed, got " .. list)
+		assert(TS.Delete("mine") and not FILES["Peridot/Themes/mine.json"])
+		ok, err = TS.Delete("Ocean")
+		assert(not ok and err:find("cannot be deleted"))
+		assert(TS.Apply("Peridot"))
+	end)
+end)
+
+run("default theme: set, listed, cleared with its theme, and applied when the library loads", function()
+	withSpawns(function()
+		lib.SetAccent("Mint")
+		assert(TS.Create("keep"))
+		assert(TS.SetDefault("keep") and TS.GetDefault() == "keep" and FILES["Peridot/Themes/default.txt"] == "keep")
+		assert(TS.Delete("keep") and TS.GetDefault() == nil, "deleting the default theme clears it")
+		local ok, err = TS.SetDefault("nothing")
+		assert(not ok and err == "Theme not found")
+		assert(TS.SetDefault("ocean") and TS.GetDefault() == "Ocean", "built-in names match without case")
+	end)
+	local priorTheme, priorColors = FILES["Peridot/Theme.json"], getgenv().UIColor
+	FILES["Peridot/Theme.json"] = nil -- nothing saved from this session: only the default theme decides
+	assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	local r, g, b = accentOf()
+	assert(r == 90 and g == 160 and b == 255, "the default theme is applied before any window exists")
+	FILES["Peridot/Theme.json"], getgenv().UIColor = priorTheme, priorColors
+	assert(TS.ClearDefault() and TS.GetDefault() == nil and not FILES["Peridot/Themes/default.txt"])
+	withSpawns(function() TS.Apply("Peridot") end)
+end)
+
+run("theme JSON: export, import, and data from outside is sanitised", function()
+	withSpawns(function()
+		lib.SetAccent("Sakura")
+		local text = TS.Export()
+		assert(type(text) == "string" and text ~= "")
+		assert(TS.Apply("Peridot"))
+		assert(TS.Import(text))
+		local r, g, b = accentOf()
+		assert(r == 240 and g == 130 and b == 170, "the exported look comes back")
+
+		local ok, err = TS.Import("not json")
+		assert(not ok and err == "That is not theme JSON.", tostring(err))
+		ok, err = TS.Import("")
+		assert(not ok and err == "Paste theme JSON first.", tostring(err))
+
+		local hostile = service("HttpService"):JSONEncode({
+			Accent = { 300, -5, "x" }, Preset = string.rep("p", 80), PanelTransparency = 5,
+			AnimationSpeed1 = 99, Easing = "Evil", Logo = "https://example.com/tracker.png",
+			Colors = { ["Not A Key"] = { 1, 2, 3 }, ["Button Color"] = { 10, 20, 30 } },
+			Unknown = "ignored",
+		})
+		local before = #HTTP_LOG
+		assert(TS.Import(hostile))
+		for i = before + 1, #HTTP_LOG do
+			assert(not HTTP_LOG[i]:find("tracker", 1, true), "an imported icon link is never fetched")
+		end
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "transparency is capped")
+		assert(getgenv().UIColor["Tween Animation 1 Speed"] <= 0.75, "speeds are capped")
+		assert(getgenv().UIColor["Tween Easing Style"] ~= "Evil", "unknown easing is ignored")
+		assert(getgenv().UIColor["Not A Key"] == nil, "unknown color keys are ignored")
+		assert(TS.Apply("Peridot"))
+	end)
+end)
+
+run("the Theme tab of Interface Settings shows the theme library", function()
+	local function hasText(wanted)
+		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+			if (item.ClassName == "TextLabel" or item.ClassName == "TextButton" or item.ClassName == "TextBox")
+				and tostring(item.Text or ""):find(wanted, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+	for _, wanted in ipairs({ "My Themes", "Share Theme", "Custom theme name", "Create theme", "Load theme", "Overwrite theme",
+		"Delete theme", "Reset default", "Current default theme: none", "Export current theme", "Import theme" }) do
+		assert(hasText(wanted), "missing on the Theme tab: " .. wanted)
+	end
+end)
+
 ---------------------------------------------------------------- dark, solid window
 print("Dark window")
 run("the window frame and panels are solid by default, and an old see-through setting is capped", function()

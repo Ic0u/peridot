@@ -223,6 +223,7 @@ for key, value in pairs(T1UIColor) do
 	DefaultTheme[key] = value
 end
 local RainbowKeys = {} -- theme key -> { s, v } while its rainbow is on
+local ThemeSystem = {} -- named themes (built-in, saved, default); filled in near the end of this file
 local SavedTheme = {}
 if HasFileSystem then
 	pcall(function()
@@ -4581,6 +4582,170 @@ end
 			end,
 		})
 
+		-- Themes: whole looks (accent, color edits, panels, animation, icon) that can be picked, saved,
+		-- shared and made the default. The library behind it is ThemeSystem.
+		local function themeNotice(text)
+			Library:Notify({ Title = "Themes", Desc = text, Duration = 4 }, true)
+		end
+		local themeList = ThemeSystem.ListBuiltIn()
+		local pickedBuiltIn
+		local themesSection = themeTab:AddSection("Themes")
+		themesSection:AddDropdown(nil, {
+			Title = "Theme list",
+			Values = themeList,
+			Callback = function(name)
+				pickedBuiltIn = name
+				local ok, err = ThemeSystem.Apply(name)
+				if not ok then
+					themeNotice(tostring(err))
+				end
+			end,
+		})
+		themesSection:AddButton({
+			Title = "Set as default",
+			ButtonText = "Set",
+			Callback = function()
+				if not pickedBuiltIn then
+					return themeNotice("Pick a theme from the list first.")
+				end
+				local ok, err = ThemeSystem.SetDefault(pickedBuiltIn)
+				themeNotice(ok and (pickedBuiltIn .. " now loads every time you run Peridot.") or tostring(err))
+				Library_Function.RefreshDefaultTheme()
+			end,
+		})
+
+		local customSection = themeTab:AddSection("My Themes")
+		local typedThemeName, pickedCustom = "", nil
+		customSection:AddInput(nil, {
+			Title = "Custom theme name",
+			Placeholder = "name",
+			Callback = function(text)
+				typedThemeName = text
+			end,
+		})
+		local customDropdown
+		local function refreshCustomThemes()
+			if customDropdown then
+				customDropdown:GetNewList(ThemeSystem.List())
+			end
+			pickedCustom = nil -- the dropdown clears its selection when its list changes
+		end
+		customSection:AddButton({
+			Title = "Create theme",
+			ButtonText = "Create",
+			Callback = function()
+				local ok, err = ThemeSystem.Create(typedThemeName)
+				themeNotice(ok and ("Saved " .. typedThemeName .. " from your current look.") or tostring(err))
+				if ok then
+					refreshCustomThemes()
+				end
+			end,
+		})
+		customDropdown = customSection:AddDropdown(nil, {
+			Title = "Custom themes",
+			Values = ThemeSystem.List(),
+			Callback = function(name)
+				pickedCustom = name
+			end,
+		})
+		local function withPickedCustom(action)
+			if not pickedCustom or pickedCustom == "" then
+				return themeNotice("Pick one of your themes from the list first.")
+			end
+			action(pickedCustom)
+		end
+		customSection:AddButton({
+			Title = "Load theme",
+			ButtonText = "Load",
+			Callback = function()
+				withPickedCustom(function(name)
+					local ok, err = ThemeSystem.Apply(name)
+					themeNotice(ok and ("Loaded " .. name) or tostring(err))
+				end)
+			end,
+		})
+		customSection:AddButton({
+			Title = "Overwrite theme",
+			ButtonText = "Overwrite",
+			Callback = function()
+				withPickedCustom(function(name)
+					local ok, err = ThemeSystem.Save(name)
+					themeNotice(ok and ("Saved your current look over " .. name) or tostring(err))
+				end)
+			end,
+		})
+		customSection:AddButton({
+			Title = "Delete theme",
+			ButtonText = "Delete",
+			Callback = function()
+				withPickedCustom(function(name)
+					local ok, err = ThemeSystem.Delete(name)
+					themeNotice(ok and ("Deleted " .. name) or tostring(err))
+					refreshCustomThemes()
+					Library_Function.RefreshDefaultTheme()
+				end)
+			end,
+		})
+		customSection:AddButton({
+			Title = "Refresh list",
+			ButtonText = "Refresh",
+			Callback = refreshCustomThemes,
+		})
+		customSection:AddButton({
+			Title = "Set as default",
+			ButtonText = "Set",
+			Callback = function()
+				withPickedCustom(function(name)
+					local ok, err = ThemeSystem.SetDefault(name)
+					themeNotice(ok and (name .. " now loads every time you run Peridot.") or tostring(err))
+					Library_Function.RefreshDefaultTheme()
+				end)
+			end,
+		})
+		customSection:AddButton({
+			Title = "Reset default",
+			ButtonText = "Reset",
+			Callback = function()
+				ThemeSystem.ClearDefault()
+				themeNotice("No theme loads at start now.")
+				Library_Function.RefreshDefaultTheme()
+			end,
+		})
+		local defaultThemeLabel = customSection:AddLabel("Current default theme: none")
+		Library_Function.RefreshDefaultTheme = function()
+			defaultThemeLabel:SetText("Current default theme: " .. (ThemeSystem.GetDefault() or "none"))
+		end
+		Library_Function.RefreshDefaultTheme()
+		customSection:AddLabel("The default theme loads at the start. Changes you make while playing are kept until then.")
+
+		local shareSection = themeTab:AddSection("Share Theme")
+		local themeJson = ""
+		local themeJsonBox = shareSection:AddInput(nil, {
+			Title = "Theme JSON",
+			Placeholder = "paste theme JSON here",
+			Callback = function(text)
+				themeJson = text
+			end,
+		})
+		shareSection:AddButton({
+			Title = "Import theme",
+			ButtonText = "Import",
+			Callback = function()
+				local ok, err = ThemeSystem.Import(themeJson)
+				themeNotice(ok and "Imported the pasted theme." or tostring(err))
+			end,
+		})
+		shareSection:AddButton({
+			Title = "Export current theme",
+			ButtonText = "Export",
+			Callback = function()
+				local text = ThemeSystem.Export()
+				themeJsonBox.SetValue(text)
+				local copied = type(setclipboard) == "function" and pcall(setclipboard, text)
+				themeNotice(copied and "Theme JSON copied to the clipboard." or "Theme JSON is in the box above.")
+			end,
+		})
+
 		-- Colors: one picker per theme color, grouped like the old customizer
 		for _, group in ipairs(ColorGroups) do
 			local section = colorsTab:AddSection(group[1])
@@ -4695,6 +4860,17 @@ end
 				saveThemeSoon()
 			end
 		end)
+
+		-- a theme changes the accent, colors, panels, speeds and easing at once; show the new values
+		Library_Function.OnThemeApplied = function()
+			Library_Function.OnAccentChanged()
+			accentDropdown:ClearText(SavedTheme.Preset or "Peridot")
+			easingDropdown:ClearText(getgenv().UIColor["Tween Easing Style"])
+			sliders.transparency.SetValue(getgenv().UIColor["Background 1 Transparency"])
+			for _, spec in ipairs(AnimationSliders) do
+				sliders[spec[1]].SetValue(getgenv().UIColor[spec[1]])
+			end
+		end
 
 		windowTab:AddSection("Reset"):AddButton({
 			Title = "Reset theme",
@@ -5712,7 +5888,364 @@ function Peridot.Unload()
 	end
 end
 
+--------------------------------------------------------------------------------
+-- Theme library. A theme is a look: the accent, one-off color edits, panel transparency,
+-- animation speeds, easing and the icon. Built-in ones are listed here; your own are files
+-- in Peridot/Themes. One of them can be the default, which loads each time a script starts.
+-- Pasted or loaded theme data is sanitised first: known fields only, values clamped, and
+-- the icon limited to Roblox asset ids so a shared theme never makes the client fetch a link.
+--------------------------------------------------------------------------------
+local ThemeFolder = "Peridot/Themes"
+local THEME_FIELDS = { "Accent", "Preset", "Colors", "PanelTransparency", "AnimationSpeed", "AnimationSpeed1", "AnimationSpeed3", "Easing", "Logo" }
+local THEME_EASING = { Quad = true, Quint = true, Back = true, Sine = true, Linear = true }
+local THEME_SPEED_LIMITS = { AnimationSpeed1 = 0.75, AnimationSpeed = 1, AnimationSpeed3 = 0.5 }
+
+local BuiltInThemes = {}
+for _, preset in ipairs(AccentPresets) do
+	local data = {}
+	if preset[1] ~= "Peridot" then
+		data = { Accent = color3ToList(preset[2]), Preset = preset[1] }
+	end
+	BuiltInThemes[#BuiltInThemes + 1] = { name = preset[1], data = data }
+end
+BuiltInThemes[#BuiltInThemes + 1] = { name = "Glass", data = { PanelTransparency = 0.25 } }
+BuiltInThemes[#BuiltInThemes + 1] = { name = "Snappy", data = { AnimationSpeed1 = 0.12, AnimationSpeed = 0.25, AnimationSpeed3 = 0.05 } }
+BuiltInThemes[#BuiltInThemes + 1] = { name = "Relaxed", data = { AnimationSpeed1 = 0.4, AnimationSpeed = 0.8, AnimationSpeed3 = 0.2 } }
+
+local function copyData(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	local out = {}
+	for key, item in pairs(value) do
+		out[key] = copyData(item)
+	end
+	return out
+end
+
+local function builtInNamed(name)
+	local wanted = tostring(name or ""):lower()
+	for _, entry in ipairs(BuiltInThemes) do
+		if entry.name:lower() == wanted then
+			return entry
+		end
+	end
+end
+
+local function themePath(name)
+	return ThemeFolder .. "/" .. name .. ".json"
+end
+
+local function ensureThemeFolder()
+	if not HasFileSystem then
+		return false, "Executor has no file access"
+	end
+	local path = ""
+	for part in ThemeFolder:gmatch("[^/]+") do
+		path = path == "" and part or (path .. "/" .. part)
+		if not isfolder(path) then
+			makefolder(path)
+		end
+	end
+	return true
+end
+
+local function themeNameError(name)
+	name = tostring(name or "")
+	if name:gsub("%s", "") == "" then
+		return "Enter a theme name first."
+	end
+	if name:find("[/\\]") then
+		return "Theme names cannot contain slashes."
+	end
+	if #name > 40 then
+		return "Theme names can be up to 40 characters."
+	end
+	return nil
+end
+
+local function cleanColorList(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	local r, g, b = tonumber(value[1]), tonumber(value[2]), tonumber(value[3])
+	if not (r and g and b) then
+		return nil
+	end
+	return { math.clamp(math.floor(r + 0.5), 0, 255), math.clamp(math.floor(g + 0.5), 0, 255), math.clamp(math.floor(b + 0.5), 0, 255) }
+end
+
+local function cleanTheme(data)
+	if type(data) ~= "table" then
+		return nil, "That is not a theme."
+	end
+	local out = {}
+	local accent = cleanColorList(data.Accent)
+	if accent then
+		out.Accent = accent
+		out.Preset = type(data.Preset) == "string" and data.Preset:sub(1, 24) or "Custom"
+	end
+	if type(data.Colors) == "table" then
+		for key, value in pairs(data.Colors) do
+			if typeof(DefaultTheme[key]) == "Color3" then
+				local list = cleanColorList(value)
+				if list then
+					out.Colors = out.Colors or {}
+					out.Colors[key] = list
+				end
+			end
+		end
+	end
+	if tonumber(data.PanelTransparency) then
+		out.PanelTransparency = math.clamp(tonumber(data.PanelTransparency), 0, 0.3)
+	end
+	for field, limit in pairs(THEME_SPEED_LIMITS) do
+		if tonumber(data[field]) then
+			out[field] = math.clamp(tonumber(data[field]), 0, limit)
+		end
+	end
+	if THEME_EASING[data.Easing] then
+		out.Easing = data.Easing
+	end
+	if type(data.Logo) == "string" and (data.Logo:match("^rbxassetid://%d+$") or data.Logo:match("^%d+$")) then
+		out.Logo = data.Logo
+	end
+	return out
+end
+
+-- The current look as plain data, in the shape a theme file holds.
+local function snapshotTheme()
+	local data = {}
+	for _, field in ipairs(THEME_FIELDS) do
+		if SavedTheme[field] ~= nil then
+			data[field] = copyData(SavedTheme[field])
+		end
+	end
+	return data
+end
+
+-- Back to the shipped look, then the theme's own values on top. Toggle-button and menu-key
+-- choices are not part of a theme and stay as they are.
+local function applyTheme(data)
+	FadeTheme(function()
+		for key in pairs(RainbowKeys) do
+			RainbowKeys[key] = nil
+		end
+		for key, value in pairs(DefaultTheme) do
+			getgenv().UIColor[key] = value
+		end
+		for _, field in ipairs(THEME_FIELDS) do
+			SavedTheme[field] = nil
+		end
+		SavedTheme.Rainbow = nil
+		if data.Accent then
+			Library_Function.SetAccent(Color3.fromRGB(data.Accent[1], data.Accent[2], data.Accent[3]), data.Preset)
+		end
+		for key, list in pairs(data.Colors or {}) do
+			Library_Function.SetThemeColor(key, Color3.fromRGB(list[1], list[2], list[3]))
+		end
+		if data.PanelTransparency then
+			getgenv().UIColor["Background 1 Transparency"] = data.PanelTransparency
+			SavedTheme.PanelTransparency = data.PanelTransparency
+		end
+		if not DisableAnimation then -- touch devices keep animations off
+			local speedKeys = { AnimationSpeed1 = "Tween Animation 1 Speed", AnimationSpeed = "Tween Animation 2 Speed", AnimationSpeed3 = "Tween Animation 3 Speed" }
+			for field, key in pairs(speedKeys) do
+				if data[field] then
+					getgenv().UIColor[key] = data[field]
+					SavedTheme[field] = data[field]
+				end
+			end
+		end
+		if data.Easing then
+			getgenv().UIColor["Tween Easing Style"] = data.Easing
+			SavedTheme.Easing = data.Easing
+		end
+		if data.Logo then
+			Library_Function.SetLogo(data.Logo)
+		end
+	end)
+	saveThemeSoon()
+	if Library_Function.OnThemeApplied then
+		pcall(Library_Function.OnThemeApplied)
+	end
+end
+
+function ThemeSystem.ListBuiltIn()
+	local names = {}
+	for _, entry in ipairs(BuiltInThemes) do
+		names[#names + 1] = entry.name
+	end
+	return names
+end
+
+function ThemeSystem.List()
+	if not ensureThemeFolder() or type(listfiles) ~= "function" then
+		return {}
+	end
+	local names = {}
+	for _, path in ipairs(listfiles(ThemeFolder)) do
+		local name = path:match("([^/\\]+)%.json$")
+		if name then
+			names[#names + 1] = name
+		end
+	end
+	table.sort(names)
+	return names
+end
+
+function ThemeSystem.Exists(name)
+	return HasFileSystem and not themeNameError(name) and isfile(themePath(name)) or false
+end
+
+-- A built-in or saved theme as sanitised data.
+local function readTheme(name)
+	local builtIn = builtInNamed(name)
+	if builtIn then
+		return cleanTheme(copyData(builtIn.data))
+	end
+	local nameError = themeNameError(name)
+	if nameError then
+		return nil, nameError
+	end
+	if not HasFileSystem or not isfile(themePath(name)) then
+		return nil, "Theme not found"
+	end
+	local decoded, data = pcall(function()
+		return HttpService:JSONDecode(readfile(themePath(name)))
+	end)
+	if not decoded then
+		return nil, "That theme file is damaged."
+	end
+	return cleanTheme(data)
+end
+
+function ThemeSystem.Apply(name)
+	local data, err = readTheme(name)
+	if not data then
+		return false, err
+	end
+	applyTheme(data)
+	return true
+end
+
+-- Saves the current look under a name that is not taken yet.
+function ThemeSystem.Create(name)
+	local nameError = themeNameError(name)
+	if nameError then
+		return false, nameError
+	end
+	if builtInNamed(name) then
+		return false, tostring(name) .. " is a built-in theme name. Pick another."
+	end
+	if ThemeSystem.Exists(name) then
+		return false, "A theme named " .. tostring(name) .. " already exists. Use Overwrite theme."
+	end
+	return ThemeSystem.Save(name)
+end
+
+-- Saves the current look over a saved theme.
+function ThemeSystem.Save(name)
+	local nameError = themeNameError(name)
+	if nameError then
+		return false, nameError
+	end
+	if builtInNamed(name) then
+		return false, "Built-in themes cannot be changed."
+	end
+	local ready, folderError = ensureThemeFolder()
+	if not ready then
+		return false, folderError
+	end
+	return pcall(writefile, themePath(name), HttpService:JSONEncode(snapshotTheme()))
+end
+
+function ThemeSystem.Delete(name)
+	local nameError = themeNameError(name)
+	if nameError then
+		return false, nameError
+	end
+	if builtInNamed(name) then
+		return false, "Built-in themes cannot be deleted."
+	end
+	if not ThemeSystem.Exists(name) then
+		return false, "Theme not found"
+	end
+	if ThemeSystem.GetDefault() == name then
+		ThemeSystem.ClearDefault()
+	end
+	return pcall(delfile, themePath(name))
+end
+
+-- The current look as JSON text, to share.
+function ThemeSystem.Export()
+	local data = snapshotTheme()
+	data.Version = 1
+	return HttpService:JSONEncode(data)
+end
+
+function ThemeSystem.Import(text)
+	if type(text) ~= "string" or text:gsub("%s", "") == "" then
+		return false, "Paste theme JSON first."
+	end
+	local decoded, data = pcall(HttpService.JSONDecode, HttpService, text)
+	if not decoded or type(data) ~= "table" then
+		return false, "That is not theme JSON."
+	end
+	local clean, err = cleanTheme(data)
+	if not clean then
+		return false, err
+	end
+	applyTheme(clean)
+	return true
+end
+
+local function defaultThemePath()
+	return ThemeFolder .. "/default.txt"
+end
+
+function ThemeSystem.GetDefault()
+	if not HasFileSystem then
+		return nil
+	end
+	local ok, name = pcall(function()
+		return isfile(defaultThemePath()) and readfile(defaultThemePath()) or nil
+	end)
+	if ok and name and name ~= "" and (builtInNamed(name) or ThemeSystem.Exists(name)) then
+		return name
+	end
+	return nil
+end
+
+function ThemeSystem.SetDefault(name)
+	if not (builtInNamed(name) or ThemeSystem.Exists(name)) then
+		return false, "Theme not found"
+	end
+	local ready, folderError = ensureThemeFolder()
+	if not ready then
+		return false, folderError
+	end
+	local builtIn = builtInNamed(name)
+	return pcall(writefile, defaultThemePath(), builtIn and builtIn.name or name)
+end
+
+function ThemeSystem.ClearDefault()
+	if HasFileSystem and isfile(defaultThemePath()) then
+		return pcall(delfile, defaultThemePath())
+	end
+	return true
+end
+
+-- Runs once, as the library loads and before any window exists.
+do
+	local default = ThemeSystem.GetDefault()
+	if default then
+		pcall(ThemeSystem.Apply, default)
+	end
+end
+
 Peridot.ConfigSystem = ConfigSystem
+Peridot.ThemeSystem = ThemeSystem
 Peridot.ControlRegistry = ControlRegistry
 Peridot.SetConfigFolder = SetConfigFolder
 Peridot.GetConfigFolder = GetConfigFolder
