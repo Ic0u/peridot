@@ -953,7 +953,7 @@ run("theme JSON: export, import, and data from outside is sanitised", function()
 		for i = before + 1, #HTTP_LOG do
 			assert(not HTTP_LOG[i]:find("tracker", 1, true), "an imported icon link is never fetched")
 		end
-		assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "transparency is capped")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.6, "transparency is capped")
 		assert(getgenv().UIColor["Tween Animation 1 Speed"] <= 0.75, "speeds are capped")
 		assert(getgenv().UIColor["Tween Easing Style"] ~= "Evil", "unknown easing is ignored")
 		assert(getgenv().UIColor["Not A Key"] == nil, "unknown color keys are ignored")
@@ -1192,7 +1192,7 @@ run("window style: Transparent lets the game show through, Solid puts it back, a
 		fresh.SetWindowStyle("Transparent")
 		assert(frame.BackgroundTransparency == 0.92, "the frame lets the game through, like the original")
 		assert(shadow.ImageTransparency == 1, "and the shadow's dark middle is hidden")
-		assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn a little see-through")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.4, "the menus turn see-through too, not just the frame")
 		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).WindowStyle == "Transparent", "saved")
 		assert(json:JSONDecode(fresh.ThemeSystem.Export()).WindowStyle == "Transparent", "part of the theme")
 		assert(fresh.ThemeSystem.Create("glassy"))
@@ -1320,7 +1320,7 @@ run("the window frame and panels are solid by default, and an old see-through se
 	assert(getgenv().UIColor["Background 1 Transparency"] == 0, "panels start solid")
 	FILES["Peridot/Theme.json"] = service("HttpService"):JSONEncode({ PanelTransparency = 0.9 })
 	assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
-	assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "an old 0.9 is capped at 0.3")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.6, "an old 0.9 is capped at 0.6")
 	FILES["Peridot/Theme.json"], getgenv().UIColor = priorTheme, priorColors
 end)
 
