@@ -5702,6 +5702,7 @@ end
 
 -- Removes every Peridot window, notification and the UI toggle button, and the menu key handler.
 function Peridot.Unload()
+	getgenv().PeridotExecutedIn = nil -- the loader may be run again once the UI is gone
 	Library.DestroyUI()
 	if getgenv().PeridotMenuKeyConnection then
 		pcall(function()

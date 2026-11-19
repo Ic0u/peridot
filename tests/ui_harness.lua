@@ -426,31 +426,38 @@ run("the intro loader outranks every other ScreenGui (it must stay top-most)", f
 	end
 end)
 
-run("intro card: Authenticating, Success !, then the game's name, or Universal elsewhere", function()
-	local function runLoader(placeId)
-		local texts, gui = {}, nil
-		local realNew = Instance.new
-		Instance.new = function(class, parent)
-			local instance = realNew(class, parent)
-			if class == "TextLabel" then
-				instance:GetPropertyChangedSignal("Text"):Connect(function() texts[#texts + 1] = instance.Text end)
-			elseif class == "ScreenGui" then
-				gui = instance
-			end
-			return instance
+-- Runs loader.lua the way the loadstring does. opts: keepMarker (do not clear the run-once marker first),
+-- callback (what runs instead of the game script).
+local function runLoader(placeId, opts)
+	opts = opts or {}
+	local texts, gui, kicked, got = {}, nil, nil, nil
+	local player = service("Players").LocalPlayer
+	player.Kick = function(_, message) kicked = message end
+	if not opts.keepMarker then getgenv().PeridotExecutedIn = nil end
+	local realNew = Instance.new
+	Instance.new = function(class, parent)
+		local instance = realNew(class, parent)
+		if class == "TextLabel" then
+			instance:GetPropertyChangedSignal("Text"):Connect(function() texts[#texts + 1] = instance.Text end)
+		elseif class == "ScreenGui" then
+			gui = instance
 		end
-		local Loader = assert(loadfile(REPO .. "/loader.lua"))()
-		local got
-		PLACE_ID_OVERRIDE = placeId
-		RUN_SPAWNS = true
-		local ok, err = pcall(Loader.Start, function(info) got = info end)
-		RUN_SPAWNS = false
-		PLACE_ID_OVERRIDE = nil
-		Instance.new = realNew
-		assert(ok, err)
-		return texts, got, gui
+		return instance
 	end
+	local Loader = assert(loadfile(REPO .. "/loader.lua"))()
+	PLACE_ID_OVERRIDE = placeId
+	RUN_SPAWNS = true
+	UI_ERRORS, WARNINGS = {}, {}
+	local ok, err = pcall(Loader.Start, opts.callback or function(info) got = info end)
+	RUN_SPAWNS = false
+	PLACE_ID_OVERRIDE = nil
+	Instance.new = realNew
+	player.Kick = nil
+	assert(ok, err)
+	return texts, got, gui, kicked
+end
 
+run("intro card: Authenticating, Success !, then the game's name, or Universal elsewhere", function()
 	local texts, info, gui = runLoader(142823291)
 	local order = table.concat(texts, " / ")
 	assert(order:find("Peridot", 1, true), "the card says Peridot: " .. order)
@@ -464,6 +471,38 @@ run("intro card: Authenticating, Success !, then the game's name, or Universal e
 	texts, info = runLoader(1)
 	assert(texts[#texts] == "Universal" and info.name == "Universal" and info.supported == false, "an unknown game says Universal")
 	assert(info.url:sub(-#"scripts/Universal.lua") == "scripts/Universal.lua")
+end)
+
+run("intro card is the notification box's grey on a solid background", function()
+	local source = io.open(REPO .. "/loader.lua", "rb"):read("*a")
+	assert(source:find("BACKGROUND = Color3.fromRGB(48, 48, 56)", 1, true), "the card uses the notification grey")
+	assert(source:find("panel.BackgroundTransparency = 0\n", 1, true), "with no transparency")
+	local lib_source = io.open(REPO .. "/libraries/UILibrary.lua", "rb"):read("*a")
+	assert(lib_source:find('["Background 3 Color"] = Color3.fromRGB(48, 48, 56)', 1, true), "the notification boxes use that same grey")
+end)
+
+run("Peridot runs once per server: a second run is kicked, other servers and re-runs after Unload are fine", function()
+	-- first run starts and marks this server
+	local _, info, _, kicked = runLoader(142823291)
+	assert(info and kicked == nil, "the first run is not kicked")
+	assert(getgenv().PeridotExecutedIn == "job", "and leaves its marker")
+
+	-- the same server again: kicked with a reason, nothing runs
+	local texts, secondInfo, gui, message = runLoader(142823291, { keepMarker = true })
+	assert(message and message:find("only be executed once", 1, true), "kicked with a reason, got " .. tostring(message))
+	assert(secondInfo == nil and gui == nil and #texts == 0, "no card and no script on a second run")
+
+	-- a marker left over from another server does not count
+	getgenv().PeridotExecutedIn = "some-other-server"
+	local _, third, _, thirdKick = runLoader(142823291, { keepMarker = true })
+	assert(third and thirdKick == nil, "a different server's marker is ignored")
+
+	-- (Unload UI clearing the marker is checked in the Blox Fruits Unload test below)
+
+	-- a script that fails to start does not block a retry
+	local _, _, _, failKick = runLoader(142823291, { callback = function() error("boom") end })
+	assert(failKick == nil and getgenv().PeridotExecutedIn == nil, "a failed start frees the marker")
+	getgenv().PeridotExecutedIn = nil
 end)
 
 print("Button labels")
@@ -1619,7 +1658,9 @@ run("Unload UI stops everything, removes the windows, and a re-run skips the cor
 	local farm = control("Toggles", "Farm||Auto Farm||Auto Farm Level") -- the first window's switch
 	farm.Set(true)
 	local menuKey = getgenv().PeridotMenuKeyConnection
+	getgenv().PeridotExecutedIn = "job"
 	BUTTONS["Unload UI"]()
+	assert(getgenv().PeridotExecutedIn == nil, "Unload UI frees the run-once marker")
 	assert(_G.Level == false, "features stopped")
 	assert(getgenv().PeridotBloxFruitsLoaded == nil, "the script can run again")
 	assert(getgenv().PeridotBloxFruitsCoreLoaded == true, "but the core stays loaded")
