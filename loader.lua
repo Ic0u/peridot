@@ -132,7 +132,7 @@ local function createCard(parent)
     group.Name = "Card"
     group.AnchorPoint = Vector2.new(0.5, 0.5)
     group.Position = UDim2.fromScale(0.5, 0.5)
-    group.Size = UDim2.fromOffset(240, 80)
+    group.Size = UDim2.fromOffset(296, 80)
     group.BackgroundTransparency = 1
     group.BorderSizePixel = 0
     group.GroupTransparency = 1
