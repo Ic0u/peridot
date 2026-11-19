@@ -271,9 +271,12 @@ if type(SavedTheme.Accent) == "table" then
 		T1UIColor[key] = value
 	end
 end
+-- Panels can be see-through up to this. With the Solid window style the dark frame is behind
+-- them, so even the maximum stays readable; with Transparent the game shows through them.
+local PANEL_MAX = 0.6
 if tonumber(SavedTheme.PanelTransparency) then
 	-- capped: an old saved value near 0.9 once left the window unreadable
-	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
+	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, PANEL_MAX)
 end
 T1UIColor["Section Panel Transparency"] = sectionTransparency(T1UIColor["Background 1 Transparency"])
 local WINDOW_GLASS = 0.92 -- frame transparency of the Transparent window style (the original library's see-through frame)
@@ -4826,7 +4829,7 @@ end
 		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
-			Max = 0.3,
+			Max = PANEL_MAX,
 			Rouding = 2,
 			Default = getgenv().UIColor["Background 1 Transparency"],
 			Callback = function(value)
@@ -5859,14 +5862,15 @@ end
 -- Window style: "Solid" (dark frame) or "Transparent" (the game shows through the frame, and the
 -- panels turn a little see-through too; going back to Solid puts the panels back). Saved.
 local panelsBeforeGlass
+local PANEL_GLASS_STYLE = 0.4 -- panels with the Transparent style: the game shows through the menus too, not just the frame
 function Library_Function.SetWindowStyle(style)
 	local transparent = style == "Transparent"
 	getgenv().UIColor["Background Main Transparency"] = transparent and WINDOW_GLASS or 0
 	SavedTheme.WindowStyle = transparent and "Transparent" or nil
 	local panels = getgenv().UIColor["Background 1 Transparency"]
-	if transparent and panels < 0.25 then
+	if transparent and panels < PANEL_GLASS_STYLE then
 		panelsBeforeGlass = panels
-		setPanelTransparency(0.25)
+		setPanelTransparency(PANEL_GLASS_STYLE)
 	elseif not transparent and panelsBeforeGlass then
 		setPanelTransparency(panelsBeforeGlass)
 		panelsBeforeGlass = nil
@@ -6292,7 +6296,7 @@ local function cleanTheme(data)
 		end
 	end
 	if tonumber(data.PanelTransparency) then
-		out.PanelTransparency = math.clamp(tonumber(data.PanelTransparency), 0, 0.3)
+		out.PanelTransparency = math.clamp(tonumber(data.PanelTransparency), 0, PANEL_MAX)
 	end
 	for field, limit in pairs(THEME_SPEED_LIMITS) do
 		if tonumber(data[field]) then
