@@ -1234,6 +1234,10 @@ run("the Theme tab of Interface Settings shows the theme library", function()
 		"Delete theme", "Reset default", "Current default theme: none", "Export current theme", "Import theme" }) do
 		assert(hasText(wanted), "missing on the Theme tab: " .. wanted)
 	end
+	for _, gone in ipairs({ "Window Look", "UI Toggle button", "UI Toggle key", "Opens and closes", "Add your own" }) do
+		assert(not hasText(gone), "should not be on the settings pages: " .. gone)
+	end
+	assert(hasText("UI Toggle"), "the toggle button and key share one UI Toggle section")
 end)
 
 ---------------------------------------------------------------- every theme color is wired

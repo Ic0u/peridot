@@ -4816,7 +4816,7 @@ end
 		end
 
 		-- Window: panel transparency, animation speeds, easing, reset
-		local panelSection = windowTab:AddSection("Window Look")
+		local panelSection = windowTab:AddSection("Window")
 		local styleDropdown = panelSection:AddDropdown(nil, {
 			Title = "Window style",
 			Values = { "Solid", "Transparent" },
@@ -4864,7 +4864,7 @@ end
 			end,
 		})
 		-- UI Toggle: the button that opens/closes the UI, and the key that does the same
-		local buttonSection = toggleTab:AddSection("UI Toggle button")
+		local buttonSection = toggleTab:AddSection("UI Toggle")
 		local showToggle = buttonSection:AddToggle(nil, {
 			Title = "Show button",
 			Default = Library_Function.HideGui.Enabled,
@@ -4881,13 +4881,11 @@ end
 				Library_Function.SetButtonSize(value)
 			end,
 		})
-		local menuSection = toggleTab:AddSection("UI Toggle key")
-		local menuKeybind = menuSection:AddKeyBind({
+		local menuKeybind = buttonSection:AddKeyBind({
 			Title = "Toggle key",
 			Default = MenuKeyName,
 			Mode = "Toggle",
 		}, function() end) -- the key itself is handled by the library, so it works before this page exists
-		menuSection:AddLabel("Opens and closes the UI, even with the button hidden.")
 		Library_Function.MenuKeybind = menuKeybind
 		-- Picking a new key on the control is saved by watching it.
 		local menuKeyWatcher
@@ -5952,7 +5950,6 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 		dropdown.ClearText(shown)
 	end
 	section.CreateButton({ Title = "Refresh list" }, refreshList)
-	section.CreateLabel({ Title = "Add your own: put images or .webm videos in workspace/Peridot/Backgrounds, then Refresh." })
 
 	task.spawn(function()
 		local ok, list = pcall(function()
