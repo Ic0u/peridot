@@ -11,7 +11,7 @@ local UNIVERSAL_URL = BASE_URL .. "scripts/Universal.lua"
 local GUI_NAME = "PeridotLoaderGui"
 local LOGO_IMAGE = "rbxassetid://97933423096090" -- the Peridot logo, same as the main window
 local ACCENT = Color3.fromRGB(140, 172, 68) -- Peridot green, the UI's accent and border color
-local BACKGROUND = Color3.fromRGB(18, 18, 22) -- the main window's background color
+local BACKGROUND = Color3.fromRGB(48, 48, 56) -- the grey of the UI's notification boxes
 local DEFAULT_GAMES = {
     ["2753915549"] = "Blox Fruits - First Sea",
     ["4442272183"] = "Blox Fruits - Second Sea",
@@ -238,12 +238,38 @@ local function runSource(url)
     return pcall(compiled)
 end
 
+-- Peridot runs once per server. The marker lives in getgenv() and holds the server's JobId, so a
+-- script that is kept across servers (auto-execute) is not mistaken for a second run. The UI's
+-- Unload button clears it.
+local function executionMarker()
+    return (getgenv and getgenv()) or _G
+end
+
+local function alreadyRunHere()
+    local marker = executionMarker().PeridotExecutedIn
+    return marker ~= nil and marker == game.JobId
+end
+
+local function kickForSecondRun()
+    local player = Players.LocalPlayer
+    if player then
+        pcall(function()
+            player:Kick("Peridot can only be executed once. Rejoin the game to run it again.")
+        end)
+    end
+end
+
 -- onComplete, when given, runs instead of the game script and receives { name, url, supported }.
 function Loader.Start(onComplete)
+    if alreadyRunHere() then
+        kickForSecondRun()
+        return nil
+    end
     if Loader._running then
         return nil
     end
     Loader._running = true
+    executionMarker().PeridotExecutedIn = game.JobId
 
     destroyExisting()
 
@@ -309,8 +335,13 @@ function Loader.Start(onComplete)
                 ok, err = pcall(onComplete, info)
             else
                 ok, err = pcall(runSource, info.url)
+                if ok and err == false then
+                    ok = false -- the script could not be fetched or started
+                    err = "could not load " .. info.url
+                end
             end
             if not ok then
+                executionMarker().PeridotExecutedIn = nil -- nothing is running, so running again is fine
                 warn("Peridot loader callback failed:", err)
             end
         end)
