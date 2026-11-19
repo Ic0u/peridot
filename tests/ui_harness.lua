@@ -1017,12 +1017,17 @@ run("every preinstalled theme changes all the colors; the ones with a picture na
 					onDisk:close()
 					assert(data.PanelTransparency == (name == "Hu Tao" and 0.6 or 0.3), name .. " lets its picture show through the panels")
 					assert(data.WindowStyle == nil, name .. " keeps the solid window")
+					assert((data.Logo == "6708911064") == (name == "Hu Tao"), name .. ": only Hu Tao brings its own icon")
 				else
 					plain = plain + 1
 					assert((data.PanelTransparency or 0) == 0, name .. " has no picture, so its panels stay solid")
 				end
 			end
 		end
+		assert(TS.Apply("Hu Tao"))
+		assert(getgenv().UIColor["Logo Image"] == "rbxassetid://6708911064", "Hu Tao shows its own icon")
+		assert(TS.Apply("Ocean"))
+		assert(getgenv().UIColor["Logo Image"] == "rbxassetid://97933423096090", "and the next theme gets the Peridot icon back")
 		assert(TS.Apply("Peridot"))
 	end)
 	for _, path in ipairs(seeded) do FILES[path] = nil end
