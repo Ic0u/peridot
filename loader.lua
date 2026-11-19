@@ -132,7 +132,7 @@ local function createCard(parent)
     group.Name = "Card"
     group.AnchorPoint = Vector2.new(0.5, 0.5)
     group.Position = UDim2.fromScale(0.5, 0.5)
-    group.Size = UDim2.fromOffset(264, 96)
+    group.Size = UDim2.fromOffset(240, 80)
     group.BackgroundTransparency = 1
     group.BorderSizePixel = 0
     group.GroupTransparency = 1
@@ -153,12 +153,12 @@ local function createCard(parent)
     panel.Parent = group
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = panel
 
     local outline = Instance.new("UIStroke")
     outline.Color = ACCENT
-    outline.Thickness = 1.5
+    outline.Thickness = 1
     outline.Transparency = 0
     outline.Parent = panel
 
@@ -166,20 +166,20 @@ local function createCard(parent)
     logo.Name = "Logo"
     logo.BackgroundTransparency = 1
     logo.Image = LOGO_IMAGE
-    logo.Position = UDim2.fromOffset(12, 10)
-    logo.Size = UDim2.fromOffset(22, 22)
+    logo.Position = UDim2.fromOffset(10, 8)
+    logo.Size = UDim2.fromOffset(18, 18)
     logo.ScaleType = Enum.ScaleType.Fit
     logo.Parent = panel
 
     local brand = Instance.new("TextLabel")
     brand.Name = "Brand"
     brand.BackgroundTransparency = 1
-    brand.Position = UDim2.fromOffset(40, 8)
-    brand.Size = UDim2.new(1, -52, 0, 26)
-    brand.Font = Enum.Font.GothamBold
+    brand.Position = UDim2.fromOffset(34, 8)
+    brand.Size = UDim2.new(1, -44, 0, 18)
+    brand.Font = Enum.Font.GothamMedium
     brand.Text = "Peridot"
     brand.TextColor3 = ACCENT
-    brand.TextSize = 17
+    brand.TextSize = 15
     brand.TextXAlignment = Enum.TextXAlignment.Left
     brand.Parent = panel
 
@@ -187,12 +187,12 @@ local function createCard(parent)
     status.Name = "Status"
     status.AnchorPoint = Vector2.new(0.5, 0.5)
     status.BackgroundTransparency = 1
-    status.Position = UDim2.new(0.5, 0, 0, 60)
-    status.Size = UDim2.new(1, -24, 0, 26)
-    status.Font = Enum.Font.GothamBold
+    status.Position = UDim2.new(0.5, 0, 0, 46)
+    status.Size = UDim2.new(1, -20, 0, 20)
+    status.Font = Enum.Font.GothamMedium
     status.Text = "Authenticating"
     status.TextColor3 = Color3.fromRGB(242, 242, 238)
-    status.TextSize = 18
+    status.TextSize = 15
     status.TextTruncate = Enum.TextTruncate.AtEnd
     status.Parent = panel
 
