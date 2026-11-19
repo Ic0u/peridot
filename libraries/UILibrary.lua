@@ -4521,10 +4521,12 @@ end
 		{ "Main", { "Title Text Color", "Setting Icon Color", "Search Icon Color", "Search Icon Highlight Color" } },
 		{ "Text", { "GUI Text Color", "Text Color", "Placeholder Text Color", "Section Text Color", "Toggle Desc Color" } },
 		{ "Background", { "Background Main Color", "Sidebar Color", "Section Panel Color", "Background 1 Color", "Background 2 Color", "Background 3 Color", "Label Color" } },
-		{ "Outline", { "Outline Color" } },
+		{ "Outline", { "Outline Color", "Border Color" } },
 		{ "Controls", { "Page Selected Color", "Section Underline Color", "Toggle Border Color", "Toggle Checked Color", "Button Color",
 			"Dropdown Icon Color", "Dropdown Selected Check Color", "Box Highlight Color", "Slider Line Color", "Slider Highlight Color" } },
 	}
+	-- Border Color is the ring around the floating toggle button; the rest are named after their key
+	local ColorTitles = { ["Border Color"] = "Toggle button border" }
 	local AnimationSliders = {
 		{ "Tween Animation 1 Speed", "Page & toggle speed", 0.75, "AnimationSpeed1" },
 		{ "Tween Animation 2 Speed", "Dropdown & slider speed", 1, "AnimationSpeed" },
@@ -4774,7 +4776,7 @@ end
 			local section = colorsTab:AddSection(group[1])
 			for _, key in ipairs(group[2]) do
 				local picker = section:AddColorPicker({
-					Title = (key:gsub(" Color$", "")),
+					Title = ColorTitles[key] or (key:gsub(" Color$", "")),
 					Default = getgenv().UIColor[key],
 					Callback = function(color)
 						Library_Function.SetThemeColor(key, color)
