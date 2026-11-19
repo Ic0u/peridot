@@ -67,6 +67,7 @@ local T1UIColor = {
 	["Placeholder Text Color"] = Color3.fromRGB(170, 170, 160),
 	["Title Text Color"] = Color3.fromRGB(140, 172, 68),
 	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
+	["Background Main Transparency"] = 0, -- the window frame: 0 is solid, the Transparent window style lets the game show through
 	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
 	["Background 1 Transparency"] = 0,
 	["Section Panel Transparency"] = 0.15, -- follows Background 1 Transparency, see sectionTransparency below
@@ -275,6 +276,10 @@ if tonumber(SavedTheme.PanelTransparency) then
 	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
 end
 T1UIColor["Section Panel Transparency"] = sectionTransparency(T1UIColor["Background 1 Transparency"])
+local WINDOW_GLASS = 0.45 -- frame transparency of the Transparent window style
+if SavedTheme.WindowStyle == "Transparent" then
+	T1UIColor["Background Main Transparency"] = WINDOW_GLASS
+end
 if tonumber(SavedTheme.AnimationSpeed) then
 	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
 end
@@ -457,7 +462,8 @@ end)
 -- Open/close: the window fades and pops in from 94%, and fades and shrinks back out.
 -- The logical state (UIToggled) changes at once; Gui.Enabled follows after the close animation.
 local windowCloseToken = 0
-local WindowShadowAlpha = .35 -- the shadow's resting transparency
+-- the shadow's resting transparency; hidden for a see-through frame, which would show its dark middle
+local WindowShadowAlpha = T1UIColor["Background Main Transparency"] > 0 and 1 or .35
 Library.ToggleUI = function()
 	local opening = not getgenv().UIToggled
 	getgenv().UIToggled = opening
@@ -1011,6 +1017,7 @@ function Library:CreateWindow(Setting)
 	MainContainer.AnchorPoint = Vector2.new(0.5, 0.5)
 	MainContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
 	Bind(MainContainer, "BackgroundColor3", "Background Main Color")
+	Bind(MainContainer, "BackgroundTransparency", "Background Main Transparency")
 	MainContainer.Size = UDim2.new(1, -8, 1, -8)
 	Library_Function.MainContainer = MainContainer -- SetBackground draws on it
 	if Library_Function.RestoreBackground then
@@ -1267,7 +1274,7 @@ function Library:CreateWindow(Setting)
 	Shadow.Size = UDim2.new(1, 40, 1, 40)
 	Shadow.ZIndex = 0
 	Shadow.Image = "rbxassetid://5028857084"
-	Shadow.ImageTransparency = 0.35
+	Shadow.ImageTransparency = WindowShadowAlpha
 	Shadow.ScaleType = Enum.ScaleType.Slice
 	Shadow.SliceCenter = Rect.new(24, 24, 276, 276)
 
@@ -4808,6 +4815,15 @@ end
 
 		-- Window: panel transparency, animation speeds, easing, reset
 		local panelSection = windowTab:AddSection("Panels")
+		local styleDropdown = panelSection:AddDropdown(nil, {
+			Title = "Window style",
+			Values = { "Solid", "Transparent" },
+			Default = SavedTheme.WindowStyle or "Solid",
+			Callback = function(style)
+				Library_Function.SetWindowStyle(style)
+			end,
+		})
+		panelSection:AddLabel("Solid keeps the window dark. Transparent lets the game show through it, like glass.")
 		sliders.transparency = panelSection:AddSlider({
 			Title = "Panel transparency",
 			Min = 0,
@@ -4894,6 +4910,7 @@ end
 		-- a theme changes the accent, colors, panels, speeds and easing at once; show the new values
 		Library_Function.OnThemeApplied = function()
 			Library_Function.OnAccentChanged()
+			styleDropdown:ClearText(SavedTheme.WindowStyle or "Solid")
 			accentDropdown:ClearText(SavedTheme.Preset or "Peridot")
 			easingDropdown:ClearText(getgenv().UIColor["Tween Easing Style"])
 			sliders.transparency.SetValue(getgenv().UIColor["Background 1 Transparency"])
@@ -4911,6 +4928,7 @@ end
 				end)
 				Library_Function.OnAccentChanged()
 				accentDropdown:ClearText("Peridot")
+				styleDropdown:ClearText("Solid")
 				easingDropdown:ClearText(DefaultTheme["Tween Easing Style"])
 				sliders.transparency.SetValue(DefaultTheme["Background 1 Transparency"])
 				for _, spec in ipairs(AnimationSliders) do
@@ -5667,6 +5685,11 @@ local function backgroundRef(source) -- what to remember about a source given to
 	return cleanBackground(source) or cleanBackground(source:match("^" .. BackgroundFolder .. "/([^/\\]+)$"))
 end
 
+-- With the Transparent window style the picture lets some of the game through as well.
+local function pictureTransparency()
+	return (tonumber(getgenv().UIColor["Background Main Transparency"]) or 0) * 0.5
+end
+
 -- An empty source clears the background; on failure the current one stays. The window gets
 -- its own layer, and the choice is remembered (Peridot/Theme.json) when it is portable.
 function Peridot.SetBackground(source)
@@ -5737,7 +5760,9 @@ function Peridot.SetBackground(source)
 		layer:Play()
 	elseif not DisableAnimation then
 		layer.ImageTransparency = 1
-		TweenService:Create(layer, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+		TweenService:Create(layer, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = pictureTransparency() }):Play()
+	else
+		layer.ImageTransparency = pictureTransparency()
 	end
 	backgroundLayer = layer
 	return true
@@ -5818,6 +5843,37 @@ function Library_Function.ClearBackground()
 		pcall(Library_Function.OnThemeBackground, nil)
 	end
 end
+
+-- The frame's transparency also decides the shadow (hidden when see-through) and how much a picture lets through.
+ThemeListeners["Background Main Transparency"] = function(value)
+	WindowShadowAlpha = (tonumber(value) or 0) > 0 and 1 or .35
+	local shadow = Library_Function.WindowShadow
+	if shadow and getgenv().UIToggled then
+		shadow.ImageTransparency = WindowShadowAlpha
+	end
+	if backgroundLayer and backgroundLayer:IsA("ImageLabel") then
+		backgroundLayer.ImageTransparency = pictureTransparency()
+	end
+end
+
+-- Window style: "Solid" (dark frame) or "Transparent" (the game shows through the frame, and the
+-- panels turn a little see-through too; going back to Solid puts the panels back). Saved.
+local panelsBeforeGlass
+function Library_Function.SetWindowStyle(style)
+	local transparent = style == "Transparent"
+	getgenv().UIColor["Background Main Transparency"] = transparent and WINDOW_GLASS or 0
+	SavedTheme.WindowStyle = transparent and "Transparent" or nil
+	local panels = getgenv().UIColor["Background 1 Transparency"]
+	if transparent and panels < 0.25 then
+		panelsBeforeGlass = panels
+		setPanelTransparency(0.25)
+	elseif not transparent and panelsBeforeGlass then
+		setPanelTransparency(panelsBeforeGlass)
+		panelsBeforeGlass = nil
+	end
+	saveThemeSoon()
+end
+Peridot.SetWindowStyle = Library_Function.SetWindowStyle
 
 -- The Background section of the Interface Settings page, shared by every script:
 -- a picker over workspace/Peridot/Backgrounds, a custom source box, and a first-run
@@ -6075,7 +6131,7 @@ end
 -- shared theme never makes the client fetch a link of the sender's choosing.
 --------------------------------------------------------------------------------
 local ThemeFolder = "Peridot/Themes"
-local THEME_FIELDS = { "Accent", "Preset", "Colors", "PanelTransparency", "AnimationSpeed", "AnimationSpeed1", "AnimationSpeed3", "Easing", "Logo", "Background" }
+local THEME_FIELDS = { "Accent", "Preset", "Colors", "PanelTransparency", "AnimationSpeed", "AnimationSpeed1", "AnimationSpeed3", "Easing", "Logo", "Background", "WindowStyle" }
 local THEME_EASING = { Quad = true, Quint = true, Back = true, Sine = true, Linear = true }
 local THEME_SPEED_LIMITS = { AnimationSpeed1 = 0.75, AnimationSpeed = 1, AnimationSpeed3 = 0.5 }
 
@@ -6250,6 +6306,9 @@ local function cleanTheme(data)
 		out.Logo = data.Logo
 	end
 	out.Background = cleanBackground(data.Background)
+	if data.WindowStyle == "Transparent" then
+		out.WindowStyle = "Transparent"
+	end
 	return out
 end
 
@@ -6304,7 +6363,12 @@ local function applyTheme(data)
 		if data.Logo then
 			Library_Function.SetLogo(data.Logo)
 		end
+		if data.WindowStyle == "Transparent" then
+			getgenv().UIColor["Background Main Transparency"] = WINDOW_GLASS
+			SavedTheme.WindowStyle = "Transparent"
+		end
 	end)
+	panelsBeforeGlass = nil -- the theme decides the panels now
 	setThemeBackground(data.Background)
 	saveThemeSoon()
 	if Library_Function.OnThemeApplied then
