@@ -465,8 +465,7 @@ end)
 -- Open/close: the window fades and pops in from 94%, and fades and shrinks back out.
 -- The logical state (UIToggled) changes at once; Gui.Enabled follows after the close animation.
 local windowCloseToken = 0
--- the shadow's resting transparency; hidden for a see-through frame, which would show its dark middle
-local WindowShadowAlpha = T1UIColor["Background Main Transparency"] > 0 and 1 or .35
+local WindowShadowAlpha = .35 -- the soft white glow around the window, kept with both window styles
 Library.ToggleUI = function()
 	local opening = not getgenv().UIToggled
 	getgenv().UIToggled = opening
@@ -5847,13 +5846,8 @@ function Library_Function.ClearBackground()
 	end
 end
 
--- The frame's transparency also decides the shadow (hidden when see-through) and how much a picture lets through.
-ThemeListeners["Background Main Transparency"] = function(value)
-	WindowShadowAlpha = (tonumber(value) or 0) > 0 and 1 or .35
-	local shadow = Library_Function.WindowShadow
-	if shadow and getgenv().UIToggled then
-		shadow.ImageTransparency = WindowShadowAlpha
-	end
+-- The frame's transparency also decides how much a background picture lets through.
+ThemeListeners["Background Main Transparency"] = function()
 	if backgroundLayer and backgroundLayer:IsA("ImageLabel") then
 		backgroundLayer.ImageTransparency = pictureTransparency()
 	end
