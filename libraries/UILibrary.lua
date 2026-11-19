@@ -6134,7 +6134,8 @@ local THEME_SPEED_LIMITS = { AnimationSpeed1 = 0.75, AnimationSpeed = 1, Animati
 -- the softer text, the icons) are made from those, so a theme changes every color of the
 -- window. A theme with a picture names a file in assets/backgrounds (downloaded the first
 -- time it is used) and lets the panels see through to it. Peridot is the shipped look.
--- name, picture, accent, window frame, sidebar, section panel, page, raised, lifted, outline, text, dim text
+-- name, picture, accent, window frame, sidebar, section panel, page, raised, lifted, outline, text, dim text,
+-- and optionally the panel transparency (a picture theme otherwise uses PANEL_GLASS)
 local Palettes = {
 	{ "Ocean",                 false,                      "5aa0ff", "0e1216", "040507", "080a0d", "171c22", "20262e", "293039", "3a577e", "e4e9f0", "a6afbd" },
 	{ "Ruby",                  false,                      "dc4650", "160f10", "070505", "0d090a", "22191a", "2e2224", "392b2d", "723439", "f0e4e6", "bda6aa" },
@@ -6149,6 +6150,7 @@ local Palettes = {
 	{ "Deepseek Chan",         "deepseek_chan.jpg",        "70a4ff", "0c0a16", "040307", "07060d", "131022", "1b172e", "231f39", "3e4e7e", "e6e4f0", "aaa6bd" },
 	{ "Frieren",               "frieren.jpg",              "b0bcdc", "141416", "060607", "0b0c0d", "1f2022", "2a2a2e", "343539", "5f6472", "e6e8f0", "b1b3bd" },
 	{ "Green Night Driving",   "green_night_driving.jpg",  "3cd696", "0a1613", "030706", "060d0b", "10221e", "172e28", "1f3933", "297056", "e4f0ed", "a6bdb7" },
+	{ "Hu Tao",                "hu_tao.jpg",               "f05448", "160b0c", "070304", "0d0607", "221214", "2e191c", "392124", "793331", "f0e4e5", "bda6a9", 0.6 },
 	{ "Hacker Room",           "hacker_room.jpg",          "3cf078", "0e1611", "040705", "080d0a", "17221b", "1f2e24", "28392e", "2f7948", "e4f0e8", "a6bdae" },
 	{ "Lycoris Monochrome",    "lycoris_monochrome.jpg",   "78c4f0", "0e1216", "040507", "080a0d", "161c22", "1e262e", "273039", "436479", "e4eaf0", "a6b1bd" },
 	{ "Monika Lonely",         "monika_lonely.jpg",        "ff6eb4", "130c16", "060407", "0b070d", "1f1422", "291b2e", "342339", "7b3d64", "ede4f0", "b7a6bd" },
@@ -6193,7 +6195,7 @@ for _, row in ipairs(Palettes) do
 				["Section Text Color"] = mixList(text, dim, 0.25), ["Toggle Desc Color"] = mixList(dim, text, 0.25),
 				["Setting Icon Color"] = text, ["Search Icon Color"] = text, ["Dropdown Icon Color"] = text,
 			},
-			PanelTransparency = picture and PANEL_GLASS or nil,
+			PanelTransparency = picture and (row[13] or PANEL_GLASS) or nil,
 			Background = picture or nil,
 		},
 	}
