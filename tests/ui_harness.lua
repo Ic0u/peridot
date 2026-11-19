@@ -1015,7 +1015,8 @@ run("every preinstalled theme changes all the colors; the ones with a picture na
 					local onDisk = io.open(REPO .. "/assets/backgrounds/" .. data.Background, "rb")
 					assert(onDisk, data.Background .. " is not in assets/backgrounds")
 					onDisk:close()
-					assert(data.PanelTransparency == 0.3, name .. " lets its picture show through the panels")
+					assert(data.PanelTransparency == (name == "Hu Tao" and 0.6 or 0.3), name .. " lets its picture show through the panels")
+					assert(data.WindowStyle == nil, name .. " keeps the solid window")
 				else
 					plain = plain + 1
 					assert((data.PanelTransparency or 0) == 0, name .. " has no picture, so its panels stay solid")
@@ -1025,7 +1026,7 @@ run("every preinstalled theme changes all the colors; the ones with a picture na
 		assert(TS.Apply("Peridot"))
 	end)
 	for _, path in ipairs(seeded) do FILES[path] = nil end
-	assert(pictures == 19 and plain == 7, ("19 pictures and 7 plain palettes, got %d and %d"):format(pictures, plain))
+	assert(pictures == 20 and plain == 7, ("20 pictures and 7 plain palettes, got %d and %d"):format(pictures, plain))
 end)
 
 run("a theme's picture is downloaded from the hub once, shown, remembered, and cleared by the next theme", function()
