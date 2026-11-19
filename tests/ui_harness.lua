@@ -1175,6 +1175,50 @@ run("the Background picker follows the theme, and a theme decides the panels, no
 	getgenv().UIColor = priorColors
 end)
 
+run("window style: Transparent lets the game show through, Solid puts it back, and themes carry it", function()
+	local json = service("HttpService")
+	local priorColors = getgenv().UIColor
+	local fresh = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	fresh.CreateMain({ Name = "Peridot", Title = "Style test" })
+	local function find(name)
+		for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+			if item.Name == name then return item end
+		end
+	end
+	local frame, shadow = find("MainContainer"), find("Shadow")
+	withSpawns(function()
+		fresh.ThemeSystem.Apply("Peridot")
+		assert(frame.BackgroundTransparency == 0 and shadow.ImageTransparency == 0.35, "solid by default, with its shadow")
+		fresh.SetWindowStyle("Transparent")
+		assert(frame.BackgroundTransparency == 0.45, "the frame lets the game through")
+		assert(shadow.ImageTransparency == 1, "and the shadow's dark middle is hidden")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn a little see-through")
+		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).WindowStyle == "Transparent", "saved")
+		assert(json:JSONDecode(fresh.ThemeSystem.Export()).WindowStyle == "Transparent", "part of the theme")
+		assert(fresh.ThemeSystem.Create("glassy"))
+		fresh.SetWindowStyle("Solid")
+		assert(frame.BackgroundTransparency == 0 and shadow.ImageTransparency == 0.35, "Solid puts the frame and shadow back")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0, "and the panels")
+		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).WindowStyle == nil)
+		assert(fresh.ThemeSystem.Apply("glassy") and frame.BackgroundTransparency == 0.45, "a saved theme brings the style back")
+		assert(fresh.ThemeSystem.Apply("Ocean") and frame.BackgroundTransparency == 0, "a theme without it is solid")
+		assert(fresh.ThemeSystem.Import(json:JSONEncode({ WindowStyle = "Evil" })) and frame.BackgroundTransparency == 0, "unknown styles are ignored")
+		assert(fresh.ThemeSystem.Apply("glassy"))
+	end)
+	local again = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	again.CreateMain({ Name = "Peridot", Title = "Style reload" })
+	local reloaded
+	for _, item in ipairs(again.Internal.Gui:GetDescendants()) do
+		if item.Name == "MainContainer" then reloaded = item end
+	end
+	assert(reloaded.BackgroundTransparency == 0.45, "the next session opens transparent")
+	withSpawns(function()
+		again.ThemeSystem.Delete("glassy")
+		again.ThemeSystem.Apply("Peridot")
+	end)
+	getgenv().UIColor = priorColors
+end)
+
 run("the Theme tab of Interface Settings shows the theme library", function()
 	local function hasText(wanted)
 		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
@@ -1185,7 +1229,7 @@ run("the Theme tab of Interface Settings shows the theme library", function()
 		end
 		return false
 	end
-	for _, wanted in ipairs({ "Preinstalled Themes", "Toggle button border", "My Themes", "Share Theme", "Custom theme name", "Create theme", "Load theme", "Overwrite theme",
+	for _, wanted in ipairs({ "Window style", "Preinstalled Themes", "Toggle button border", "My Themes", "Share Theme", "Custom theme name", "Create theme", "Load theme", "Overwrite theme",
 		"Delete theme", "Reset default", "Current default theme: none", "Export current theme", "Import theme" }) do
 		assert(hasText(wanted), "missing on the Theme tab: " .. wanted)
 	end
