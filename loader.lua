@@ -10,7 +10,8 @@ local BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 local UNIVERSAL_URL = BASE_URL .. "scripts/Universal.lua"
 local GUI_NAME = "PeridotLoaderGui"
 local LOGO_IMAGE = "rbxassetid://97933423096090" -- the Peridot logo, same as the main window
-local ACCENT = Color3.fromRGB(140, 172, 68) -- Peridot green
+local ACCENT = Color3.fromRGB(140, 172, 68) -- Peridot green, the UI's accent and border color
+local BACKGROUND = Color3.fromRGB(18, 18, 22) -- the main window's background color
 local DEFAULT_GAMES = {
     ["2753915549"] = "Blox Fruits - First Sea",
     ["4442272183"] = "Blox Fruits - Second Sea",
@@ -131,7 +132,7 @@ local function createCard(parent)
     group.Name = "Card"
     group.AnchorPoint = Vector2.new(0.5, 0.5)
     group.Position = UDim2.fromScale(0.5, 0.5)
-    group.Size = UDim2.fromOffset(308, 120)
+    group.Size = UDim2.fromOffset(264, 96)
     group.BackgroundTransparency = 1
     group.BorderSizePixel = 0
     group.GroupTransparency = 1
@@ -146,39 +147,39 @@ local function createCard(parent)
     panel.AnchorPoint = Vector2.new(0.5, 0.5)
     panel.Position = UDim2.fromScale(0.5, 0.5)
     panel.Size = UDim2.new(1, -8, 1, -8)
-    panel.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
-    panel.BackgroundTransparency = 0.06
+    panel.BackgroundColor3 = BACKGROUND
+    panel.BackgroundTransparency = 0
     panel.BorderSizePixel = 0
     panel.Parent = group
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
+    corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = panel
 
     local outline = Instance.new("UIStroke")
-    outline.Color = Color3.fromRGB(205, 210, 196)
+    outline.Color = ACCENT
     outline.Thickness = 1.5
-    outline.Transparency = 0.45
+    outline.Transparency = 0
     outline.Parent = panel
 
     local logo = Instance.new("ImageLabel")
     logo.Name = "Logo"
     logo.BackgroundTransparency = 1
     logo.Image = LOGO_IMAGE
-    logo.Position = UDim2.fromOffset(14, 12)
-    logo.Size = UDim2.fromOffset(24, 24)
+    logo.Position = UDim2.fromOffset(12, 10)
+    logo.Size = UDim2.fromOffset(22, 22)
     logo.ScaleType = Enum.ScaleType.Fit
     logo.Parent = panel
 
     local brand = Instance.new("TextLabel")
     brand.Name = "Brand"
     brand.BackgroundTransparency = 1
-    brand.Position = UDim2.fromOffset(46, 10)
-    brand.Size = UDim2.new(1, -60, 0, 28)
+    brand.Position = UDim2.fromOffset(40, 8)
+    brand.Size = UDim2.new(1, -52, 0, 26)
     brand.Font = Enum.Font.GothamBold
     brand.Text = "Peridot"
     brand.TextColor3 = ACCENT
-    brand.TextSize = 18
+    brand.TextSize = 17
     brand.TextXAlignment = Enum.TextXAlignment.Left
     brand.Parent = panel
 
@@ -186,12 +187,12 @@ local function createCard(parent)
     status.Name = "Status"
     status.AnchorPoint = Vector2.new(0.5, 0.5)
     status.BackgroundTransparency = 1
-    status.Position = UDim2.new(0.5, 0, 0, 74)
-    status.Size = UDim2.new(1, -28, 0, 30)
+    status.Position = UDim2.new(0.5, 0, 0, 60)
+    status.Size = UDim2.new(1, -24, 0, 26)
     status.Font = Enum.Font.GothamBold
     status.Text = "Authenticating"
     status.TextColor3 = Color3.fromRGB(242, 242, 238)
-    status.TextSize = 19
+    status.TextSize = 18
     status.TextTruncate = Enum.TextTruncate.AtEnd
     status.Parent = panel
 
