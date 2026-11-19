@@ -69,6 +69,7 @@ local T1UIColor = {
 	["Background Main Color"] = Color3.fromRGB(18, 18, 22),
 	["Background 1 Color"] = Color3.fromRGB(28, 28, 34),
 	["Background 1 Transparency"] = 0,
+	["Section Panel Transparency"] = 0.15, -- follows Background 1 Transparency, see sectionTransparency below
 	["Background 2 Color"] = Color3.fromRGB(38, 38, 46),
 	["Background 3 Color"] = Color3.fromRGB(48, 48, 56),
 	-- window parts: what they look like today (their frame color times the old gradient)
@@ -146,6 +147,15 @@ getgenv().UIColor = setmetatable({}, {
 		end
 	end,
 })
+
+-- Section panels follow the panel transparency a little further, so a background picture
+-- shows through them as well as through the sidebar and the page.
+local function sectionTransparency(panel)
+	return math.min(0.15 + (tonumber(panel) or 0) * 1.2, 0.9)
+end
+ThemeListeners["Background 1 Transparency"] = function(value)
+	getgenv().UIColor["Section Panel Transparency"] = sectionTransparency(value)
+end
 
 -- Animated tweens go through here so the Settings page's easing style applies.
 local function TI(speedKey)
@@ -264,6 +274,7 @@ if tonumber(SavedTheme.PanelTransparency) then
 	-- capped: an old saved value near 0.9 once left the window unreadable
 	T1UIColor["Background 1 Transparency"] = math.clamp(tonumber(SavedTheme.PanelTransparency), 0, 0.3)
 end
+T1UIColor["Section Panel Transparency"] = sectionTransparency(T1UIColor["Background 1 Transparency"])
 if tonumber(SavedTheme.AnimationSpeed) then
 	T1UIColor["Tween Animation 2 Speed"] = tonumber(SavedTheme.AnimationSpeed)
 end
@@ -737,6 +748,9 @@ function Library_Function.ResetTheme()
 		SavedTheme[key] = nil
 	end
 	saveThemeSoon()
+	if Library_Function.ClearBackground then
+		Library_Function.ClearBackground() -- the shipped look has no background picture
+	end
 end
 
 RunService.Heartbeat:Connect(function()
@@ -999,6 +1013,9 @@ function Library:CreateWindow(Setting)
 	Bind(MainContainer, "BackgroundColor3", "Background Main Color")
 	MainContainer.Size = UDim2.new(1, -8, 1, -8)
 	Library_Function.MainContainer = MainContainer -- SetBackground draws on it
+	if Library_Function.RestoreBackground then
+		pcall(Library_Function.RestoreBackground) -- the picture the last session (or the default theme) ended with
+	end
 
 	local uistr = Instance.new("UIStroke", MainContainer);
 	uistr.Thickness = 1;
@@ -1718,7 +1735,7 @@ function Library:CreateWindow(Setting)
 			Section.Parent = PageList
 			Section.Size = UDim2.new(1, -5, 0, 30)
 			Bind(Section, "BackgroundColor3", "Section Panel Color")
-			Section.BackgroundTransparency = 0.15
+			Bind(Section, "BackgroundTransparency", "Section Panel Transparency")
 			Section.ClipsDescendants = true
 
 			local sectionStroke = Instance.new("UIStroke", Section)
@@ -4586,17 +4603,18 @@ end
 			end,
 		})
 
-		-- Themes: whole looks (accent, color edits, panels, animation, icon) that can be picked, saved,
-		-- shared and made the default. The library behind it is ThemeSystem.
+		-- Themes: whole looks (every color, panels, animation, icon, background picture) that can be
+		-- picked, saved, shared and made the default. The library behind it is ThemeSystem.
 		local function themeNotice(text)
 			Library:Notify({ Title = "Themes", Desc = text, Duration = 4 }, true)
 		end
 		local themeList = ThemeSystem.ListBuiltIn()
 		local pickedBuiltIn
-		local themesSection = themeTab:AddSection("Themes")
+		local themesSection = themeTab:AddSection("Preinstalled Themes")
 		themesSection:AddDropdown(nil, {
 			Title = "Theme list",
 			Values = themeList,
+			Search = true,
 			Callback = function(name)
 				pickedBuiltIn = name
 				local ok, err = ThemeSystem.Apply(name)
@@ -4605,6 +4623,7 @@ end
 				end
 			end,
 		})
+		themesSection:AddLabel("A theme sets all the colors. Most also bring their own background picture.")
 		themesSection:AddButton({
 			Title = "Set as default",
 			ButtonText = "Set",
@@ -4864,6 +4883,11 @@ end
 				saveThemeSoon()
 			end
 		end)
+
+		-- picking a background picture sets the panel transparency too; keep the slider in step
+		Library_Function.OnPanelsChanged = function()
+			sliders.transparency.SetValue(getgenv().UIColor["Background 1 Transparency"])
+		end
 
 		-- a theme changes the accent, colors, panels, speeds and easing at once; show the new values
 		Library_Function.OnThemeApplied = function()
@@ -5308,6 +5332,10 @@ local function wrapSection(banana, pageKey, sectionKey, subTabPageKey)
 		function handle.Get()
 			return dropdown:GetValue()
 		end
+		-- Shows a value without picking it, so the callback does not run.
+		function handle.ClearText(first, second)
+			dropdown:ClearText(first == handle and second or first)
+		end
 		if not options.Multi and not options.NoSave then
 			register("Dropdowns", pageKey, sectionKey, options.Title, handle, subTabPageKey)
 		end
@@ -5614,7 +5642,31 @@ if type(SavedTheme.Logo) == "string" and SavedTheme.Logo ~= "" then
 	end
 end
 
--- An empty source clears the background; on failure the current one stays.
+-- What a theme remembers about a background: an asset id, or a plain file name in
+-- Peridot/Backgrounds (.png, .jpg or .webm). Nothing else is kept, so a shared theme can
+-- never point the client at a link or a path of the sender's choosing.
+local PANEL_GLASS = 0.3 -- panel see-through while a background shows: the Window tab slider's maximum
+local function cleanBackground(value)
+	if type(value) ~= "string" then
+		return nil
+	end
+	local id = value:match("^rbxassetid://(%d+)$") or value:match("^(%d+)$")
+	if id then
+		return "rbxassetid://" .. id
+	end
+	local lower = value:lower()
+	if value:match("^[%w_%-]+%.%w+$") and (lower:match("%.png$") or lower:match("%.jpe?g$") or lower:match("%.webm$")) then
+		return value
+	end
+	return nil
+end
+local function backgroundRef(source) -- what to remember about a source given to SetBackground
+	source = tostring(source or "")
+	return cleanBackground(source) or cleanBackground(source:match("^" .. BackgroundFolder .. "/([^/\\]+)$"))
+end
+
+-- An empty source clears the background; on failure the current one stays. The window gets
+-- its own layer, and the choice is remembered (Peridot/Theme.json) when it is portable.
 function Peridot.SetBackground(source)
 	local container = Library_Function.MainContainer
 	if not container then
@@ -5634,6 +5686,8 @@ function Peridot.SetBackground(source)
 		backgroundLayer:Destroy()
 		backgroundLayer = nil
 	end
+	SavedTheme.Background = backgroundRef(source)
+	saveThemeSoon()
 	if media == "" then
 		return true
 	end
@@ -5655,19 +5709,122 @@ function Peridot.SetBackground(source)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 5) -- same as the window's corners
 	corner.Parent = layer
+
+	-- A dark band over the title bar, fading out below it, keeps the title and buttons readable on a bright picture.
+	local scrim = Instance.new("Frame")
+	scrim.Name = "TitleScrim"
+	scrim.BackgroundColor3 = Color3.new(0, 0, 0)
+	scrim.BorderSizePixel = 0
+	scrim.Size = UDim2.new(1, 0, 0, 50)
+	scrim.ZIndex = 0
+	local scrimFade = Instance.new("UIGradient")
+	scrimFade.Rotation = 90
+	scrimFade.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.6, 0.4),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	scrimFade.Parent = scrim
+	local scrimCorner = Instance.new("UICorner")
+	scrimCorner.CornerRadius = UDim.new(0, 5)
+	scrimCorner.Parent = scrim
+	scrim.Parent = layer
+
 	layer.Parent = container
 	if isVideo then
 		layer:Play()
+	elseif not DisableAnimation then
+		layer.ImageTransparency = 1
+		TweenService:Create(layer, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
 	end
 	backgroundLayer = layer
 	return true
+end
+
+-- Panel transparency, live and saved like the Window tab slider does.
+local function setPanelTransparency(value)
+	getgenv().UIColor["Background 1 Transparency"] = value
+	SavedTheme.PanelTransparency = value
+	saveThemeSoon()
+	if Library_Function.OnPanelsChanged then
+		pcall(Library_Function.OnPanelsChanged)
+	end
+end
+
+-- Shows a remembered background (a theme's, or the one the last session ended with). A picture
+-- the hub ships is downloaded the first time it is needed; the file only ever comes from the hub.
+local HubBase = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
+local function showBackgroundRef(ref, quiet)
+	local function fail(message)
+		Peridot.CreateNoti({ Title = "Background", Desc = message, ShowTime = 4 })
+	end
+	local source = ref
+	if not ref:match("^rbxassetid://") then
+		if not HasFileSystem then
+			return not quiet and fail("Your executor can't use files, so the background picture is skipped.")
+		end
+		source = BackgroundFolder .. "/" .. ref
+		if not isfile(source) then
+			task.spawn(function()
+				local result, err = Peridot.DownloadBackground(HubBase .. "assets/backgrounds/" .. ref, ref)
+				if not result then
+					return fail("Couldn't download the background picture: " .. tostring(err))
+				end
+				if SavedTheme.Background == ref then -- unless another theme was picked meanwhile
+					local ok, message = Peridot.SetBackground(source)
+					if not ok then
+						fail(tostring(message))
+					end
+				end
+			end)
+			return
+		end
+	end
+	local ok, message = Peridot.SetBackground(source)
+	if not ok then
+		fail(tostring(message))
+	end
+end
+
+-- A theme brings its own background, or none: whatever was showing goes first.
+local function setThemeBackground(ref)
+	if Library_Function.MainContainer then
+		Peridot.SetBackground("")
+	end
+	SavedTheme.Background = ref -- remembered at once, before a window exists or the file arrives
+	if ref and Library_Function.MainContainer then
+		showBackgroundRef(ref)
+	end
+	if Library_Function.OnThemeBackground then
+		pcall(Library_Function.OnThemeBackground, ref)
+	end
+end
+
+function Library_Function.RestoreBackground() -- a window just opened
+	local ref = cleanBackground(SavedTheme.Background) -- the saved file may have been edited by hand
+	SavedTheme.Background = ref
+	if ref then
+		showBackgroundRef(ref, true)
+	end
+end
+
+function Library_Function.ClearBackground()
+	if Library_Function.MainContainer then
+		Peridot.SetBackground("")
+	end
+	if Library_Function.OnThemeBackground then
+		pcall(Library_Function.OnThemeBackground, nil)
+	end
 end
 
 -- The Background section of the Interface Settings page, shared by every script:
 -- a picker over workspace/Peridot/Backgrounds, a custom source box, and a first-run
 -- download of the hub's own set (assets/backgrounds/backgrounds.json under baseUrl).
 function Peridot.AddBackgroundSection(window, baseUrl)
-	baseUrl = baseUrl or "https://raw.githubusercontent.com/Ic0u/peridot/main/"
+	if baseUrl then
+		HubBase = baseUrl -- a theme's picture comes from the same place as the list below
+	end
+	baseUrl = HubBase
 	local function notify(desc)
 		Peridot.CreateNoti({ Title = "Background", Desc = desc, ShowTime = 4 })
 	end
@@ -5682,9 +5839,9 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 		-- see-through panels while a background shows; the player's own setting comes back when cleared
 		if source ~= "" then
 			transparencyBefore = transparencyBefore or getgenv().UIColor["Background 1 Transparency"]
-			getgenv().UIColor["Background 1 Transparency"] = 0.25
+			setPanelTransparency(PANEL_GLASS)
 		elseif transparencyBefore then
-			getgenv().UIColor["Background 1 Transparency"] = transparencyBefore
+			setPanelTransparency(transparencyBefore)
 			transparencyBefore = nil
 		end
 	end
@@ -5696,9 +5853,14 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 		end
 		return table.concat(words, " ")
 	end
-
-	local backgroundPaths = {}
+	local function titleOf(ref) -- what the picker shows for a remembered background
+		if not ref then
+			return "None"
+		end
+		return ref:match("^rbxassetid://") and "Custom" or backgroundTitle(ref)
+	end
 	local dropdown
+	local shown = titleOf(SavedTheme.Background) -- what the picker says is on the window
 	local function refreshList()
 		backgroundPaths = {}
 		local names = {}
@@ -5713,6 +5875,7 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 		table.insert(names, 1, "None")
 		if dropdown then
 			dropdown.GetNewList(names)
+			dropdown.ClearText(shown) -- a new list blanks the title
 		end
 		return names
 	end
@@ -5720,11 +5883,18 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 	dropdown = section.CreateDropdown({
 		Title = "Background",
 		List = refreshList(),
-		Default = "None",
+		Default = shown,
 		Search = true,
 	}, function(name)
+		shown = name
 		applyBackground(backgroundPaths[name] or "")
 	end)
+	-- a theme (or Reset theme) changed the picture: show it here without picking it again
+	Library_Function.OnThemeBackground = function(ref)
+		transparencyBefore = nil -- the theme decides the panels now
+		shown = titleOf(ref)
+		dropdown.ClearText(shown)
+	end
 	section.CreateButton({ Title = "Refresh list" }, refreshList)
 	section.CreateLabel({ Title = "Add your own: put images or .webm videos in workspace/Peridot/Backgrounds, then Refresh." })
 
@@ -5759,6 +5929,8 @@ function Peridot.AddBackgroundSection(window, baseUrl)
 		Default = "",
 	}, function(url)
 		if url ~= "" then
+			shown = "Custom"
+			dropdown.ClearText(shown)
 			applyBackground(url)
 		end
 	end)
@@ -5893,26 +6065,87 @@ function Peridot.Unload()
 end
 
 --------------------------------------------------------------------------------
--- Theme library. A theme is a look: the accent, one-off color edits, panel transparency,
--- animation speeds, easing and the icon. Built-in ones are listed here; your own are files
--- in Peridot/Themes. One of them can be the default, which loads each time a script starts.
--- Pasted or loaded theme data is sanitised first: known fields only, values clamped, and
--- the icon limited to Roblox asset ids so a shared theme never makes the client fetch a link.
+-- Theme library. A theme is a look: the colors, panel transparency, animation speeds, easing,
+-- the icon and a background picture. Built-in ones are listed here; your own are files in
+-- Peridot/Themes. One of them can be the default, which loads each time a script starts.
+-- Pasted or loaded theme data is sanitised first: known fields only, values clamped, the icon
+-- limited to Roblox asset ids and the background to an asset id or a plain file name, so a
+-- shared theme never makes the client fetch a link of the sender's choosing.
 --------------------------------------------------------------------------------
 local ThemeFolder = "Peridot/Themes"
-local THEME_FIELDS = { "Accent", "Preset", "Colors", "PanelTransparency", "AnimationSpeed", "AnimationSpeed1", "AnimationSpeed3", "Easing", "Logo" }
+local THEME_FIELDS = { "Accent", "Preset", "Colors", "PanelTransparency", "AnimationSpeed", "AnimationSpeed1", "AnimationSpeed3", "Easing", "Logo", "Background" }
 local THEME_EASING = { Quad = true, Quint = true, Back = true, Sine = true, Linear = true }
 local THEME_SPEED_LIMITS = { AnimationSpeed1 = 0.75, AnimationSpeed = 1, AnimationSpeed3 = 0.5 }
 
-local BuiltInThemes = {}
-for _, preset in ipairs(AccentPresets) do
-	local data = {}
-	if preset[1] ~= "Peridot" then
-		data = { Accent = color3ToList(preset[2]), Preset = preset[1] }
-	end
-	BuiltInThemes[#BuiltInThemes + 1] = { name = preset[1], data = data }
+-- Built-in themes. A palette is ten hex colors; the ones that sit between them (label rows,
+-- the softer text, the icons) are made from those, so a theme changes every color of the
+-- window. A theme with a picture names a file in assets/backgrounds (downloaded the first
+-- time it is used) and lets the panels see through to it. Peridot is the shipped look.
+-- name, picture, accent, window frame, sidebar, section panel, page, raised, lifted, outline, text, dim text
+local Palettes = {
+	{ "Ocean",                 false,                      "5aa0ff", "0e1216", "040507", "080a0d", "171c22", "20262e", "293039", "3a577e", "e4e9f0", "a6afbd" },
+	{ "Ruby",                  false,                      "dc4650", "160f10", "070505", "0d090a", "22191a", "2e2224", "392b2d", "723439", "f0e4e6", "bda6aa" },
+	{ "Amethyst",              false,                      "9b69e6", "120f16", "050507", "0b090d", "1d1822", "27212e", "312a39", "564076", "e9e4f0", "b1a6bd" },
+	{ "Gold",                  false,                      "ffce1b", "161510", "070605", "0d0c09", "22201a", "2e2b23", "39362d", "7e6b27", "f0ede4", "bdb7a6" },
+	{ "Sakura",                false,                      "f082aa", "161113", "070506", "0d0a0b", "221b1e", "2e2428", "392e33", "794b5d", "f0e4e9", "bda6af" },
+	{ "Mint",                  false,                      "46c8a0", "101614", "050706", "090d0c", "192220", "222e2b", "2c3936", "356b5b", "e4f0ed", "a6bdb7" },
+	{ "Mono",                  false,                      "c8c8c8", "161616", "070707", "0d0d0d", "222222", "2e2e2e", "393939", "6b6b6b", "f0f0f0", "bdbdbd" },
+	{ "Cyan Neko",             "cyan_neko.jpg",            "54d6c8", "121616", "050707", "0a0d0d", "1c2222", "262e2d", "303939", "3d706b", "e4f0ef", "a6bdbb" },
+	{ "Cyberpunk Megalopolis", "cyberpunk_megalopolis.jpg", "fa64be", "0b0e16", "030407", "06080d", "121722", "191f2e", "212839", "6d3d68", "e4e7f0", "a6adbd" },
+	{ "Dark River Forest",     "dark_river_forest.jpg",    "80c4a8", "121615", "060706", "0b0d0c", "1d2221", "272e2c", "323937", "4d6a5f", "e4f0ed", "abbdb8" },
+	{ "Deepseek Chan",         "deepseek_chan.jpg",        "70a4ff", "0c0a16", "040307", "07060d", "131022", "1b172e", "231f39", "3e4e7e", "e6e4f0", "aaa6bd" },
+	{ "Frieren",               "frieren.jpg",              "b0bcdc", "141416", "060607", "0b0c0d", "1f2022", "2a2a2e", "343539", "5f6472", "e6e8f0", "b1b3bd" },
+	{ "Green Night Driving",   "green_night_driving.jpg",  "3cd696", "0a1613", "030706", "060d0b", "10221e", "172e28", "1f3933", "297056", "e4f0ed", "a6bdb7" },
+	{ "Hacker Room",           "hacker_room.jpg",          "3cf078", "0e1611", "040705", "080d0a", "17221b", "1f2e24", "28392e", "2f7948", "e4f0e8", "a6bdae" },
+	{ "Lycoris Monochrome",    "lycoris_monochrome.jpg",   "78c4f0", "0e1216", "040507", "080a0d", "161c22", "1e262e", "273039", "436479", "e4eaf0", "a6b1bd" },
+	{ "Monika Lonely",         "monika_lonely.jpg",        "ff6eb4", "130c16", "060407", "0b070d", "1f1422", "291b2e", "342339", "7b3d64", "ede4f0", "b7a6bd" },
+	{ "Persona 5 Rainy",       "persona_5_rainy.jpg",      "ff303c", "161414", "070606", "0d0c0c", "222020", "2e2b2b", "393636", "7e3438", "f0e9e9", "bdb5b5" },
+	{ "Purple Midnight",       "purple_midnight.jpg",      "a68cff", "0b0a16", "030307", "07060d", "131022", "1a172e", "221f39", "50457e", "e5e4f0", "a9a6bd" },
+	{ "Rainy Tokyo",           "rainy_tokyo.jpg",          "e8a0ee", "161116", "070507", "0d0a0d", "221b22", "2e252e", "392f39", "765778", "f0e4f0", "bda6bd" },
+	{ "Shorekeeper",           "shorekeeper.jpg",          "60beff", "0c1216", "040507", "070a0d", "141c22", "1b262e", "233039", "38627e", "e4ebf0", "a6b3bd" },
+	{ "Skirk Neko",            "skirk_neko.jpg",           "d0a8fa", "120e16", "050407", "0b080d", "1d1722", "271f2e", "312839", "69557d", "eae4f0", "b1a6bd" },
+	{ "Snowy Bedroom",         "snowy_bedroom.jpg",        "e8b464", "16130f", "070605", "0d0b09", "221e19", "2e2922", "39332b", "76603f", "f0ebe4", "bdb3a6" },
+	{ "Snowy Forest",          "snowy_forest.jpg",         "78d6e8", "0c1316", "040607", "070b0d", "141f22", "1b292e", "233439", "416d76", "e4edf0", "a6b7bd" },
+	{ "Witch Cauldron",        "witch_cauldron.jpg",       "b470ff", "16100c", "070504", "0d0907", "221914", "2e221b", "392b23", "644370", "f0e8e4", "bdaea6" },
+	{ "Yuta Blade",            "yuta_blade.jpg",           "ff46e1", "160812", "070206", "0d040b", "220d1d", "2e1327", "391a31", "7e296f", "f0e4ed", "bda6b7" },
+	{ "Zankou Nte",            "zankou_nte.jpg",           "ff6eaa", "16090e", "070304", "0d0508", "220f17", "2e151f", "391c28", "7e3956", "f0e4e9", "bda6af" },
+}
+
+local function hexList(code)
+	return { tonumber(code:sub(1, 2), 16), tonumber(code:sub(3, 4), 16), tonumber(code:sub(5, 6), 16) }
 end
-BuiltInThemes[#BuiltInThemes + 1] = { name = "Glass", data = { PanelTransparency = 0.25 } }
+local function mixList(a, b, amount) -- amount 0 gives a, 1 gives b
+	local out = {}
+	for i = 1, 3 do
+		out[i] = math.floor(a[i] + (b[i] - a[i]) * amount + 0.5)
+	end
+	return out
+end
+
+local BuiltInThemes = { { name = "Peridot", data = {} } }
+for _, row in ipairs(Palettes) do
+	local name, picture = row[1], row[2]
+	local accent, frame, side, section, page = hexList(row[3]), hexList(row[4]), hexList(row[5]), hexList(row[6]), hexList(row[7])
+	local raised, lifted, line, text, dim = hexList(row[8]), hexList(row[9]), hexList(row[10]), hexList(row[11]), hexList(row[12])
+	BuiltInThemes[#BuiltInThemes + 1] = {
+		name = name,
+		data = {
+			Accent = accent,
+			Preset = name,
+			Colors = {
+				["Background Main Color"] = frame, ["Sidebar Color"] = side, ["Section Panel Color"] = section,
+				["Background 1 Color"] = page, ["Background 2 Color"] = raised, ["Background 3 Color"] = lifted,
+				["Label Color"] = raised, ["Outline Color"] = line,
+				["GUI Text Color"] = text, ["Text Color"] = text, ["Placeholder Text Color"] = dim,
+				["Section Text Color"] = mixList(text, dim, 0.25), ["Toggle Desc Color"] = mixList(dim, text, 0.25),
+				["Setting Icon Color"] = text, ["Search Icon Color"] = text, ["Dropdown Icon Color"] = text,
+			},
+			PanelTransparency = picture and PANEL_GLASS or nil,
+			Background = picture or nil,
+		},
+	}
+end
+-- pacing only: they leave the colors as shipped
 BuiltInThemes[#BuiltInThemes + 1] = { name = "Snappy", data = { AnimationSpeed1 = 0.12, AnimationSpeed = 0.25, AnimationSpeed3 = 0.05 } }
 BuiltInThemes[#BuiltInThemes + 1] = { name = "Relaxed", data = { AnimationSpeed1 = 0.4, AnimationSpeed = 0.8, AnimationSpeed3 = 0.2 } }
 
@@ -6014,6 +6247,7 @@ local function cleanTheme(data)
 	if type(data.Logo) == "string" and (data.Logo:match("^rbxassetid://%d+$") or data.Logo:match("^%d+$")) then
 		out.Logo = data.Logo
 	end
+	out.Background = cleanBackground(data.Background)
 	return out
 end
 
@@ -6069,6 +6303,7 @@ local function applyTheme(data)
 			Library_Function.SetLogo(data.Logo)
 		end
 	end)
+	setThemeBackground(data.Background)
 	saveThemeSoon()
 	if Library_Function.OnThemeApplied then
 		pcall(Library_Function.OnThemeApplied)

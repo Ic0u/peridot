@@ -590,6 +590,7 @@ run("Hide / Show / Toggle", function()
 	lib.Toggle(0.18); assert(lib.IsVisible() == false)
 	lib.Toggle(); assert(lib.IsVisible() == true)
 end)
+RUN_SPAWNS = true -- a background is remembered in the saved theme, which is written after a task.delay
 run("SetBackground: asset id, image URL, .webm URL, clear", function()
 	assert(lib.SetBackground("123456"))
 	assert(lib.SetBackground("https://example.com/a.png"))
@@ -616,13 +617,15 @@ run("Background dropdown (gear page) lists the workspace folder and loads the lo
 	assert(entry, "dropdown registered on the UI Settings page")
 	local before = getgenv().UIColor["Background 1 Transparency"]
 	entry.Set("Green Night Driving") -- listed from the folder at startup, no URL involved
-	assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels see-through")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "panels see-through")
 	entry.Set("None")
 	assert(getgenv().UIColor["Background 1 Transparency"] == before, "player's transparency restored")
 	assert(lib.SetBackground("Peridot/Backgrounds/waves.webm"), "local video file")
 	local ok, err = lib.SetBackground("Peridot/Backgrounds/nope.png")
 	assert(ok == false and tostring(err):find("not found"), "missing local file reported")
+	assert(lib.SetBackground(""), "cleared again, so later windows start without one")
 end)
+RUN_SPAWNS = false
 
 print("Theme (gear page)")
 run("accent preset recolors the theme and is saved", function()
@@ -852,16 +855,14 @@ local TS = lib.ThemeSystem
 
 run("built-in themes apply on top of the shipped look and Peridot returns to it", function()
 	local names = table.concat(TS.ListBuiltIn(), ",")
-	assert(names:find("Peridot", 1, true) and names:find("Ocean", 1, true) and names:find("Glass", 1, true), names)
+	assert(names:find("Peridot", 1, true) and names:find("Ocean", 1, true) and names:find("Purple Midnight", 1, true), names)
 	withSpawns(function()
 		assert(TS.Apply("Ocean"))
 		local r, g, b = accentOf()
 		assert(r == 90 and g == 160 and b == 255, "Ocean accent")
-		assert(TS.Apply("Glass"))
-		r, g, b = accentOf()
-		assert(r == 140 and g == 172 and b == 68, "Glass starts from the shipped accent, not Ocean's")
-		assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "Glass makes the panels see-through")
 		assert(TS.Apply("Snappy"))
+		r, g, b = accentOf()
+		assert(r == 140 and g == 172 and b == 68, "Snappy starts from the shipped accent, not Ocean's")
 		assert(getgenv().UIColor["Tween Animation 1 Speed"] == 0.12 and getgenv().UIColor["Background 1 Transparency"] == 0)
 		assert(TS.Apply("Peridot"))
 		assert(getgenv().UIColor["Tween Animation 1 Speed"] == 0.25, "Peridot restores the shipped speeds")
@@ -960,6 +961,220 @@ run("theme JSON: export, import, and data from outside is sanitised", function()
 	end)
 end)
 
+---------------------------------------------------------------- preinstalled themes: every color, plus a picture
+run("every preinstalled theme changes all the colors; the ones with a picture name one the hub ships", function()
+	local source = io.open(REPO .. "/libraries/UILibrary.lua", "rb"):read("*a")
+	local accentKeys = source:match("local AccentKeys = {(.-)}")
+	local covered = {} -- the colors a palette has to set: everything but the accent keys and their two shades
+	for key in source:match("local T1UIColor = {(.-)\n}\n"):gmatch('%["([^"]+)"%]%s*=%s*Color3%.fromRGB') do
+		if not accentKeys:find('"' .. key .. '"', 1, true) and key ~= "Dropdown Selected Check Color" and key ~= "Slider Highlight Color" then
+			covered[#covered + 1] = key
+		end
+	end
+	assert(#covered == 16, "colors a palette has to set: " .. #covered)
+	local shipped = {}
+	for file in io.open(REPO .. "/assets/backgrounds/backgrounds.json", "rb"):read("*a"):gmatch('"[^"]+"%s*:%s*"([^"]+)"') do
+		shipped[file] = true
+	end
+	local function luminance(c)
+		local function f(x) return x <= 0.03928 and x / 12.92 or ((x + 0.055) / 1.055) ^ 2.4 end
+		return 0.2126 * f(c.R) + 0.7152 * f(c.G) + 0.0722 * f(c.B)
+	end
+	local function contrast(a, b)
+		local la, lb = luminance(a), luminance(b)
+		if la < lb then la, lb = lb, la end
+		return (la + 0.05) / (lb + 0.05)
+	end
+	local json, pictures, plain, seeded = service("HttpService"), 0, 0, {}
+	for file in pairs(shipped) do -- stand-in files in the workspace folder, so applying a theme downloads nothing here
+		local path = "Peridot/Backgrounds/" .. file
+		if not FILES[path] then
+			FILES[path] = "stand-in"
+			seeded[#seeded + 1] = path
+		end
+	end
+	withSpawns(function()
+		for _, name in ipairs(TS.ListBuiltIn()) do
+			if name ~= "Peridot" and name ~= "Snappy" and name ~= "Relaxed" then
+				assert(TS.Apply(name), name)
+				local data = json:JSONDecode(TS.Export())
+				assert(data.Accent and data.Preset == name, name .. " sets the accent")
+				for _, key in ipairs(covered) do
+					assert(data.Colors and data.Colors[key], name .. " leaves " .. key .. " as it was")
+				end
+				local ui = getgenv().UIColor
+				assert(contrast(ui["Text Color"], ui["Background 1 Color"]) >= 7, name .. ": text is hard to read on the page")
+				assert(contrast(ui["Section Text Color"], ui["Section Panel Color"]) >= 7, name .. ": section titles are hard to read")
+				assert(contrast(ui["Toggle Desc Color"], ui["Background 1 Color"]) >= 4.5, name .. ": descriptions are hard to read")
+				assert(contrast(ui["Placeholder Text Color"], ui["Background 2 Color"]) >= 4.5, name .. ": placeholders are hard to read")
+				assert(contrast(ui["Title Text Color"], ui["Sidebar Color"]) >= 4.5, name .. ": the accent is hard to see on the sidebar")
+				assert(contrast(ui["Title Text Color"], ui["Background 1 Color"]) >= 3.5, name .. ": the accent is hard to see on the page")
+				if data.Background then
+					pictures = pictures + 1
+					assert(shipped[data.Background], name .. " uses " .. data.Background .. ", which backgrounds.json does not list")
+					local onDisk = io.open(REPO .. "/assets/backgrounds/" .. data.Background, "rb")
+					assert(onDisk, data.Background .. " is not in assets/backgrounds")
+					onDisk:close()
+					assert(data.PanelTransparency == 0.3, name .. " lets its picture show through the panels")
+				else
+					plain = plain + 1
+					assert((data.PanelTransparency or 0) == 0, name .. " has no picture, so its panels stay solid")
+				end
+			end
+		end
+		assert(TS.Apply("Peridot"))
+	end)
+	for _, path in ipairs(seeded) do FILES[path] = nil end
+	assert(pictures == 19 and plain == 7, ("19 pictures and 7 plain palettes, got %d and %d"):format(pictures, plain))
+end)
+
+run("a theme's picture is downloaded from the hub once, shown, remembered, and cleared by the next theme", function()
+	local json = service("HttpService")
+	local function layer()
+		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+			if item.Name == "PeridotBackground" then return item end
+		end
+	end
+	local function fetched(path)
+		local n = 0
+		for _, entry in ipairs(HTTP_LOG) do
+			if entry == path then n = n + 1 end
+		end
+		return n
+	end
+	local file = "Peridot/Backgrounds/purple_midnight.jpg"
+	FILES[file] = nil
+	withSpawns(function()
+		assert(TS.Apply("Purple Midnight"))
+		assert(fetched("assets/backgrounds/purple_midnight.jpg") == 1, "downloaded from the hub's own assets folder")
+		assert(FILES[file] and #FILES[file] > 1000, "saved into Peridot/Backgrounds")
+		local shown = layer()
+		assert(shown and shown.Image == "rbxasset://" .. file, "the picture is on the window")
+		assert(shown:FindFirstChild("TitleScrim"), "with the title bar darkened so its text stays readable")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "panels let it show")
+		assert(math.abs(getgenv().UIColor["Section Panel Transparency"] - 0.51) < 0.001, "section panels follow the panels")
+		local saved = json:JSONDecode(FILES["Peridot/Theme.json"])
+		assert(saved.Background == "purple_midnight.jpg" and saved.Colors["Sidebar Color"], "remembered with the colors")
+		assert(math.floor(getgenv().UIColor["Sidebar Color"].B * 255 + 0.5) == 7, "and the colors are the theme's")
+
+		assert(TS.Apply("Purple Midnight"))
+		assert(fetched("assets/backgrounds/purple_midnight.jpg") == 1, "the file is kept, so it is not downloaded again")
+
+
+		-- saved as a theme of your own, with the picture
+		assert(TS.Create("withpicture"))
+		assert(json:JSONDecode(FILES["Peridot/Themes/withpicture.json"]).Background == "purple_midnight.jpg", "a created theme keeps the picture")
+		assert(TS.Apply("Ocean"))
+		assert(layer() == nil and getgenv().UIColor["Background 1 Transparency"] == 0, "a theme without a picture clears it and the see-through panels")
+		assert(math.abs(getgenv().UIColor["Section Panel Transparency"] - 0.15) < 0.001, "section panels are back to the shipped look")
+		assert(json:JSONDecode(FILES["Peridot/Theme.json"]).Background == nil, "and nothing is remembered")
+		assert(TS.Apply("withpicture") and layer() and layer().Image == "rbxasset://" .. file, "loading the created theme brings the picture back")
+
+		-- the next session starts with the same picture, with or without a default theme
+		local priorColors = getgenv().UIColor
+		local fresh = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+		fresh.CreateMain({ Name = "Peridot", Title = "Restore test" })
+		local restored
+		for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+			if item.Name == "PeridotBackground" then restored = item end
+		end
+		assert(restored and restored.Image == "rbxasset://" .. file, "the new window opens with the remembered picture")
+		getgenv().UIColor = priorColors
+
+		-- a default theme with a picture: the colors apply as the library loads, the picture when the window opens
+		local priorTheme = FILES["Peridot/Theme.json"]
+		FILES["Peridot/Theme.json"] = nil
+		assert(TS.SetDefault("Purple Midnight"))
+		local viaDefault = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+		assert(math.floor(getgenv().UIColor["Sidebar Color"].B * 255 + 0.5) == 7, "the default theme's colors are in before any window exists")
+		viaDefault.CreateMain({ Name = "Peridot", Title = "Default test" })
+		local defaultLayer
+		for _, item in ipairs(viaDefault.Internal.Gui:GetDescendants()) do
+			if item.Name == "PeridotBackground" then defaultLayer = item end
+		end
+		assert(defaultLayer and defaultLayer.Image == "rbxasset://" .. file, "and its picture when the window opens")
+		assert(TS.ClearDefault())
+
+		-- a saved file edited by hand must not stop the window from opening
+		FILES["Peridot/Theme.json"] = json:JSONEncode({ Background = { evil = true } })
+		local damaged = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+		damaged.CreateMain({ Name = "Peridot", Title = "Damaged test" })
+		for _, item in ipairs(damaged.Internal.Gui:GetDescendants()) do
+			assert(item.Name ~= "PeridotBackground", "a damaged picture entry is ignored")
+		end
+		FILES["Peridot/Theme.json"] = priorTheme
+		getgenv().UIColor = priorColors
+
+		lib.ResetTheme()
+		assert(layer() == nil, "Reset theme removes the picture")
+		assert(next(json:JSONDecode(FILES["Peridot/Theme.json"])) == nil, "and forgets it")
+		assert(TS.Delete("withpicture"))
+		assert(TS.Apply("Peridot"))
+	end)
+end)
+
+run("a picture that cannot be fetched, and pictures from outside, never get in", function()
+	local json = service("HttpService")
+	local function layer()
+		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+			if item.Name == "PeridotBackground" then return item end
+		end
+	end
+	withSpawns(function()
+		UI_ERRORS = {}
+		assert(TS.Import(json:JSONEncode({ Background = "not_in_the_hub.png" })))
+		assert(layer() == nil, "a missing picture leaves the window plain")
+		assert(#UI_ERRORS == 0, "and nothing throws")
+		for _, bad in ipairs({ "https://evil.example/x.png", "../x.png", "a/b.png", "C:/x.png", "x.exe", "x", ".png", "rbxassetid://12a", 5, true }) do
+			local before = #HTTP_LOG
+			assert(TS.Import(json:JSONEncode({ Accent = { 1, 2, 3 }, Background = bad })))
+			assert(json:JSONDecode(FILES["Peridot/Theme.json"]).Background == nil, "refused: " .. tostring(bad))
+			assert(layer() == nil and #HTTP_LOG == before, "never fetched: " .. tostring(bad))
+		end
+		assert(TS.Import(json:JSONEncode({ Background = "rbxassetid://99" })))
+		assert(layer() and layer().Image == "rbxassetid://99", "an asset id is fine")
+		assert(TS.Apply("Peridot"))
+		assert(layer() == nil)
+	end)
+end)
+
+run("the Background picker follows the theme, and a theme decides the panels, not an old pick", function()
+	local priorColors = getgenv().UIColor
+	local fresh = assert(loadfile(REPO .. "/libraries/UILibrary.lua"))()
+	local window = fresh.CreateMain({ Name = "Peridot", Title = "Picker sync" })
+	local function pickerText()
+		for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+			if item.ClassName == "TextBox" and tostring(item.PlaceholderText or ""):find("^Background: ") then
+				return item.PlaceholderText
+			end
+		end
+	end
+	local file = "Peridot/Backgrounds/zankou_nte.jpg"
+	FILES[file] = "stand-in"
+	local picker
+	withSpawns(function()
+		fresh.AddBackgroundSection(window)
+		picker = fresh.ControlRegistry.Dropdowns["UI Settings||Background||Background"]
+		assert(pickerText() == "Background: None", "starts on None: " .. tostring(pickerText()))
+		assert(fresh.ThemeSystem.Apply("Zankou Nte"))
+		assert(pickerText() == "Background: Zankou Nte", "shows the theme's picture: " .. tostring(pickerText()))
+		assert(fresh.ThemeSystem.Apply("Ocean"))
+		assert(pickerText() == "Background: None", "and None once a plain theme is picked: " .. tostring(pickerText()))
+
+		picker.Set("Zankou Nte") -- picked by hand: panels go see-through, and the choice is saved
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0.3)
+		assert(service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"]).Background == "zankou_nte.jpg", "a hand-picked picture is remembered")
+		fresh.ThemeSystem.Apply("Mint") -- a theme without a picture takes over the panels as well
+		picker.Set("Zankou Nte")
+		picker.Set("None")
+		assert(getgenv().UIColor["Background 1 Transparency"] == 0, "None puts back the panels the theme had")
+		assert(service("HttpService"):JSONDecode(FILES["Peridot/Theme.json"]).Background == nil, "and forgets the picture")
+		fresh.ThemeSystem.Apply("Peridot")
+	end)
+	FILES[file] = nil
+	getgenv().UIColor = priorColors
+end)
+
 run("the Theme tab of Interface Settings shows the theme library", function()
 	local function hasText(wanted)
 		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
@@ -1039,6 +1254,16 @@ run("the window frame, sidebar, section panels, outlines, labels and check marks
 		end
 	end
 	assert(strokes >= 3, "window, sidebar and section outlines follow Outline Color, got " .. strokes)
+	local function sectionAlpha()
+		for _, item in ipairs(fresh.Internal.Gui:GetDescendants()) do
+			if item.Name:sub(-4) == "_Dot" then return item.BackgroundTransparency end
+		end
+	end
+	assert(math.abs(sectionAlpha() - 0.15) < 0.001, "section panels keep their slight see-through by default")
+	getgenv().UIColor["Background 1 Transparency"] = 0.3
+	assert(math.abs(sectionAlpha() - 0.51) < 0.001, "and follow the panels when those become see-through")
+	getgenv().UIColor["Background 1 Transparency"] = 0
+	assert(math.abs(sectionAlpha() - 0.15) < 0.001, "and come back")
 	getgenv().UIColor = priorColors
 end)
 
@@ -1338,7 +1563,7 @@ run("Interface Settings has the Background section, and it loads a background", 
 	assert(entry, "the Blox Fruits window built its own Background picker")
 	local before = getgenv().UIColor["Background 1 Transparency"]
 	entry.Set("Green Night Driving")
-	assert(getgenv().UIColor["Background 1 Transparency"] == 0.25, "panels turn see-through while a background shows")
+	assert(getgenv().UIColor["Background 1 Transparency"] == 0.3, "panels turn see-through while a background shows")
 	entry.Set("None")
 	assert(getgenv().UIColor["Background 1 Transparency"] == before, "and come back when it is cleared")
 end)
