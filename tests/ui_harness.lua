@@ -2181,6 +2181,12 @@ do
 	end
 	vecMeta.__add = function(a, b) return vec(a.X + b.X, a.Y + b.Y, a.Z + b.Z) end
 	vecMeta.__sub = function(a, b) return vec(a.X - b.X, a.Y - b.Y, a.Z - b.Z) end
+	local realCFrame = CFrame
+	local cfMeta = {}
+	local function cframe(x, y, z) -- a CFrame with no rotation: just where it is
+		return setmetatable({ Position = type(x) == "table" and x or vec(x, y, z) }, cfMeta)
+	end
+	cfMeta.__mul = function(a, b) return setmetatable({ Position = a.Position + b.Position }, cfMeta) end
 	local fakeEnum = setmetatable({}, { __index = function(_, group)
 		return setmetatable({}, { __index = function(_, item) return group .. "." .. item end })
 	end })
@@ -2245,26 +2251,41 @@ do
 
 	run("Bee Swarm controls are on the right pages, with plain titles", function()
 		for _, key in ipairs({
-			"Farming||Auto Farm||Auto Farm", "Farming||Auto Farm||Auto Dig", "Farming||Farm Options||Collect Tokens",
-			"Farming||Farm Options||Collect Bubbles", "Farming||Farm Options||Place Sprinkler", "Farming||Farm Options||Convert Hive Balloon",
-			"Combat||Training||Train Snail", "Combat||Training||Train Crab", "Combat||Protection||Stay On Your Feet",
-			"Keep Walk Speed", "Walk Through Field Decorations", "Anti-AFK",
+			"Farming||Auto Farm||Auto Farm", "Farming||Auto Farm||Auto Dig", "Farming||Pick Up||Collect Tokens", "Farming||Pick Up||Collect Bubbles",
+			"Farming||Pick Up||Collect Flames", "Farming||Pick Up||Collect Stars", "Farming||Pick Up||Collect Balloons",
+			"Farming||Bag And Hive||Go Home When Bag Is Full", "Farming||Bag And Hive||Convert Hive Balloon", "Farming||Sprinkler||Place Sprinkler",
+			"Combat||Training||Train Snail", "Combat||Training||Train Crab", "Combat||Training||Fight Coconut Crab", "Combat||Protection||Stay On Your Feet",
+			"Combat||Floating Above Bosses||Hover Over Windy Bee", "Combat||Floating Above Bosses||Hover Over Vicious Bee",
+			"Combat||Floating Above Bosses||Float Above Mondo Chick", "Event||Winter Event||Collect Snowflakes",
+			"Keep Walk Speed", "Keep Jump Power", "Walk Through Walls", "Walk Through Field Decorations", "Anti-AFK", "Go To Hive When Loaded",
+			"Items||Auto Dispensers||All Dispensers", "Items||Auto Dispensers||Glue Dispenser", "Items||Auto Dispensers||Free Royal Jelly Dispenser",
+			"Items||Auto Dice||Field Dice", "Items||Auto Dice||Loaded Dice", "Items||Auto Boosters||All Field Boosters", "Items||Auto Boosters||Red Field Booster",
+			"Items||Auto Converters And Treats||Micro-Converter", "Items||Auto Converters And Treats||Instant Converter",
+			"Items||Auto Converters And Treats||Coconut", "Items||Auto Converters And Treats||Gumdrops",
 		}) do
 			bss("Toggles", key)
 		end
 		bss("Sliders", "Walk Speed")
+		bss("Sliders", "Jump Power")
 		bss("Sliders", "Travel Speed")
-		bss("Dropdowns", "Farming||Auto Farm||Field")
-		bss("Dropdowns", "Teleport||Fields||Field To Visit")
+		bss("Sliders", "Go Home At (% Full)")
+		for _, key in ipairs({ "Farming||Auto Farm||Field", "Farming||Auto Farm||Movement While Collecting", "Teleport||Fields||Field To Visit",
+			"Teleport||Teleport Style||Teleport Style", "Teleport||Shops||Shop", "Teleport||Bears||Bear", "Teleport||Boosts And Dispensers||Spot",
+			"Event||Event Teleports||Gift", "Items||Dispensers||Dispenser", "Items||Masks||Mask" }) do
+			bss("Dropdowns", key)
+		end
 		local titles = { "Rejoin Server", "Copy Kron's Discord", "Go To Selected Field", "Go To My Hive", "Use All Blue Buffs", "Use All Red Buffs",
-			"Use All Dispensers", "Stop All Features", "Unload UI", "Create config" }
+			"Use All Buffs", "Use All Dispensers", "Use Selected Dispenser", "Use All Boosters", "Equip Selected Mask", "Stop All Features",
+			"Unload UI", "Create config", "Find All Stickers", "Redeem Codes", "Fight Commando Chick", "Fight Tunnel Bear", "AFK At Stump Snail",
+			"Go To Bee Bear", "Go To Selected Gift", "Go To Selected Shop", "Go To Selected Bear", "Go To Selected Spot" }
 		for _, name in ipairs({ "Blue Extract", "Red Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink", "Purple Potion",
-			"Super Smoothie", "Marshmallow Bee" }) do
+			"Super Smoothie", "Marshmallow Bee", "Field Dice", "Smooth Dice", "Loaded Dice", "Red Field Booster", "Blue Field Booster", "Field Booster" }) do
 			titles[#titles + 1] = "Use " .. name
 		end
 		for _, title in ipairs(titles) do assert(BUTTONS[title], "missing button " .. title) end
+		assert(BOXES["Promo Codes"], "the promo code box")
 		for title in pairs(BUTTONS) do
-			for _, banned in ipairs({ "Remote", "FireServer", "CFrame", "Tween", "Humanoid", "Core", "Flag" }) do
+			for _, banned in ipairs({ "Remote", "FireServer", "CFrame", "Tween", "Humanoid", "Core", "Flag", "Noclip" }) do
 				assert(not title:find(banned, 1, true), "technical word in a button title: " .. title)
 			end
 		end
@@ -2274,14 +2295,25 @@ do
 	-- the world
 	local w
 	local realTeleport, realNotify, realClock
+	local function clearPlayerParts() -- every copy, so a test that stopped half way cannot leave stale values behind
+		for _, name in ipairs({ "CoreStats", "ScreenGui", "Honeycomb", "SpawnPos" }) do
+			while true do
+				local old = player:FindFirstChild(name) or player.PlayerGui:FindFirstChild(name)
+				if not old then break end
+				old:Destroy()
+			end
+		end
+	end
 	local function world()
+		clearPlayerParts()
 		w = { fired = {}, moved = {}, moveTo = {}, states = {}, notes = {}, clock = 0 }
 		local function remote(name)
 			return fake(name, "RemoteEvent", { FireServer = function(_, ...) w.fired[#w.fired + 1] = { name = name, args = { ... } } end })
 		end
 		w.claim = remote("ClaimHive")
 		w.events = fake("Events", "Folder", nil, { remote("ToolCollect"), remote("PlayerHiveCommand"), remote("PlayerActivesCommand"),
-			remote("ToyEvent"), w.claim })
+			remote("ToyEvent"), w.claim, remote("PromoCodeEvent"),
+			fake("ItemPackageEvent", "RemoteFunction", { InvokeServer = function(_, ...) w.fired[#w.fired + 1] = { name = "ItemPackageEvent", args = { ... } } end }) })
 		w.pad = fake("Base", "Part", { Position = vec(100, 10, 0) })
 		w.mine = fake("Hive1", "Model", nil, { fake("Owner", "ObjectValue", { Value = player }), fake("HiveID", "IntValue", { Value = 1 }),
 			fake("patharrow", "Model", nil, { w.pad }) })
@@ -2293,9 +2325,14 @@ do
 		w.honeycombs = fake("Honeycombs", "Folder", nil, { w.taken, w.mine, w.free })
 		w.tokens = fake("Collectibles", "Folder", nil, {})
 		w.particles = fake("Particles", "Folder", nil, {})
-		w.balloons = fake("Balloons", "Folder", nil, { fake("HiveBalloons", "Folder", nil, {}) })
+		w.balloons = fake("Balloons", "Folder", nil, { fake("HiveBalloons", "Folder", nil, {}), fake("FieldBalloons", "Folder", nil, {}) })
 		w.decos = fake("FieldDecos", "Folder", nil, {})
-		w.ws = { Honeycombs = w.honeycombs, Collectibles = w.tokens, Particles = w.particles, Balloons = w.balloons, FieldDecos = w.decos }
+		w.flames = fake("PlayerFlames", "Folder", nil, {})
+		w.stickers = fake("HiddenStickers", "Folder", nil, {})
+		w.bees = fake("NPCBees", "Folder", nil, {})
+		w.monsters = fake("Monsters", "Folder", nil, {})
+		w.ws = { Honeycombs = w.honeycombs, Collectibles = w.tokens, Particles = w.particles, Balloons = w.balloons, FieldDecos = w.decos,
+			PlayerFlames = w.flames, HiddenStickers = w.stickers, NPCBees = w.bees, Monsters = w.monsters }
 		w.root = fake("HumanoidRootPart", "Part", { Position = vec(0, 5, 0) })
 		w.humanoid = fake("Humanoid", "Humanoid", { WalkSpeed = 16, Jump = false,
 			MoveTo = function(_, position) w.moveTo[#w.moveTo + 1] = position end,
@@ -2326,16 +2363,13 @@ do
 		Core.TeleportTo = function(position) w.moved[#w.moved + 1] = position w.root.Position = position return true end
 		Core.Notify = function(_, text) w.notes[#w.notes + 1] = text end
 		Core.Clock = function() return w.clock end
-		Enum = fakeEnum
+		Enum, CFrame = fakeEnum, { new = cframe }
 	end
 	local function worldDown()
 		workspace.FindFirstChild, replicated.FindFirstChild, player.Character = nil, nil, nil
 		Core.TeleportTo, Core.Notify, Core.Clock = realTeleport, realNotify, realClock
-		Enum = realEnum
-		for _, name in ipairs({ "CoreStats", "ScreenGui" }) do
-			local old = player:FindFirstChild(name) or player.PlayerGui:FindFirstChild(name)
-			if old then old:Destroy() end
-		end
+		Enum, CFrame = realEnum, realCFrame
+		clearPlayerParts()
 	end
 	local function firedNames(name)
 		local out = {}
@@ -2396,6 +2430,30 @@ do
 		w.ownerOfFree.Value = {}
 		local ok, why = Core.TeleportToHive()
 		assert(ok == false and why:find("none is free"), tostring(why))
+		worldDown()
+	end)
+
+	run("loading: the script's credits, and what it did once at load (decorations, claim a hive, fly to it)", function()
+		local seen = {}
+		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
+			if item.ClassName == "TextLabel" then seen[tostring(item.Text or "")] = true end
+		end
+		for _, text in ipairs({ "Credits", "Owner: Marcus", "Original version: 1.0" }) do
+			assert(seen[text], "missing on the Home page: " .. text)
+		end
+		world()
+		assert(Core.Settings.GoToHiveOnLoad == true, "on by default, as in the source")
+		assert(Core.Setup() == true and w.moved[1].X == 100 and w.moved[1].Y == 11, "flies to the hive's pad")
+		w.moved = {}
+		Core.Set("GoToHiveOnLoad", false)
+		assert(Core.Setup() == true and #w.moved == 0, "not when switched off")
+		Core.Set("GoToHiveOnLoad", true)
+		Core.Set("TrainSnail", true)
+		assert(Core.Setup() == true and #w.moved == 0, "not while Auto Farm or training is already moving you")
+		Core.Set("TrainSnail", false)
+		w.mine.kids[1].Value = {}
+		w.ownerOfFree.Value = {}
+		assert(Core.Setup() == false and w.notes[1] and w.notes[1]:find("do not have a hive"), "and says so when there is no hive")
 		worldDown()
 	end)
 
@@ -2628,6 +2686,362 @@ do
 		worldDown()
 	end)
 
+	run("Pick Up: flames, bubbles, stars and field balloons, each only when switched on, and how you move to them", function()
+		world()
+		local field = Core.FindField("Sunflower Field").position
+		w.root.Position = field
+		farmOn()
+		Core.Set("CollectTokens", false)
+		local flame = fake("Flame", "Part", { Position = vec(field.X + 20, field.Y, field.Z) })
+		local farFlame = fake("Flame", "Part", { Position = vec(field.X + 200, field.Y, field.Z) })
+		w.flames.kids = { farFlame, flame }
+		assert(Core.TokenStep() == "off", "every pick-up switch is off")
+		Core.Set("CollectFlames", true)
+		assert(Core.TokenStep() == "flame" and w.moveTo[#w.moveTo] == flame.Position, "the flame inside the field")
+		w.flames.kids = { farFlame }
+		assert(Core.TokenStep() == "none", "a flame outside the field is left alone")
+		w.flames.kids = { flame }
+		Core.Set("CollectBubbles", true)
+		w.particles.kids = { fake("Bubble", "Part", { Position = vec(field.X + 5, field.Y, field.Z) }) }
+		assert(Core.TokenStep() == "flame", "flames come before bubbles")
+		Core.Set("CollectFlames", false)
+		assert(Core.TokenStep() == "bubble")
+
+		local star = fake("Star", "Part", { Position = vec(field.X, field.Y, field.Z + 30) })
+		local farStar = fake("Star", "Part", { Position = vec(field.X, field.Y, field.Z + 300) })
+		w.particles.kids = { farStar, star }
+		Core.Set("CollectBubbles", false)
+		assert(Core.TokenStep() == "off")
+		Core.Set("CollectStars", true)
+		assert(Core.TokenStep() == "star" and w.moveTo[#w.moveTo] == star.Position, "the star inside the field, not the far one")
+		w.particles.kids = { farStar }
+		assert(Core.TokenStep() == "none", "a star outside the field is left alone")
+		Core.Set("CollectStars", false)
+
+		w.particles.kids = {}
+		local body = fake("BalloonBody", "Part", { Position = vec(field.X + 30, field.Y, field.Z) })
+		w.balloons.kids[2].kids = { fake("Balloon", "Model", nil, { body }) }
+		local visible = fake("C", "Part", { Position = vec(field.X + 35, field.Y, field.Z), Transparency = 0 })
+		local ghost = fake("C", "Part", { Position = vec(field.X + 31, field.Y, field.Z), Transparency = 1 })
+		w.tokens.kids = { ghost, visible }
+		Core.Set("CollectBalloons", true)
+		assert(Core.TokenStep() == "balloon" and w.moveTo[#w.moveTo] == visible.Position, "the visible token by the balloon, not the ghost")
+		w.tokens.kids = {}
+		assert(Core.TokenStep() == "balloon")
+		local spot = w.moveTo[#w.moveTo]
+		local away = math.sqrt((spot.X - body.Position.X) ^ 2 + (spot.Z - body.Position.Z) ^ 2)
+		assert(away <= 10.001 and spot.Y == w.root.Position.Y, "with nothing to pick up it wanders inside the balloon's circle")
+		body.Position = vec(field.X + 500, field.Y, field.Z)
+		assert(Core.TokenStep() == "none", "a balloon out of reach is ignored")
+		Core.Set("CollectBalloons", false)
+
+		Core.Set("CollectTokens", true)
+		local near = fake("C", "Part", { Position = vec(field.X + 10, field.Y, field.Z), Transparency = 0 })
+		w.tokens.kids = { near }
+		assert(Core.Set("MoveStyle", "Banana") == false and Core.Settings.MoveStyle == "Walk", "only the listed styles")
+		local walked = #w.moveTo
+		assert(Core.Set("MoveStyle", "Glide") and Core.TokenStep() == "token" and #w.moveTo == walked, "Glide slides instead of walking")
+		Core.Set("MoveStyle", "Fast Glide")
+		assert(Core.MoveToward(near.Position) == "glide" and #w.moveTo == walked)
+		Core.Set("MoveStyle", "Walk")
+		assert(Core.MoveToward(near.Position) == "walk" and #w.moveTo == walked + 1)
+		Core.Set("AutoFarm", false)
+		worldDown()
+	end)
+
+	run("Going home: the switch and the percent", function()
+		world()
+		Core.Set("PlaceSprinkler", false)
+		farmOn()
+		w.root.Position = Core.FindField("Sunflower Field").position
+		w.pollen.Value = 60
+		assert(Core.FarmStep() == "farming", "60 of 100 is not full at 100 percent")
+		Core.Set("GoHomePercent", 50)
+		assert(Core.FarmStep() == "bag full", "but it is at 50 percent")
+		Core.Farm.phase = "field"
+		Core.Set("GoHomeWhenFull", false)
+		w.pollen.Value = 100
+		assert(Core.FarmStep() == "farming" and Core.Farm.phase == "field", "no trips home when that is switched off")
+		Core.Set("GoHomeWhenFull", true)
+		Core.Set("GoHomePercent", 100)
+		Core.Set("AutoFarm", false)
+		worldDown()
+	end)
+
+	run("your hive is found a second way, and its pad has two fallbacks", function()
+		world()
+		w.mine.kids[1].Value = {} -- the Owner check no longer finds it
+		assert(Core.FindHive() == nil)
+		local pointer = Instance.new("ObjectValue", player)
+		pointer.Name = "Honeycomb"
+		pointer.Value = w.mine
+		assert(Core.FindHive() == w.mine, "the Honeycomb value points to it")
+		assert(Core.HivePosition().X == 100, "the pad comes first")
+		w.mine.kids = { w.mine.kids[1], w.mine.kids[2], fake("LightHolder", "Part", { CFrame = cframe(50, 20, 0) }) }
+		local light = Core.HivePosition()
+		assert(light.X == 50 and light.Y == 25 and light.Z == -5, "then in front of the hive's light: 5 up, 5 back")
+		w.mine.kids = { w.mine.kids[1], w.mine.kids[2] }
+		local spawnPoint = Instance.new("CFrameValue", player)
+		spawnPoint.Name = "SpawnPos"
+		spawnPoint.Value = cframe(7, 8, 9)
+		local last = Core.HivePosition()
+		assert(last.X == 7 and last.Y == 8 and last.Z == 9, "and last, where you spawn")
+		worldDown()
+	end)
+
+	run("Teleport: the lists, the style, and very far places always jump", function()
+		world()
+		assert(#Core.Shops == 15 and #Core.Bears == 11 and #Core.BoostSpots == 16 and #Core.Gifts == 10)
+		for _, list in ipairs({ Core.Shops, Core.Bears, Core.BoostSpots, Core.Gifts }) do
+			local seen = {}
+			for _, place in ipairs(list) do
+				assert(not seen[place.name], "listed twice: " .. place.name)
+				seen[place.name] = true
+			end
+		end
+		local jumped, realJump = {}, Core.JumpTo
+		Core.JumpTo = function(position) jumped[#jumped + 1] = position return true end
+		local rose = Core.FindField("Rose Field").position
+		assert(Core.GoTo(rose) == true and #w.moved == 1 and #jumped == 0, "Glide slides there")
+		Core.Set("TeleportStyle", "Instant")
+		Core.GoTo(rose)
+		assert(#jumped == 1 and #w.moved == 1, "Instant jumps")
+		Core.Set("TeleportStyle", "Glide")
+		assert(Core.GoToPlace(Core.Shops, "Gumball Shop") and #jumped == 2 and #w.moved == 1, "a shop 25,000 studs up is always a jump")
+		assert(Core.Set("TeleportStyle", "Warp") == false and Core.GoToPlace(Core.Shops, "No Such Shop") == false)
+		Core.JumpTo = realJump
+		assert(Core.JumpTo(vec(1, 2, 3)) == true and w.root.CFrame.Position.X == 1 and w.root.CFrame.Position.Z == 3, "the real jump sets where you are")
+
+		bss("Dropdowns", "Teleport||Shops||Shop").Set("Treat Shop")
+		BUTTONS["Go To Selected Shop"]()
+		assert(w.moved[#w.moved].X == -228.2 and w.moved[#w.moved].Y == 5)
+		bss("Dropdowns", "Teleport||Bears||Bear").Set("Onett")
+		BUTTONS["Go To Selected Bear"]()
+		assert(w.moved[#w.moved].Y == 232.791)
+		bss("Dropdowns", "Teleport||Boosts And Dispensers||Spot").Set("Star Hut")
+		BUTTONS["Go To Selected Spot"]()
+		assert(w.moved[#w.moved].X == 135.9)
+		bss("Dropdowns", "Teleport||Teleport Style||Teleport Style").Set("Instant")
+		assert(Core.Settings.TeleportStyle == "Instant")
+		bss("Dropdowns", "Teleport||Teleport Style||Teleport Style").Set("Glide")
+		worldDown()
+	end)
+
+	run("Items: All Buffs, dice, boosters, the selected dispenser and masks", function()
+		world()
+		BUTTONS["Use All Buffs"]()
+		same(firedNames("PlayerActivesCommand"), { "Blue Extract", "Red Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink" }, "all buffs")
+		w.fired = {}
+		for _, name in ipairs({ "Field Dice", "Smooth Dice", "Loaded Dice" }) do BUTTONS["Use " .. name]() end
+		same(firedNames("PlayerActivesCommand"), { "Field Dice", "Smooth Dice", "Loaded Dice" }, "dice")
+		w.fired = {}
+		BUTTONS["Use All Boosters"]()
+		same(firedNames("ToyEvent"), { "Red Field Booster", "Blue Field Booster", "Field Booster" }, "boosters")
+		w.fired = {}
+		BUTTONS["Use Blue Field Booster"]()
+		same(firedNames("ToyEvent"), { "Blue Field Booster" }, "one booster")
+		w.fired = {}
+		bss("Dropdowns", "Items||Dispensers||Dispenser").Set("Honey Dispenser")
+		BUTTONS["Use Selected Dispenser"]()
+		same(firedNames("ToyEvent"), { "Honey Dispenser" }, "the selected dispenser")
+		w.fired = {}
+		bss("Dropdowns", "Items||Masks||Mask").Set("Fire Mask")
+		BUTTONS["Equip Selected Mask"]()
+		assert(#w.fired == 1 and w.fired[1].name == "ItemPackageEvent" and w.fired[1].args[1] == "Equip", "asks the game to equip")
+		local spec = w.fired[1].args[2]
+		assert(spec.Type == "Fire Mask" and spec.Category == "Accessory" and spec.Mute == true)
+		assert(Core.EquipMask("Banana Mask") == false)
+		worldDown()
+	end)
+
+	run("Auto Use: each item on its own timer, converters only with a full bag, and Stop All turns them off", function()
+		world()
+		local function count(name) return #firedNames(name) end
+		local all = bss("Toggles", "Items||Auto Dispensers||All Dispensers")
+		all.Set(true)
+		assert(Core.AutoUseStep() == 1 and count("ToyEvent") == 9, "all nine at once")
+		w.clock = 5
+		assert(Core.AutoUseStep() == 0 and count("ToyEvent") == 9, "not again before 10 seconds")
+		w.clock = 10.5
+		assert(Core.AutoUseStep() == 1 and count("ToyEvent") == 18)
+		all.Set(false)
+		w.fired = {}
+		local dice, clock = bss("Toggles", "Items||Auto Dice||Smooth Dice"), bss("Toggles", "Items||Auto Dispensers||Wealth Clock")
+		dice.Set(true)
+		clock.Set(true)
+		w.clock = 20
+		assert(Core.AutoUseStep() == 2)
+		same(firedNames("PlayerActivesCommand"), { "Smooth Dice" }, "dice")
+		same(firedNames("ToyEvent"), { "Wealth Clock" }, "one dispenser")
+		w.clock = 22.5
+		assert(Core.AutoUseStep() == 0, "dice wait 3 seconds")
+		w.clock = 23.1
+		assert(Core.AutoUseStep() == 1 and #firedNames("PlayerActivesCommand") == 2)
+		dice.Set(false)
+		clock.Set(false)
+
+		w.fired = {}
+		local micro = bss("Toggles", "Items||Auto Converters And Treats||Micro-Converter")
+		local instant = bss("Toggles", "Items||Auto Converters And Treats||Instant Converter")
+		micro.Set(true)
+		instant.Set(true)
+		w.clock, w.pollen.Value = 100, 50
+		Core.AutoUseStep()
+		assert(#w.fired == 0, "nothing with a half-full bag")
+		w.clock, w.pollen.Value = 102, 100
+		Core.AutoUseStep()
+		same(firedNames("PlayerActivesCommand"), { "Micro-Converter" }, "micro")
+		same(firedNames("ToyEvent"), { "Instant Converter", "Instant Converter B", "Instant Converter C" }, "instant")
+		w.fired = {}
+		bss("Toggles", "Items||Auto Converters And Treats||Coconut").Set(true)
+		bss("Toggles", "Items||Auto Converters And Treats||Gumdrops").Set(true)
+		w.clock, w.pollen.Value = 200, 0
+		Core.AutoUseStep()
+		same(firedNames("PlayerActivesCommand"), { "Coconut", "Gumdrops" }, "treats")
+		BUTTONS["Stop All Features"]()
+		for _, entry in ipairs(Core.AutoUses) do
+			assert(Core.Settings[entry.key] == false, entry.title .. " is off")
+		end
+		assert(#Core.AutoUses == 21 and not micro.Get() and not instant.Get(), "21 auto uses, and their switches followed")
+		worldDown()
+	end)
+
+	run("Rewards: stickers once a day, and promo codes one after another", function()
+		world()
+		local clicked = {}
+		fireclickdetector = function(detector) clicked[#clicked + 1] = detector end
+		local a, b, c = fake("ClickDetector", "ClickDetector"), fake("ClickDetector", "ClickDetector"), fake("ClickDetector", "ClickDetector")
+		w.stickers.kids = { fake("Sticker1", "Part", nil, { a }), fake("Sticker2", "Part", nil, { b, fake("Other", "Part") }), c }
+		local realTime, now = Core.Time, 1000
+		Core.Time = function() return now end
+		BUTTONS["Find All Stickers"]()
+		assert(#clicked == 3, "every click detector is clicked: " .. #clicked)
+		BUTTONS["Find All Stickers"]()
+		assert(#clicked == 3, "and not again the same day")
+		now = 1000 + 86401
+		BUTTONS["Find All Stickers"]()
+		assert(#clicked == 6, "but the next day")
+		Core.Time, Core.StickersAt = realTime, nil
+		fireclickdetector = nil
+		local count, why = Core.FindStickers()
+		assert(count == nil and why:find("cannot click"), tostring(why))
+		w.ws.HiddenStickers = nil
+		count, why = Core.FindStickers()
+		assert(count == nil and why:find("no hidden stickers"), tostring(why))
+
+		w.fired = {}
+		BOXES["Promo Codes"].callback("Buzz,  Nectar  Cog")
+		BUTTONS["Redeem Codes"]()
+		same(firedNames("PromoCodeEvent"), { "Buzz", "Nectar", "Cog" }, "codes")
+		w.fired = {}
+		BOXES["Promo Codes"].callback("   ")
+		BUTTONS["Redeem Codes"]()
+		assert(#w.fired == 0, "an empty box sends nothing")
+		worldDown()
+	end)
+
+	run("Event: snowflakes, the Bee Bear and the gifts", function()
+		world()
+		Core.Set("CollectSnowflakes", true)
+		assert(Core.SnowStep() == "none" and #w.notes == 1 and w.notes[1]:find("No snowflakes"), "says so")
+		assert(Core.SnowStep() == "none" and #w.notes == 1, "but only once")
+		w.particles.kids = { fake("Snowflakes", "Folder", nil, { fake("Snowflake", "Part", { Position = vec(50, 10, 60) }) }) }
+		assert(Core.SnowStep() == "snowflake")
+		local spot = w.moved[#w.moved]
+		assert(spot.X == 50 and spot.Y == 25 and spot.Z == 60, "15 studs above it")
+		assert(w.root.AssemblyLinearVelocity.Magnitude == 0, "and standing still")
+		Core.Set("CollectSnowflakes", false)
+		BUTTONS["Go To Bee Bear"]()
+		assert(math.abs(w.moved[#w.moved].X + 38.667) < 0.01)
+		bss("Dropdowns", "Event||Event Teleports||Gift").Set("Gift 8")
+		BUTTONS["Go To Selected Gift"]()
+		assert(w.moved[#w.moved].X == 327.6 and w.moved[#w.moved].Y == 195)
+		worldDown()
+	end)
+
+	run("Bosses: platforms by the monsters, and hovering above Windy, the Vicious Bee and the Mondo Chick", function()
+		world()
+		local jumped, realJump = {}, Core.JumpTo
+		Core.JumpTo = function(position) jumped[#jumped + 1] = position w.root.Position = position return true end
+		BUTTONS["Fight Tunnel Bear"]()
+		assert(#jumped == 2 and jumped[1].Y == 7.267 and jumped[2].Y == 24.267 and jumped[2].X == 469.095, "down, then up onto the platform")
+		local platform = Core.GetPlatform("TunnelBear")
+		assert(platform and platform.Name == "Tunnel Part" and platform.Anchored == true and platform.Transparency == 1 and platform.Size.X == 10)
+		jumped = {}
+		BUTTONS["Fight Commando Chick"]()
+		assert(#jumped == 1 and jumped[1].X == 532.56 and Core.GetPlatform("CommandoChick").Name == "Commando Part")
+		jumped = {}
+		BUTTONS["AFK At Stump Snail"]()
+		assert(#jumped == 2 and jumped[2].Y == 74.426 and Core.GetPlatform("StumpSnail").Name == "Snail Part")
+		assert(Core.StandAt("Nope") == false and Core.StandAt("TrainCrab") == false, "only the monster spots")
+
+		w.humanoid.HipHeight = 2
+		Core.Set("HoverWindy", true)
+		assert(Core.WindyStep() == "none", "nothing while Windy is not around")
+		w.bees.kids = { fake("Windy", "Part", { Position = vec(80, 30, 90) }) }
+		assert(Core.WindyStep() == "windy" and w.humanoid.HipHeight == 35 and jumped[#jumped].X == 80, "on Windy, 35 up")
+		Core.Set("HoverWindy", false)
+		assert(w.humanoid.HipHeight == 2, "back to your normal height")
+
+		Core.Set("HoverVicious", true)
+		w.particles.kids = { fake("Spark", "Part", { Position = vec(1, 2, 3) }), fake("ViciousThorn", "Part", { Position = vec(10, 20, 30) }) }
+		assert(Core.ViciousStep() == "vicious" and w.humanoid.HipHeight == 20 and jumped[#jumped].Y == 40, "20 above the Vicious Bee")
+		Core.Set("FollowMondo", true)
+		assert(Core.Settings.HoverVicious == false and w.humanoid.HipHeight == 20, "one at a time, and no flicker back to normal in between")
+		assert(Core.MondoStep() == "none", "no Mondo Chick yet")
+		w.monsters.kids = { fake("Mondo Chick (Lvl 8)", "Model", nil, { fake("Head", "Part", { Position = vec(300, 60, 300) }) }) }
+		local moves = #w.moved
+		assert(Core.MondoStep() == "mondo" and w.humanoid.HipHeight == 40 and #w.moved == moves + 1, "40 up, and a glide to its head")
+		assert(Core.MondoStep() == "mondo" and #w.moved == moves + 1, "no new glide when already there")
+		Core.Set("FollowMondo", false)
+		assert(w.humanoid.HipHeight == 2)
+		Core.JumpTo = realJump
+		worldDown()
+	end)
+
+	run("Fight Coconut Crab, and one mover at a time across all the new switches", function()
+		world()
+		local jumped, realJump = {}, Core.JumpTo
+		Core.JumpTo = function(position) jumped[#jumped + 1] = position w.root.Position = position return true end
+		Core.Set("FightCrab", true)
+		assert(Core.FightCrabStep() == "to crab")
+		local platform = Core.GetPlatform("FightCrab")
+		assert(platform.Name == "Coconut Part" and platform.Transparency == 0.5 and platform.Size.X == 6)
+		assert(math.abs(jumped[1].Y - 110.919) < 0.01 and Core.FightCrabStep() == "above crab" and #jumped == 1)
+		Core.Set("TrainCrab", true)
+		assert(Core.Settings.FightCrab == false and Core.GetPlatform("FightCrab") == nil, "Train Crab took over and the small platform is gone")
+		Core.Set("TrainCrab", false)
+		local movers = { "AutoFarm", "TrainSnail", "TrainCrab", "FightCrab", "CollectSnowflakes", "FollowMondo", "HoverWindy", "HoverVicious" }
+		for _, mover in ipairs(movers) do
+			Core.Set(mover, true)
+			local on = 0
+			for _, other in ipairs(movers) do if Core.Settings[other] then on = on + 1 end end
+			assert(on == 1 and Core.Settings[mover], mover .. " is the only mover on")
+		end
+		Core.StopFeatures()
+		for _, mover in ipairs(movers) do assert(Core.Settings[mover] == false, mover .. " is off after Stop All") end
+		Core.JumpTo = realJump
+		worldDown()
+	end)
+
+	run("Jump Power and Walk Through Walls", function()
+		world()
+		assert(Core.JumpStep() == "off")
+		Core.Set("JumpPower", 120)
+		Core.Set("KeepJumpPower", true)
+		assert(Core.JumpStep() == "set" and w.humanoid.JumpPower == 120 and w.humanoid.UseJumpPower == true)
+		Core.Set("KeepJumpPower", false)
+		Core.Set("JumpPower", 50)
+		local arm = fake("Arm", "Part", { CanCollide = true })
+		w.root.CanCollide = true
+		w.character.kids = { w.root, w.humanoid, arm }
+		assert(Core.NoclipStep() == "off" and w.root.CanCollide == true)
+		Core.Set("Noclip", true)
+		assert(Core.NoclipStep() == "noclip" and w.root.CanCollide == false and arm.CanCollide == false)
+		Core.Set("Noclip", false)
+		worldDown()
+	end)
+
 	run("Unload UI frees the script to run again, and an unsupported place stays out unless forced", function()
 		BUTTONS["Unload UI"]()
 		assert(getgenv().PeridotBeeSwarmLoaded == nil and getgenv().PeridotBeeSwarmCore == nil)
@@ -2642,6 +3056,24 @@ do
 		getgenv().PeridotForceGame = nil
 		assert(ok, err)
 		assert(getgenv().PeridotBeeSwarmLoaded == true, "test mode builds the window anywhere")
+		getgenv().PeridotBeeSwarmCore.Unload()
+		getgenv().PeridotBeeSwarmLoaded, getgenv().PeridotBeeSwarmCore = nil, nil
+	end)
+
+	run("the script waits for the game to finish loading before it builds anything", function()
+		UI_ERRORS, WARNINGS = {}, {}
+		local waited = false
+		rawset(game, "IsLoaded", function() return false end)
+		rawset(game, "Loaded", { Wait = function() waited = true rawset(game, "IsLoaded", nil) end })
+		PLACE_ID_OVERRIDE = 1537690962
+		getgenv().PeridotBeeSwarmLoaded = nil
+		local ok, err = pcall(assert(loadfile(REPO .. "/games/1537690962.lua")))
+		PLACE_ID_OVERRIDE = nil
+		rawset(game, "IsLoaded", nil)
+		rawset(game, "Loaded", nil)
+		assert(ok, err)
+		assert(waited, "it waited for game.Loaded")
+		assert(getgenv().PeridotBeeSwarmLoaded == true and #UI_ERRORS == 0, "and then built")
 		getgenv().PeridotBeeSwarmCore.Unload()
 		getgenv().PeridotBeeSwarmLoaded, getgenv().PeridotBeeSwarmCore = nil, nil
 	end)
