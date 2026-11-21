@@ -20,6 +20,7 @@ local DEFAULT_GAMES = {
     ["79091703265657"] = "Blox Fruits",
     ["100117331123089"] = "Blox Fruits",
     ["142823291"] = "Murder Mystery 2",
+    ["1537690962"] = "Bee Swarm Simulator",
 }
 
 local function resolveRequestFunction()
