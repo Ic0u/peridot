@@ -36,6 +36,7 @@ local a,b,c=loadstring,request or http_request or (http and http.request) or (sy
 | --- | ---: |
 | [Blox Fruits](https://www.roblox.com/games/2753915549/) | `2753915549` |
 | [Murder Mystery 2](https://www.roblox.com/games/142823291/) | `142823291` |
+| [Bee Swarm Simulator](https://www.roblox.com/games/1537690962/) | `1537690962` |
 | others  | universal scripts |
 
 <p align="center">

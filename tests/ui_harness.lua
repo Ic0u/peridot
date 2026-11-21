@@ -2166,6 +2166,491 @@ run("Unload UI stops everything, removes the windows, and a re-run skips the cor
 	assert(after == coreFetches, "the core was not downloaded or run twice")
 end)
 
+---------------------------------------------------------------- Bee Swarm Simulator module
+print("games/1537690962.lua")
+
+-- The core measures distances, so this section swaps in a small Vector3 (the rest of the harness uses an inert
+-- one) and, while the features run, small Enums. The game world is built from plain tables so every value,
+-- including "nobody owns this hive", is exactly what the test says.
+do
+	local realVector3, realEnum = Vector3, Enum
+	local vecMeta = {}
+	local function vec(x, y, z) return setmetatable({ X = x, Y = y, Z = z }, vecMeta) end
+	vecMeta.__index = function(v, key)
+		if key == "Magnitude" then return math.sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z) end
+	end
+	vecMeta.__add = function(a, b) return vec(a.X + b.X, a.Y + b.Y, a.Z + b.Z) end
+	vecMeta.__sub = function(a, b) return vec(a.X - b.X, a.Y - b.Y, a.Z - b.Z) end
+	local fakeEnum = setmetatable({}, { __index = function(_, group)
+		return setmetatable({}, { __index = function(_, item) return group .. "." .. item end })
+	end })
+
+	local function fake(name, class, fields, kids)
+		local obj = { Name = name, ClassName = class, Parent = true, kids = kids or {} }
+		for key, value in pairs(fields or {}) do obj[key] = value end
+		function obj:FindFirstChild(wanted) for _, kid in ipairs(self.kids) do if kid.Name == wanted then return kid end end end
+		function obj:FindFirstChildOfClass(wanted) for _, kid in ipairs(self.kids) do if kid.ClassName == wanted then return kid end end end
+		function obj:GetChildren() local out = {} for i, kid in ipairs(self.kids) do out[i] = kid end return out end
+		function obj:GetDescendants()
+			local out = {}
+			local function walk(node) for _, kid in ipairs(node.kids) do out[#out + 1] = kid walk(kid) end end
+			walk(self)
+			return out
+		end
+		function obj:IsA(wanted) return wanted == class or (wanted == "BasePart" and class == "Part") end
+		return obj
+	end
+
+	local player = service("Players").LocalPlayer
+	local replicated = service("ReplicatedStorage")
+	local bssBefore = {}
+	for kind, entries in pairs(lib.ControlRegistry) do
+		bssBefore[kind] = {}
+		for key in pairs(entries) do bssBefore[kind][key] = true end
+	end
+	local function bss(kind, suffix) -- one control the Bee Swarm window added, found by the end of its key
+		local found
+		for key, handle in pairs(lib.ControlRegistry[kind]) do
+			if not bssBefore[kind][key] and key:sub(-#suffix) == suffix then
+				assert(not found, "ambiguous control " .. suffix)
+				found = handle
+			end
+		end
+		return assert(found, "missing " .. kind .. " " .. suffix)
+	end
+
+	local savedButtons = { BUTTONS, BOXES, DROPDOWNS }
+	BUTTONS, BOXES, DROPDOWNS = {}, {}, {}
+	local Core
+
+	run("Bee Swarm module builds with no errors, and loads its core from the repo", function()
+		OVERRIDES["libraries/UILibrary.lua"] = "return _G.__HARNESS_LIB"
+		_G.__HARNESS_LIB = lib
+		Vector3 = { new = vec }
+		PLACE_ID_OVERRIDE = 1537690962
+		getgenv().PeridotBeeSwarmLoaded = nil
+		UI_ERRORS, WARNINGS = {}, {}
+		local stopRecording = recordButtons()
+		local ok, err = pcall(assert(loadfile(REPO .. "/games/1537690962.lua")))
+		stopRecording()
+		PLACE_ID_OVERRIDE = nil
+		assert(ok, err)
+		assert(#UI_ERRORS == 0 and #WARNINGS == 0, "errors: " .. tostring(UI_ERRORS[1] or WARNINGS[1]))
+		Core = assert(getgenv().PeridotBeeSwarmCore, "the core is loaded and kept for the interface")
+		local fetched = false
+		for _, path in ipairs(HTTP_LOG) do if path == "libraries/bss-main.lua" then fetched = true end end
+		assert(fetched, "the core came from libraries/bss-main.lua")
+		assert(getgenv().PeridotBeeSwarmLoaded == true)
+	end)
+
+	run("Bee Swarm controls are on the right pages, with plain titles", function()
+		for _, key in ipairs({
+			"Farming||Auto Farm||Auto Farm", "Farming||Auto Farm||Auto Dig", "Farming||Farm Options||Collect Tokens",
+			"Farming||Farm Options||Collect Bubbles", "Farming||Farm Options||Place Sprinkler", "Farming||Farm Options||Convert Hive Balloon",
+			"Combat||Training||Train Snail", "Combat||Training||Train Crab", "Combat||Protection||Stay On Your Feet",
+			"Keep Walk Speed", "Walk Through Field Decorations", "Anti-AFK",
+		}) do
+			bss("Toggles", key)
+		end
+		bss("Sliders", "Walk Speed")
+		bss("Sliders", "Travel Speed")
+		bss("Dropdowns", "Farming||Auto Farm||Field")
+		bss("Dropdowns", "Teleport||Fields||Field To Visit")
+		local titles = { "Rejoin Server", "Copy Kron's Discord", "Go To Selected Field", "Go To My Hive", "Use All Blue Buffs", "Use All Red Buffs",
+			"Use All Dispensers", "Stop All Features", "Unload UI", "Create config" }
+		for _, name in ipairs({ "Blue Extract", "Red Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink", "Purple Potion",
+			"Super Smoothie", "Marshmallow Bee" }) do
+			titles[#titles + 1] = "Use " .. name
+		end
+		for _, title in ipairs(titles) do assert(BUTTONS[title], "missing button " .. title) end
+		for title in pairs(BUTTONS) do
+			for _, banned in ipairs({ "Remote", "FireServer", "CFrame", "Tween", "Humanoid", "Core", "Flag" }) do
+				assert(not title:find(banned, 1, true), "technical word in a button title: " .. title)
+			end
+		end
+		stripsFit()
+	end)
+
+	-- the world
+	local w
+	local realTeleport, realNotify, realClock
+	local function world()
+		w = { fired = {}, moved = {}, moveTo = {}, states = {}, notes = {}, clock = 0 }
+		local function remote(name)
+			return fake(name, "RemoteEvent", { FireServer = function(_, ...) w.fired[#w.fired + 1] = { name = name, args = { ... } } end })
+		end
+		w.claim = remote("ClaimHive")
+		w.events = fake("Events", "Folder", nil, { remote("ToolCollect"), remote("PlayerHiveCommand"), remote("PlayerActivesCommand"),
+			remote("ToyEvent"), w.claim })
+		w.pad = fake("Base", "Part", { Position = vec(100, 10, 0) })
+		w.mine = fake("Hive1", "Model", nil, { fake("Owner", "ObjectValue", { Value = player }), fake("HiveID", "IntValue", { Value = 1 }),
+			fake("patharrow", "Model", nil, { w.pad }) })
+		w.ownerOfFree = fake("Owner", "ObjectValue", { Value = nil })
+		w.free = fake("Hive2", "Model", nil, { w.ownerOfFree, fake("HiveID", "IntValue", { Value = 2 }),
+			fake("patharrow", "Model", nil, { fake("Base", "Part", { Position = vec(300, 10, 0) }) }) })
+		w.taken = fake("Hive3", "Model", nil, { fake("Owner", "ObjectValue", { Value = {} }), fake("HiveID", "IntValue", { Value = 3 }),
+			fake("patharrow", "Model", nil, { fake("Base", "Part", { Position = vec(500, 10, 0) }) }) })
+		w.honeycombs = fake("Honeycombs", "Folder", nil, { w.taken, w.mine, w.free })
+		w.tokens = fake("Collectibles", "Folder", nil, {})
+		w.particles = fake("Particles", "Folder", nil, {})
+		w.balloons = fake("Balloons", "Folder", nil, { fake("HiveBalloons", "Folder", nil, {}) })
+		w.decos = fake("FieldDecos", "Folder", nil, {})
+		w.ws = { Honeycombs = w.honeycombs, Collectibles = w.tokens, Particles = w.particles, Balloons = w.balloons, FieldDecos = w.decos }
+		w.root = fake("HumanoidRootPart", "Part", { Position = vec(0, 5, 0) })
+		w.humanoid = fake("Humanoid", "Humanoid", { WalkSpeed = 16, Jump = false,
+			MoveTo = function(_, position) w.moveTo[#w.moveTo + 1] = position end,
+			SetStateEnabled = function(_, state, on) w.states[state] = on end })
+		w.character = fake("Character", "Model", nil, { w.root, w.humanoid })
+		w.stats = Instance.new("Folder", player)
+		w.stats.Name = "CoreStats"
+		w.pollen = Instance.new("NumberValue", w.stats)
+		w.pollen.Name = "Pollen"
+		w.pollen.Value = 0
+		w.capacity = Instance.new("NumberValue", w.stats)
+		w.capacity.Name = "Capacity"
+		w.capacity.Value = 100
+		local screen = Instance.new("ScreenGui", player.PlayerGui)
+		screen.Name = "ScreenGui"
+		local activate = Instance.new("Frame", screen)
+		activate.Name = "ActivateButton"
+		w.button = Instance.new("TextBox", activate)
+		w.button.Text = "Make Honey"
+		w.claim.FireServer = function(_, id) -- the server hands the hive over
+			w.fired[#w.fired + 1] = { name = "ClaimHive", args = { id } }
+			if id == 2 then w.ownerOfFree.Value = player end
+		end
+		workspace.FindFirstChild = function(_, name) return w.ws[name] end
+		replicated.FindFirstChild = function(_, name) if name == "Events" then return w.events end end
+		player.Character = w.character
+		realTeleport, realNotify, realClock = Core.TeleportTo, Core.Notify, Core.Clock
+		Core.TeleportTo = function(position) w.moved[#w.moved + 1] = position w.root.Position = position return true end
+		Core.Notify = function(_, text) w.notes[#w.notes + 1] = text end
+		Core.Clock = function() return w.clock end
+		Enum = fakeEnum
+	end
+	local function worldDown()
+		workspace.FindFirstChild, replicated.FindFirstChild, player.Character = nil, nil, nil
+		Core.TeleportTo, Core.Notify, Core.Clock = realTeleport, realNotify, realClock
+		Enum = realEnum
+		for _, name in ipairs({ "CoreStats", "ScreenGui" }) do
+			local old = player:FindFirstChild(name) or player.PlayerGui:FindFirstChild(name)
+			if old then old:Destroy() end
+		end
+	end
+	local function firedNames(name)
+		local out = {}
+		for _, call in ipairs(w.fired) do
+			if call.name == name then out[#out + 1] = call.args[1] and (type(call.args[1]) == "table" and call.args[1].Name or call.args[1]) or true end
+		end
+		return out
+	end
+	local function same(list, expected, label)
+		assert(#list == #expected, label .. ": expected " .. #expected .. " got " .. #list)
+		for i, value in ipairs(expected) do assert(list[i] == value, label .. " #" .. i .. ": " .. tostring(list[i]) .. " ~= " .. tostring(value)) end
+	end
+	local function farmOn() Core.Set("AutoFarm", true) end
+
+	run("the fields are the script's 17 spots, each named once", function()
+		assert(#Core.Fields == 17)
+		local seen = {}
+		for _, field in ipairs(Core.Fields) do
+			assert(not seen[field.name], "twice: " .. field.name)
+			seen[field.name] = true
+			assert(field.position.Magnitude > 0)
+		end
+		for _, name in ipairs({ "Sunflower Field", "Dandelion Field", "Mushroom Field", "Blue Flower Field", "Clover Field", "Spider Field",
+			"Strawberry Field", "Bamboo Field", "Pineapple Patch", "Stump Field", "Pumpkin Patch", "Cactus Field", "Rose Field",
+			"Pine Tree Forest", "Mountain Top Field", "Coconut Field", "Pepper Patch" }) do
+			assert(seen[name], "missing field " .. name)
+		end
+		assert(Core.FindField("Mountain Top Field").position.Y > 170 and Core.FindField("No such field") == Core.Fields[1])
+	end)
+
+	run("settings: unknown names and wrong kinds are refused, and one mover turns the others off", function()
+		assert(Core.Set("Nope", true) == false and Core.Set("AutoFarm", "yes") == false and Core.Set("WalkSpeed", true) == false)
+		assert(Core.Set("WalkSpeed", 30) and Core.Settings.WalkSpeed == 30)
+		Core.Set("WalkSpeed", 16)
+		local farm, snail, crab = bss("Toggles", "Farming||Auto Farm||Auto Farm"), bss("Toggles", "Combat||Training||Train Snail"), bss("Toggles", "Combat||Training||Train Crab")
+		world()
+		farm.Set(true)
+		assert(Core.Settings.AutoFarm and farm.Get())
+		snail.Set(true)
+		assert(Core.Settings.TrainSnail and not Core.Settings.AutoFarm and farm.Get() == false, "Train Snail took over from Auto Farm, and the switch followed")
+		crab.Set(true)
+		assert(Core.Settings.TrainCrab and not Core.Settings.TrainSnail and snail.Get() == false)
+		crab.Set(false)
+		worldDown()
+	end)
+
+	run("your hive: found, claimed when you have none, and the pad is one stud up", function()
+		world()
+		assert(Core.FindHive() == w.mine)
+		local pad = Core.HivePosition()
+		assert(pad.X == 100 and pad.Y == 11, "one stud above the hive's pad")
+		w.mine.kids[1].Value = {} -- somebody else's now
+		assert(Core.FindHive() == nil and Core.HivePosition() == nil)
+		assert(Core.ClaimHive() == true, "the free hive is claimed")
+		same(firedNames("ClaimHive"), { 2 }, "claim")
+		assert(Core.FindHive() == w.free and Core.ClaimHive() == true and #firedNames("ClaimHive") == 1, "already owning one claims nothing more")
+		w.free.kids[1].Value = {}
+		w.ownerOfFree.Value = {}
+		local ok, why = Core.TeleportToHive()
+		assert(ok == false and why:find("none is free"), tostring(why))
+		worldDown()
+	end)
+
+	run("items, buff sets and dispensers fire the same remotes and names as the script", function()
+		world()
+		BUTTONS["Use All Blue Buffs"]()
+		same(firedNames("PlayerActivesCommand"), { "Blue Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink" }, "blue")
+		w.fired = {}
+		BUTTONS["Use All Red Buffs"]()
+		same(firedNames("PlayerActivesCommand"), { "Red Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink" }, "red")
+		w.fired = {}
+		BUTTONS["Use Purple Potion"]()
+		same(firedNames("PlayerActivesCommand"), { "Purple Potion" }, "single")
+		w.fired = {}
+		BUTTONS["Use All Dispensers"]()
+		same(firedNames("ToyEvent"), { "Glue Dispenser", "Wealth Clock", "Coconut Dispenser", "Strawberry Dispenser", "Treat Dispenser",
+			"Free Ant Pass Dispenser", "Blueberry Dispenser", "Honey Dispenser", "Free Royal Jelly Dispenser" }, "dispensers")
+		Core.Set("AutoDig", true)
+		w.fired = {}
+		assert(Core.DigStep() == "dig")
+		same(firedNames("ToolCollect"), { true }, "dig")
+		Core.Set("AutoDig", false)
+		assert(Core.DigStep() == "off" and #firedNames("ToolCollect") == 1)
+		worldDown()
+	end)
+
+	run("Auto Farm: goes to the field, places a sprinkler, goes home when full, makes honey, and comes back", function()
+		world()
+		local field = Core.FindField("Sunflower Field").position
+		Core.Set("PlaceSprinkler", true)
+		farmOn()
+		assert(Core.FarmStep() == "to field" and w.moved[1] == field, "flies to the field first")
+		assert(Core.FarmStep() == "sprinkler", "and places the sprinkler once")
+		same(firedNames("PlayerActivesCommand"), { "Sprinkler Builder" }, "sprinkler")
+		assert(w.humanoid.Jump == true)
+		assert(Core.FarmStep() == "farming" and Core.FarmStep() == "farming" and #firedNames("PlayerActivesCommand") == 1)
+
+		w.pollen.Value = 100
+		assert(Core.FarmStep() == "bag full")
+		assert(Core.FarmStep() == "making honey")
+		assert(w.moved[2].X == 100 and w.moved[2].Y == 11, "went to the hive's pad")
+		same(firedNames("PlayerHiveCommand"), { "ToggleHoneyMaking" }, "honey")
+		assert(Core.FarmStep() == "converting" and #firedNames("PlayerHiveCommand") == 1, "pressed once, then waits")
+
+		w.root.Position = vec(0, 5, 0) -- pushed away from the pad
+		assert(Core.FarmStep() == "converting" and w.moved[3].X == 100, "walks back to the pad")
+		assert(#firedNames("PlayerHiveCommand") == 2, "and presses again because the button says Make Honey")
+		w.root.Position = vec(0, 5, 0)
+		w.button.Text = "Stop Making Honey"
+		Core.FarmStep()
+		assert(#firedNames("PlayerHiveCommand") == 2, "no second press when honey making is already on")
+
+		w.pollen.Value = 0
+		assert(Core.FarmStep() == "back to field")
+		assert(Core.FarmStep() == "to field" and w.moved[#w.moved] == field)
+		w.pollen.Value = 100
+		assert(Core.FarmStep() == "bag full")
+		local pressed = #firedNames("PlayerHiveCommand")
+		w.pollen.Value = 0 -- emptied before the hive was reached
+		assert(Core.FarmStep() == "back to field" and #firedNames("PlayerHiveCommand") == pressed, "nothing to convert, so no press")
+		assert(Core.FarmStep() == "to field")
+		assert(Core.FarmStep() == "sprinkler", "a new sprinkler for the new trip")
+		Core.Set("AutoFarm", false)
+		assert(Core.FarmStep() == "off")
+		worldDown()
+	end)
+
+	run("Auto Farm: a conversion that never ends is given up on, and no hive switches it off", function()
+		world()
+		farmOn()
+		w.root.Position = Core.FindField("Sunflower Field").position
+		w.pollen.Value = 100
+		Core.FarmStep()
+		Core.FarmStep()
+		assert(Core.FarmStep() == "converting")
+		w.clock = 601
+		assert(Core.FarmStep() == "back to field", "ten minutes is the limit")
+
+		Core.Set("AutoFarm", false)
+		farmOn()
+		w.pollen.Value = 100
+		Core.FarmStep()
+		w.mine.kids[1].Value = {}
+		w.ownerOfFree.Value = {}
+		assert(Core.FarmStep() == "no hive")
+		assert(Core.Settings.AutoFarm == false and bss("Toggles", "Farming||Auto Farm||Auto Farm").Get() == false, "the switch is off too")
+		assert(w.notes[1] and w.notes[1]:find("do not have a hive"), tostring(w.notes[1]))
+		worldDown()
+	end)
+
+	run("Convert Hive Balloon: waits for a balloon by the hive, but never more than 15 seconds", function()
+		world()
+		local balloon = fake("HiveBalloonInstance", "Model", nil, { fake("BalloonBody", "Part", { Position = vec(105, 10, 0) }) })
+		w.balloons.kids[1].kids[1] = balloon
+		w.root.Position = vec(100, 11, 0)
+		farmOn()
+		Core.Set("ConvertBalloons", true)
+		local realWait, waits = task.wait, 0
+		task.wait = function() waits = waits + 1 if waits == 3 then balloon.Parent = nil end return 0 end
+		local waited = Core.WaitForBalloon()
+		task.wait = realWait
+		assert(waited == true and waits == 3, "stopped when the balloon was gone: " .. waits)
+		balloon.Parent = true
+		waits = 0
+		task.wait = function() waits = waits + 1 return 0 end
+		Core.WaitForBalloon()
+		task.wait = realWait
+		assert(waits == 30, "gave up after 15 seconds: " .. waits)
+		balloon.kids[1].Position = vec(400, 10, 0)
+		assert(Core.WaitForBalloon() == false, "a balloon far away is not waited for")
+		Core.Set("AutoFarm", false)
+		worldDown()
+	end)
+
+	run("tokens and bubbles: the nearest one inside the field, bubbles first when switched on", function()
+		world()
+		local field = Core.FindField("Sunflower Field").position
+		w.root.Position = field
+		local near = fake("C", "Part", { Position = vec(field.X + 10, field.Y, field.Z) })
+		local far = fake("C", "Part", { Position = vec(field.X + 40, field.Y, field.Z) })
+		w.tokens.kids = { far, near }
+		assert(Core.TokenStep() == "off", "nothing happens until Auto Farm runs")
+		farmOn()
+		assert(Core.TokenStep() == "token" and w.moveTo[1] == near.Position, "the closest token")
+		w.root.Position = vec(field.X + 60, field.Y, field.Z) -- at the edge of the field
+		w.tokens.kids = { fake("C", "Part", { Position = vec(field.X + 105, field.Y, field.Z) }) } -- in reach, but outside the field
+		assert(Core.TokenStep() == "none", "a token that would pull you out of the field is left")
+		w.tokens.kids = { fake("C", "Part", { Position = vec(field.X + 60, field.Y, field.Z + 30) }) }
+		assert(Core.TokenStep() == "token", "one still inside the field is taken")
+		w.root.Position = field
+		local bubble = fake("Bubble", "Part", { Position = vec(field.X, field.Y, field.Z + 30) })
+		w.particles.kids = { fake("Spark", "Part", { Position = vec(field.X, field.Y, field.Z + 5) }), bubble }
+		w.tokens.kids = { near }
+		assert(Core.TokenStep() == "token", "bubbles are ignored while that switch is off")
+		Core.Set("CollectBubbles", true)
+		assert(Core.TokenStep() == "bubble" and w.moveTo[#w.moveTo] == bubble.Position)
+		Core.Set("CollectTokens", false)
+		Core.Set("CollectBubbles", false)
+		assert(Core.TokenStep() == "off")
+		Core.Set("CollectTokens", true)
+		Core.Farm.phase = "hive"
+		assert(Core.TokenStep() == "off", "no walking around while at the hive")
+		Core.Set("AutoFarm", false)
+		worldDown()
+	end)
+
+	run("Train Snail, Train Crab, Keep Walk Speed", function()
+		world()
+		Core.Set("TrainSnail", true)
+		assert(Core.SnailStep() == "to snail" and math.abs(w.moved[1].X - 422.657) < 0.01)
+		assert(Core.SnailStep() == "at snail" and #w.moved == 1)
+		Core.Set("TrainSnail", false)
+		assert(Core.SnailStep() == "off")
+
+		Core.Set("TrainCrab", true)
+		assert(Core.CrabStep() == "to platform")
+		local platform = Core.GetCrabPlatform()
+		assert(platform and platform.Name == "combatcrabpart" and platform.Anchored == true and platform.Transparency == 1)
+		assert(math.abs(w.moved[#w.moved].Y - 110.619) < 0.01, "you stand 4.7 above the platform")
+		assert(Core.CrabStep() == "on platform")
+		Core.Set("TrainCrab", false)
+		assert(Core.GetCrabPlatform() == nil and Core.CrabStep() == "off", "the platform goes when the switch does")
+
+		assert(Core.SpeedStep() == "off" and w.humanoid.WalkSpeed == 16)
+		Core.Set("WalkSpeed", 40)
+		Core.Set("KeepWalkSpeed", true)
+		assert(Core.SpeedStep() == "set" and w.humanoid.WalkSpeed == 40)
+		Core.Set("KeepWalkSpeed", false)
+		Core.Set("WalkSpeed", 16)
+		worldDown()
+	end)
+
+	run("protections: knocked-down states, see-through decorations, and putting everything back", function()
+		world()
+		Core.Set("StayOnFeet", false)
+		assert(w.states["HumanoidStateType.Ragdoll"] == true and w.states["HumanoidStateType.FallingDown"] == true, "states allowed again")
+		Core.Set("StayOnFeet", true)
+		assert(w.states["HumanoidStateType.Ragdoll"] == false and w.states["HumanoidStateType.FallingDown"] == false, "states blocked")
+
+		local tree = fake("Tree", "Part", { CanCollide = true, Transparency = 0 })
+		local branch = fake("Branch", "Part", { CanCollide = true, Transparency = 0.2 })
+		w.decos.kids = { fake("Group", "Model", nil, { branch }), tree }
+		Core.Set("WalkThroughDecorations", false)
+		Core.Set("WalkThroughDecorations", true)
+		assert(tree.CanCollide == false and tree.Transparency == 0.5 and branch.CanCollide == false, "decorations are pass-through and half clear")
+		Core.Set("WalkThroughDecorations", false)
+		assert(tree.CanCollide == true and tree.Transparency == 0 and branch.Transparency == 0.2, "and come back as they were")
+		Core.Set("WalkThroughDecorations", true)
+		Core.Set("TrainCrab", true)
+		Core.CrabStep()
+		Core.Unload()
+		assert(tree.CanCollide == true and tree.Transparency == 0, "Unload puts the decorations back")
+		assert(Core.GetCrabPlatform() == nil and w.states["HumanoidStateType.Ragdoll"] == true, "and the platform and the states")
+		assert(Core.Settings.TrainCrab == false)
+		worldDown()
+	end)
+
+	run("Teleport page: the picked field, and Go To My Hive", function()
+		world()
+		bss("Dropdowns", "Teleport||Fields||Field To Visit").Set("Pepper Patch")
+		BUTTONS["Go To Selected Field"]()
+		assert(w.moved[1] == Core.FindField("Pepper Patch").position)
+		BUTTONS["Go To My Hive"]()
+		assert(w.moved[2].X == 100 and w.moved[2].Y == 11)
+		bss("Dropdowns", "Farming||Auto Farm||Field").Set("Rose Field")
+		assert(Core.Settings.Field == "Rose Field", "the farming field is picked on its own")
+		bss("Dropdowns", "Farming||Auto Farm||Field").Set("Sunflower Field")
+		worldDown()
+	end)
+
+	run("TeleportTo glides at the travel speed and gives up on a missing character", function()
+		world()
+		Core.TeleportTo = realTeleport
+		assert(Core.TeleportTo(vec(0, 5, 80)) == true)
+		w.character.kids = {}
+		assert(Core.TeleportTo(vec(0, 5, 80)) == false)
+		worldDown()
+	end)
+
+	run("Stop All Features, Rejoin and Discord", function()
+		world()
+		Core.Set("AutoFarm", true)
+		Core.Set("AutoDig", true)
+		Core.Set("CollectTokens", true)
+		BUTTONS["Stop All Features"]()
+		assert(not Core.Settings.AutoFarm and not Core.Settings.AutoDig, "actions are off")
+		assert(Core.Settings.CollectTokens and Core.Settings.AntiAfk and Core.Settings.StayOnFeet, "options and protections stay")
+		BUTTONS["Rejoin Server"]()
+		BUTTONS["Copy Kron's Discord"]()
+		worldDown()
+	end)
+
+	run("Unload UI frees the script to run again, and an unsupported place stays out unless forced", function()
+		BUTTONS["Unload UI"]()
+		assert(getgenv().PeridotBeeSwarmLoaded == nil and getgenv().PeridotBeeSwarmCore == nil)
+		UI_ERRORS, WARNINGS = {}, {}
+		PLACE_ID_OVERRIDE = 1
+		getgenv().PeridotForceGame = nil
+		assert(pcall(assert(loadfile(REPO .. "/games/1537690962.lua"))))
+		assert(getgenv().PeridotBeeSwarmLoaded == nil and WARNINGS[1] and WARNINGS[1]:find("unsupported place"), "nothing built")
+		getgenv().PeridotForceGame = true
+		local ok, err = pcall(assert(loadfile(REPO .. "/games/1537690962.lua")))
+		PLACE_ID_OVERRIDE = nil
+		getgenv().PeridotForceGame = nil
+		assert(ok, err)
+		assert(getgenv().PeridotBeeSwarmLoaded == true, "test mode builds the window anywhere")
+		getgenv().PeridotBeeSwarmCore.Unload()
+		getgenv().PeridotBeeSwarmLoaded, getgenv().PeridotBeeSwarmCore = nil, nil
+	end)
+
+	BUTTONS, BOXES, DROPDOWNS = savedButtons[1], savedButtons[2], savedButtons[3]
+	Vector3 = realVector3
+	Enum = realEnum
+end
+
 ---------------------------------------------------------------- 5. port check
 -- The Blox Fruits port must keep every option of the source reachable. These read
 -- libraries/bf-main.lua (the ported script) and games/2753915549.lua (its UI).
