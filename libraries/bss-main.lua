@@ -1,8 +1,7 @@
--- Peridot Bee Swarm Simulator core: Kron's hub plus the extra features of Verbal Hub Sigma BSS,
--- rewritten as readable code. Both copies came out of a decompiler that lost variable names and some
--- branches, so the loops follow what those scripts visibly did (the remotes they fired, their numbers
--- and positions) and how the game's own values work (CoreStats, Honeycombs). Where the two scripts do
--- the same thing, what they agree on is what is used.
+-- Peridot Bee Swarm Simulator core, rewritten as readable code from two decompiled scripts. The copies
+-- had lost their variable names and some branches, so the loops follow what the scripts visibly did
+-- (the remotes they fired, their numbers and positions) and how the game's own values work (CoreStats,
+-- Honeycombs). Where the two scripts did the same thing, what they agree on is what is used.
 -- The interface is games/1537690962.lua; this file only holds the features.
 
 local Players = game:GetService("Players")
@@ -17,7 +16,7 @@ local Core = {}
 -- Places, items and numbers taken from the scripts
 ----------------------------------------------------------------------------
 
--- The spot Kron's script stands on while it farms each field, in the order of its list.
+-- The spot Auto Farm stands on in each field, in the order of the source's list.
 Core.Fields = {
     { name = "Sunflower Field", position = Vector3.new(-216.623, 4.447, 177.560) },
     { name = "Dandelion Field", position = Vector3.new(-34.255, 4.447, 220.865) },
@@ -38,7 +37,7 @@ Core.Fields = {
     { name = "Pepper Patch", position = Vector3.new(-488.424, 123.649, 535.532) },
 }
 
--- Verbal Hub's teleport lists.
+-- Teleport lists.
 Core.Shops = {
     { name = "Bee Shop", position = Vector3.new(-136.8, 4.6, 243.4) },
     { name = "First Tool Shop", position = Vector3.new(86, 4.6, 294) },
@@ -132,7 +131,7 @@ local BALLOON_CIRCLE = 10 -- and you stay inside this circle around it
 local SNAIL_RANGE = 30
 local CRAB_RANGE = 60
 local BALLOON_RANGE = 25
-local BALLOON_WAIT = 15 -- seconds; Kron's script waited without a limit
+local BALLOON_WAIT = 15 -- seconds; the source waited without a limit
 local HIVE_TIMEOUT = 600 -- seconds; a conversion that takes longer is given up on
 local FAR_TELEPORT = 3000 -- a destination this far away is always an instant jump
 
@@ -187,7 +186,7 @@ Core.Settings = {
     StayOnFeet = true,
     WalkThroughDecorations = true,
     AntiAfk = true,
-    GoToHiveOnLoad = true, -- Kron's script flew you to your hive as soon as it loaded
+    GoToHiveOnLoad = true, -- the source flew you to your hive as soon as it loaded
 }
 
 -- Settings with a fixed list of values.
@@ -435,7 +434,7 @@ local function hives()
     return container and container:GetChildren() or {}
 end
 
--- Your hive: the one whose Owner is you (Kron's script), or the one your Honeycomb value points to (Verbal Hub's).
+-- Your hive: the one whose Owner is you, or else the one your Honeycomb value points to.
 function Core.FindHive()
     for _, hive in ipairs(hives()) do
         local owner = hive:FindFirstChild("Owner")
@@ -450,8 +449,8 @@ function Core.FindHive()
     return nil
 end
 
--- Where to stand to make honey: the hive's pad one stud up (Kron's script), else in front of its
--- light (Verbal Hub's), else where you spawn (Verbal Hub's Teleport To Hive).
+-- Where to stand to make honey: the hive's pad one stud up, else in front of its light, else where
+-- you spawn.
 function Core.HivePosition()
     local hive = Core.FindHive()
     local arrow = hive and hive:FindFirstChild("patharrow")
@@ -585,15 +584,37 @@ function Core.FindStickers()
     return count
 end
 
--- Sends promo codes, one a second, the way Verbal Hub did. Codes are separated by spaces or commas.
+-- The promo codes listed on the Bee Swarm wiki.
+Core.PromoCodes = {
+    "FOURtunate", "ThreeBeeVee", "15MMembers", "BeesBuzz123", "GumdropsForScience", "ClubBean", "38217",
+    "Bopmaster", "Connoisseur", "Crawlers", "Nectar", "Roof", "Wax",
+}
+
+-- Sends promo codes, one a second. Codes are separated by spaces or commas.
+-- Returns how many were sent, or nil and why not when a batch is already being sent.
+local redeeming = false
 function Core.RedeemCodes(text)
+    if redeeming then
+        return nil, "Codes are already being sent. Wait for them to finish."
+    end
+    redeeming = true
     local count = 0
-    for code in tostring(text or ""):gmatch("[^%s,;]+") do
-        fire("PromoCodeEvent", code)
-        count = count + 1
-        task.wait(1)
+    local ok, err = pcall(function()
+        for code in tostring(text or ""):gmatch("[^%s,;]+") do
+            fire("PromoCodeEvent", code)
+            count = count + 1
+            task.wait(1)
+        end
+    end)
+    redeeming = false
+    if not ok then
+        error(err, 0)
     end
     return count
+end
+
+function Core.RedeemAllCodes()
+    return Core.RedeemCodes(table.concat(Core.PromoCodes, " "))
 end
 
 -- Stays by your hive balloon for a little while, so a balloon that is still there gets used up.
@@ -973,7 +994,7 @@ function Core.CrabStep()
     return "on platform"
 end
 
--- Verbal Hub's Kill Crab: stand right above the Coconut Crab.
+-- Fight Coconut Crab: stand right above the Coconut Crab.
 function Core.FightCrabStep()
     if not Core.Settings.FightCrab then
         return "off"
@@ -1007,7 +1028,7 @@ local function stopHovering()
     normalHipHeight = nil
 end
 
--- Verbal Hub's Windy Bee: stand on Windy, 35 studs up.
+-- Windy Bee: stand on Windy, 35 studs up.
 function Core.WindyStep()
     if not Core.Settings.HoverWindy then
         return "off"
@@ -1023,7 +1044,7 @@ function Core.WindyStep()
     return "windy"
 end
 
--- Verbal Hub's Vicious Bee: 20 studs above whatever in Particles is named Vicious.
+-- Vicious Bee: 20 studs above whatever in Particles is named Vicious.
 function Core.ViciousStep()
     if not Core.Settings.HoverVicious then
         return "off"
@@ -1041,7 +1062,7 @@ function Core.ViciousStep()
     return "vicious"
 end
 
--- Verbal Hub's Mondo Chick (marked "in testing" there): float 40 studs above its head.
+-- Mondo Chick (marked "in testing" in the source): float 40 studs above its head.
 function Core.MondoStep()
     if not Core.Settings.FollowMondo then
         return "off"
@@ -1066,7 +1087,7 @@ function Core.MondoStep()
     return "none"
 end
 
--- Verbal Hub's snowflake farm: hop above a random snowflake, 15 studs up.
+-- Snowflake farm: hop above a random snowflake, 15 studs up.
 function Core.SnowStep()
     if not Core.Settings.CollectSnowflakes then
         return "off"
@@ -1139,7 +1160,7 @@ end
 -- Passive options
 ----------------------------------------------------------------------------
 
--- Kron's script stopped the game from putting your character into its knocked-down states.
+-- Stops the game from putting your character into its knocked-down states.
 local function applyStates(character)
     local hum = character and character:FindFirstChildOfClass("Humanoid")
     if not hum then
@@ -1150,7 +1171,7 @@ local function applyStates(character)
     pcall(hum.SetStateEnabled, hum, Enum.HumanoidStateType.FallingDown, allowed)
 end
 
--- Kron's script made field trees and decorations pass-through and half see-through.
+-- Makes field trees and decorations pass-through and half see-through.
 local decorationBackup = {}
 local function setDecorations(hidden)
     local folder = Workspace:FindFirstChild("FieldDecos")
@@ -1267,8 +1288,8 @@ end
 -- Start and stop
 ----------------------------------------------------------------------------
 
--- What Kron's script did once as it loaded: made decorations pass-through, claimed a hive if you had
--- none, and flew you to it. The flight is skipped when something else is already moving you.
+-- What happens once as the script loads: decorations become pass-through, a hive is claimed if you had
+-- none, and you are flown to it. The flight is skipped when something else is already moving you.
 function Core.Setup()
     local ok, err = pcall(setDecorations, Core.Settings.WalkThroughDecorations)
     if not ok then

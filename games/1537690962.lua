@@ -1,11 +1,10 @@
--- Peridot Bee Swarm Simulator module: Kron's hub and Verbal Hub Sigma BSS, in the Peridot window.
+-- Peridot Bee Swarm Simulator module.
 -- The features are libraries/bss-main.lua; this file only builds the interface.
 
 local MODULE_BASE_URL = "https://raw.githubusercontent.com/Ic0u/peridot/main/"
 local SUPPORTED_PLACES = {
     [1537690962] = true,
 }
-local KRON_DISCORD = "https://discord.gg/QKFNzKyHbw" -- from the original hub's Home tab
 
 local environment = (getgenv and getgenv()) or _G
 
@@ -164,21 +163,13 @@ end
 
 do
     local page = Window.CreatePage({ Page_Name = "Home", Page_Title = "Home" })
-    local credits = page.CreateSection("Credits")
-    credits.CreateLabel({ Title = "KronHub for Bee Swarm Simulator, now in the Peridot window." })
-    credits.CreateLabel({ Title = "Owner: Marcus" })
-    credits.CreateLabel({ Title = "Original version: 1.0" })
-    credits.CreateLabel({ Title = "More features from Verbal Hub Sigma BSS." })
-    credits.CreateLabel({ Title = "To start: pick a field on the Farming page, then turn on Auto Farm and Auto Dig." })
+    local start = page.CreateSection("Quick Start")
+    start.CreateLabel({ Title = "Pick a field on the Farming page, then turn on Auto Farm and Auto Dig." })
 
     local quick = page.CreateSection("Quick Actions")
     btn(quick, "Rejoin Server", function()
         game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
     end, "Rejoin")
-    btn(quick, "Copy Kron's Discord", function()
-        local copied = type(setclipboard) == "function" and pcall(setclipboard, KRON_DISCORD)
-        notify("Discord", copied and "The invite link is copied." or ("Your executor cannot copy. The invite is " .. KRON_DISCORD), copied and 4 or 8)
-    end, "Copy")
 end
 
 ----------------------------------------------------------------------------
@@ -228,6 +219,16 @@ do
     stickers.CreateLabel({ Title = "Clicks every hidden sticker for you." })
 
     local codes = rewards.CreateSection("Promo Codes")
+    local function sentNotice(sent, why)
+        if not sent then
+            return notify("Promo Codes", why, 6)
+        end
+        notify("Promo Codes", "Sent " .. sent .. (sent == 1 and " code." or " codes.") .. " The game does not say which ones worked.", 6)
+    end
+    btn(codes, "Redeem All Codes", function()
+        sentNotice(Core.RedeemAllCodes())
+    end, "Redeem")
+    codes.CreateLabel({ Title = "Sends the " .. #Core.PromoCodes .. " codes from the Bee Swarm wiki, one a second. A code that was already used or has ended does nothing." })
     local typedCodes = ""
     codes.CreateBox({
         Title = "Promo Codes",
@@ -237,12 +238,11 @@ do
     }, function(text)
         typedCodes = text
     end)
-    btn(codes, "Redeem Codes", function()
+    btn(codes, "Redeem Typed Codes", function()
         if typedCodes:gsub("%s", "") == "" then
             return notify("Promo Codes", "Type a code first. Use spaces between several.")
         end
-        local sent = Core.RedeemCodes(typedCodes)
-        notify("Promo Codes", "Sent " .. sent .. (sent == 1 and " code." or " codes.") .. " The game does not say which ones worked.", 6)
+        sentNotice(Core.RedeemCodes(typedCodes))
     end, "Redeem")
 end
 
@@ -443,7 +443,7 @@ do
     tog(extras, "Walk Through Walls", "Noclip", "Lets your character pass through walls and objects.")
     tog(extras, "Walk Through Field Decorations", "WalkThroughDecorations", "Makes field trees and decorations see-through so you can walk through them.")
     tog(extras, "Anti-AFK", "AntiAfk", "Stops the game from kicking you for standing still.")
-    tog(extras, "Go To Hive When Loaded", "GoToHiveOnLoad", "Flies you to your hive when the script starts, as Kron's hub does.")
+    tog(extras, "Go To Hive When Loaded", "GoToHiveOnLoad", "Flies you to your hive when the script starts.")
 
     UILibrary.AddConfigSection(page.CreateSubTab("Config"))
 

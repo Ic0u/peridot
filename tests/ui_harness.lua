@@ -2274,9 +2274,9 @@ do
 			"Event||Event Teleports||Gift", "Items||Dispensers||Dispenser", "Items||Masks||Mask" }) do
 			bss("Dropdowns", key)
 		end
-		local titles = { "Rejoin Server", "Copy Kron's Discord", "Go To Selected Field", "Go To My Hive", "Use All Blue Buffs", "Use All Red Buffs",
+		local titles = { "Rejoin Server", "Go To Selected Field", "Go To My Hive", "Use All Blue Buffs", "Use All Red Buffs",
 			"Use All Buffs", "Use All Dispensers", "Use Selected Dispenser", "Use All Boosters", "Equip Selected Mask", "Stop All Features",
-			"Unload UI", "Create config", "Find All Stickers", "Redeem Codes", "Fight Commando Chick", "Fight Tunnel Bear", "AFK At Stump Snail",
+			"Unload UI", "Create config", "Find All Stickers", "Redeem All Codes", "Redeem Typed Codes", "Fight Commando Chick", "Fight Tunnel Bear", "AFK At Stump Snail",
 			"Go To Bee Bear", "Go To Selected Gift", "Go To Selected Shop", "Go To Selected Bear", "Go To Selected Spot" }
 		for _, name in ipairs({ "Blue Extract", "Red Extract", "Glitter", "Glue", "Oil", "Enzymes", "Tropical Drink", "Purple Potion",
 			"Super Smoothie", "Marshmallow Bee", "Field Dice", "Smooth Dice", "Loaded Dice", "Red Field Booster", "Blue Field Booster", "Field Booster" }) do
@@ -2433,14 +2433,30 @@ do
 		worldDown()
 	end)
 
-	run("loading: the script's credits, and what it did once at load (decorations, claim a hive, fly to it)", function()
-		local seen = {}
+	run("the Bee Swarm source and window carry no author names or invite links", function()
+		local words = { "kr" .. "on", "ver" .. "bal", "marc" .. "us", "discord%.gg" } -- split so this file does not match itself
+		for _, path in ipairs({ "libraries/bss-main.lua", "games/1537690962.lua" }) do
+			local f = assert(io.open(REPO .. "/" .. path, "rb"))
+			local text = f:read("*a"):lower()
+			f:close()
+			for _, word in ipairs(words) do
+				assert(not text:find(word), path .. " still mentions " .. word)
+			end
+		end
+		local home
 		for _, item in ipairs(lib.Internal.Gui:GetDescendants()) do
-			if item.ClassName == "TextLabel" then seen[tostring(item.Text or "")] = true end
+			if item.ClassName == "TextLabel" then
+				local text = tostring(item.Text or ""):lower()
+				for _, word in ipairs(words) do
+					assert(not text:find(word), "the window shows " .. word .. ": " .. text)
+				end
+				if text:find("pick a field on the farming page", 1, true) then home = true end
+			end
 		end
-		for _, text in ipairs({ "Credits", "Owner: Marcus", "Original version: 1.0" }) do
-			assert(seen[text], "missing on the Home page: " .. text)
-		end
+		assert(home, "the Home page still tells you how to start")
+	end)
+
+	run("loading: what it did once at load (decorations, claim a hive, fly to it)", function()
 		world()
 		assert(Core.Settings.GoToHiveOnLoad == true, "on by default, as in the source")
 		assert(Core.Setup() == true and w.moved[1].X == 100 and w.moved[1].Y == 11, "flies to the hive's pad")
@@ -2673,7 +2689,7 @@ do
 		worldDown()
 	end)
 
-	run("Stop All Features, Rejoin and Discord", function()
+	run("Stop All Features and Rejoin", function()
 		world()
 		Core.Set("AutoFarm", true)
 		Core.Set("AutoDig", true)
@@ -2682,7 +2698,6 @@ do
 		assert(not Core.Settings.AutoFarm and not Core.Settings.AutoDig, "actions are off")
 		assert(Core.Settings.CollectTokens and Core.Settings.AntiAfk and Core.Settings.StayOnFeet, "options and protections stay")
 		BUTTONS["Rejoin Server"]()
-		BUTTONS["Copy Kron's Discord"]()
 		worldDown()
 	end)
 
@@ -2931,12 +2946,31 @@ do
 
 		w.fired = {}
 		BOXES["Promo Codes"].callback("Buzz,  Nectar  Cog")
-		BUTTONS["Redeem Codes"]()
-		same(firedNames("PromoCodeEvent"), { "Buzz", "Nectar", "Cog" }, "codes")
+		BUTTONS["Redeem Typed Codes"]()
+		same(firedNames("PromoCodeEvent"), { "Buzz", "Nectar", "Cog" }, "typed codes")
 		w.fired = {}
 		BOXES["Promo Codes"].callback("   ")
-		BUTTONS["Redeem Codes"]()
+		BUTTONS["Redeem Typed Codes"]()
 		assert(#w.fired == 0, "an empty box sends nothing")
+
+		local wiki = { "FOURtunate", "ThreeBeeVee", "15MMembers", "BeesBuzz123", "GumdropsForScience", "ClubBean", "38217",
+			"Bopmaster", "Connoisseur", "Crawlers", "Nectar", "Roof", "Wax" }
+		same(Core.PromoCodes, wiki, "the wiki list")
+		BUTTONS["Redeem All Codes"]()
+		same(firedNames("PromoCodeEvent"), wiki, "Redeem All Codes sends the wiki list, in order")
+		w.fired = {}
+		local realWait, pressedAgain = task.wait, false
+		task.wait = function()
+			if not pressedAgain then
+				pressedAgain = true
+				BUTTONS["Redeem All Codes"]() -- pressed again while the first batch is still going out
+			end
+			return 0
+		end
+		BUTTONS["Redeem All Codes"]()
+		task.wait = realWait
+		assert(#firedNames("PromoCodeEvent") == 13 and pressedAgain, "the second press did nothing: " .. #firedNames("PromoCodeEvent"))
+		assert(select(2, Core.RedeemCodes("")) == nil and Core.RedeemCodes("") == 0, "and the codes can be sent again afterwards")
 		worldDown()
 	end)
 
